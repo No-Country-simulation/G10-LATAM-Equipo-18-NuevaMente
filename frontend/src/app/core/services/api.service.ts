@@ -65,6 +65,27 @@ export class ApiService {
     return this.http.get<any>(`${this.baseUrl}/auth/me`, { headers: this.getHeaders() });
   }
 
+  exportAnkiDeck(deckName: string, flashcards: any[]): Observable<Blob> {
+    return this.http.post(`${this.baseUrl}/anki/export-deck`, {
+      deck_name: deckName,
+      flashcards: flashcards
+    }, {
+      responseType: 'blob'
+    });
+  }
+
+  syncAnkiConnect(deckName: string, flashcards: any[]): Observable<any> {
+    return this.http.post<any>(`${this.baseUrl}/anki/sync-ankiconnect`, {
+      deck_name: deckName,
+      flashcards: flashcards
+    });
+  }
+
+  getAnkiInfo(): Observable<any> {
+    return this.http.get<any>(`${this.baseUrl}/anki/info`);
+  }
+
+
   generateMockResponse(request: AdaptationRequest): AdaptationResponse {
     const docTitle = request.documento_titulo || 'Documento Técnico';
     const cleanTitle = docTitle.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');

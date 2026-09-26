@@ -1,5 +1,7 @@
 import hashlib
+import sqlite3
 import time
+import os
 from typing import Optional, Dict, Any
 import jwt
 from fastapi import APIRouter, HTTPException, Header
@@ -14,21 +16,68 @@ JWT_SECRET = getattr(settings, "JWT_SECRET", "nuevamente_secret_key_2026_jwt_tok
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_SECONDS = 60 * 60 * 24 * 7  # 7 days
 
-# User In-Memory Persistent Store
-USER_DB: Dict[str, Dict[str, Any]] = {
-    "ana.martinez@empresa.com": {
-        "email": "ana.martinez@empresa.com",
-        "name": "Ana Martínez",
-        "password_hash": hashlib.sha256("password123nuevamente_salt".encode()).hexdigest(),
-        "created_at": time.time()
-    },
-    "fernando.garcia@empresa.com": {
-        "email": "fernando.garcia@empresa.com",
-        "name": "Fernando García",
-        "password_hash": hashlib.sha256("securepasswordnuevamente_salt".encode()).hexdigest(),
-        "created_at": time.time()
+# Path to SQLite DB
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+DB_PATH = os.path.join(BASE_DIR, "users.db")
+
+def init_db():
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            email TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at REAL NOT NULL
+        )
+    """)
+    conn.commit()
+
+    # Seed initial demo accounts if table is empty
+    cursor.execute("SELECT COUNT(*) FROM users")
+    if cursor.fetchone()[0] == 0:
+        seed_users = [
+            ("ana.martinez@empresa.com", "Ana Martínez", hashlib.sha256("password123nuevamente_salt".encode()).hexdigest(), time.time()),
+            ("fernando.garcia@empresa.com", "Fernando García", hashlib.sha256("securepasswordnuevamente_salt".encode()).hexdigest(), time.time())
+        ]
+        cursor.executemany("INSERT INTO users VALUES (?, ?, ?, ?)", seed_users)
+        conn.commit()
+    conn.close()
+
+# Initialize DB on module import
+init_db()
+
+def get_user_from_db(email: str) -> Optional[Dict[str, Any]]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    cursor.execute("SELECT email, name, password_hash, created_at FROM users WHERE email = ?", (email.lower(),))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return {
+            "email": row[0],
+            "name": row[1],
+            "password_hash": row[2],
+            "created_at": row[3]
+        }
+    return None
+
+def save_user_to_db(email: str, name: str, password_hash: str) -> Dict[str, Any]:
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    now = time.time()
+    cursor.execute(
+        "INSERT OR REPLACE INTO users (email, name, password_hash, created_at) VALUES (?, ?, ?, ?)",
+        (email.lower(), name, password_hash, now)
+    )
+    conn.commit()
+    conn.close()
+    return {
+        "email": email.lower(),
+        "name": name,
+        "password_hash": password_hash,
+        "created_at": now
     }
-}
 
 class LoginRequest(BaseModel):
     email: str
@@ -90,20 +139,21 @@ def register_user(request: RegisterRequest):
     if len(password) < 4:
         raise HTTPException(status_code=400, detail="La contraseña debe tener al menos 4 caracteres.")
 
-    hashed = hash_password(password)
-    USER_DB[email] = {
-        "email": email,
-        "name": name,
-        "password_hash": hashed,
-        "created_at": time.time()
-    }
+    existing_user = get_user_from_db(email)
+    if existing_user:
+        # Update user name/password
+        hashed = hash_password(password)
+        save_user_to_db(email, name, hashed)
+    else:
+        hashed = hash_password(password)
+        save_user_to_db(email, name, hashed)
 
     token = create_jwt_token(email, name)
     avatar_char = name[0].upper() if name else "U"
 
     return {
         "status": "exito",
-        "message": f"Cuenta creada exitosamente para {name}",
+        "message": f"Cuenta registrada exitosamente en la base de datos para {name}",
         "access_token": token,
         "token_type": "bearer",
         "user": {
@@ -122,19 +172,14 @@ def login_user(request: LoginRequest):
     if not email or not password:
         raise HTTPException(status_code=400, detail="El correo electrónico y la contraseña son requeridos.")
 
-    user_record = USER_DB.get(email)
+    user_record = get_user_from_db(email)
     if user_record:
         if user_record["password_hash"] != hash_password(password):
             raise HTTPException(status_code=401, detail="Contraseña incorrecta. Por favor verifica tus credenciales.")
         user_name = user_record["name"]
     else:
         user_name = extract_name(email, request.name)
-        USER_DB[email] = {
-            "email": email,
-            "name": user_name,
-            "password_hash": hash_password(password),
-            "created_at": time.time()
-        }
+        save_user_to_db(email, user_name, hash_password(password))
 
     token = create_jwt_token(email, user_name)
     avatar_char = user_name[0].upper() if user_name else "U"
@@ -157,13 +202,9 @@ def google_auth(request: GoogleAuthRequest):
     email = (request.email.strip().lower()) if request.email else "usuario.google@gmail.com"
     name = request.name.strip() if request.name else extract_name(email)
 
-    if email not in USER_DB:
-        USER_DB[email] = {
-            "email": email,
-            "name": name,
-            "password_hash": hash_password("google_sso_pass"),
-            "created_at": time.time()
-        }
+    user_record = get_user_from_db(email)
+    if not user_record:
+        save_user_to_db(email, name, hash_password("google_sso_pass"))
 
     token = create_jwt_token(email, name)
     avatar_char = name[0].upper() if name else "G"
