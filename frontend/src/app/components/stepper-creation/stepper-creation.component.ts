@@ -39,7 +39,7 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
         </div>
       </div>
 
-      <!-- STEP 1: DOCUMENT UPLOADER -->
+      <!-- STEP 1: DOCUMENT UPLOADER & PARSING ENGINE -->
       <div *ngIf="currentStep === 1" class="step-content">
         <div class="step-heading">
           <div class="step-tag">NUEVO CONTENIDO</div>
@@ -91,6 +91,33 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
               <li><span class="check">✓</span> Texto legible</li>
               <li><span class="check">✓</span> PDF, MD o TXT</li>
             </ul>
+          </div>
+        </div>
+
+        <!-- AI LLM PDF PARSER ENGINE SELECTOR -->
+        <div class="parsing-engine-card">
+          <div class="engine-header">
+            <label class="engine-title">🤖 Motor de Extracción & Parsing IA del Documento</label>
+            <span class="engine-tag" [class.llm-tag]="useLlmParser">
+              {{ useLlmParser ? '✨ Gemini 1.5 LLM Vision Active' : '⚡ PyMuPDF Standard' }}
+            </span>
+          </div>
+          <p class="engine-sub">Selecciona el motor de inteligencia artificial para extraer tablas, diagramas y código de tus PDFs.</p>
+
+          <div class="engine-options">
+            <div class="engine-option-box" [class.selected]="!useLlmParser" (click)="setParserMode(false)">
+              <div class="option-info">
+                <span class="opt-title">⚡ Modo Rápido (Estándar)</span>
+                <span class="opt-desc">Extracción acelerada de texto plano y estructuras básicas de documento.</span>
+              </div>
+            </div>
+
+            <div class="engine-option-box" [class.selected]="useLlmParser" (click)="setParserMode(true)">
+              <div class="option-info">
+                <span class="opt-title">✨ Modo IA LLM Vision (Recomendado)</span>
+                <span class="opt-desc">Parsing multimodal Gemini para conservar tablas Markdown, gráficos y bloques de código intactos.</span>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -425,7 +452,7 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
       border: 1px solid #e2e8f0;
       border-radius: 20px;
       padding: 2rem;
-      margin-bottom: 2rem;
+      margin-bottom: 1.75rem;
       box-shadow: 0 4px 6px -1px rgba(0,0,0,0.02);
     }
     .dropzone {
@@ -524,6 +551,77 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
     .requirements-box .check {
       color: #10b981;
       font-weight: 800;
+    }
+
+    /* Parsing Engine Selector Card */
+    .parsing-engine-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 20px;
+      padding: 1.75rem;
+      margin-bottom: 2rem;
+    }
+    .engine-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.25rem;
+    }
+    .engine-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .engine-sub {
+      font-size: 0.85rem;
+      color: #64748b;
+      margin-bottom: 1.25rem;
+    }
+    .engine-tag {
+      font-size: 0.75rem;
+      font-weight: 800;
+      padding: 0.25rem 0.75rem;
+      border-radius: 12px;
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .engine-tag.llm-tag {
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #bfdbfe;
+    }
+    .engine-options {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    .engine-option-box {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 1rem;
+      border: 2px solid #e2e8f0;
+      border-radius: 12px;
+      background: #f8fafc;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .engine-option-box.selected {
+      border-color: #2563eb;
+      background: #eff6ff;
+    }
+    .opt-title {
+      display: block;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #0f172a;
+      margin-bottom: 0.2rem;
+    }
+    .opt-desc {
+      display: block;
+      font-size: 0.78rem;
+      color: #64748b;
+      line-height: 1.3;
     }
 
     .doc-details-card {
@@ -721,7 +819,7 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
     }
 
     @media (max-width: 900px) {
-      .personalization-grid {
+      .personalization-grid, .engine-options {
         grid-template-columns: 1fr;
       }
     }
@@ -738,6 +836,7 @@ export class StepperCreationComponent implements OnInit {
   selectedFile?: File;
   documentTitle: string = '';
   documentContent: string = '';
+  useLlmParser: boolean = true;
 
   // Step 2 State
   perfilDestinatario: string = 'Desarrollador Junior / Semi Senior';
@@ -813,6 +912,13 @@ export class StepperCreationComponent implements OnInit {
     this.currentStep = step;
   }
 
+  setParserMode(useLlm: boolean): void {
+    this.useLlmParser = useLlm;
+    if (this.selectedFile) {
+      this.handleFile(this.selectedFile);
+    }
+  }
+
   onDragOver(event: DragEvent): void {
     event.preventDefault();
     this.isDragging = true;
@@ -849,16 +955,32 @@ export class StepperCreationComponent implements OnInit {
       };
       reader.readAsText(file);
     } else if (ext === 'pdf') {
-      this.apiService.parsePdf(file).subscribe({
-        next: (res) => {
-          if (res.texto_extraido) {
-            this.documentContent = res.texto_extraido;
+      if (this.useLlmParser) {
+        this.apiService.parsePdfLlm(file).subscribe({
+          next: (res) => {
+            if (res.texto_extraido) {
+              this.documentContent = res.texto_extraido;
+            }
+          },
+          error: () => {
+            this.apiService.parsePdf(file, true).subscribe({
+              next: (res) => {
+                if (res.texto_extraido) {
+                  this.documentContent = res.texto_extraido;
+                }
+              }
+            });
           }
-        },
-        error: () => {
-          console.log('Utilizando extractor para PDF');
-        }
-      });
+        });
+      } else {
+        this.apiService.parsePdf(file, false).subscribe({
+          next: (res) => {
+            if (res.texto_extraido) {
+              this.documentContent = res.texto_extraido;
+            }
+          }
+        });
+      }
     }
   }
 

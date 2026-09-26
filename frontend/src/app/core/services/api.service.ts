@@ -28,12 +28,21 @@ export class ApiService {
     return this.http.post<AdaptationResponse>(`${this.baseUrl}/adapt-content`, request, { headers: this.getHeaders() });
   }
 
-  parsePdf(file: File): Observable<{ status: string; texto_extraido: string; total_paginas: number }> {
+  parsePdf(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
     const formData = new FormData();
     formData.append('file', file);
     const token = localStorage.getItem('nuevamente_jwt_token');
     const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
-    return this.http.post<{ status: string; texto_extraido: string; total_paginas: number }>(`${this.baseUrl}/parse-pdf`, formData, { headers });
+    const url = useLlm ? `${this.baseUrl}/parse-pdf?use_llm=true` : `${this.baseUrl}/parse-pdf`;
+    return this.http.post<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>(url, formData, { headers });
+  }
+
+  parsePdfLlm(file: File): Observable<{ status: string; engine: string; texto_extraido: string; total_paginas: number; metadatos_ia: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('nuevamente_jwt_token');
+    const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
+    return this.http.post<{ status: string; engine: string; texto_extraido: string; total_paginas: number; metadatos_ia: any }>(`${this.baseUrl}/parse-pdf-llm`, formData, { headers });
   }
 
   checkHealth(): Observable<any> {
