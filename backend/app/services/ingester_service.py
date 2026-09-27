@@ -463,11 +463,18 @@ class IngesterService:
         filepath: Union[str, Path],
         title: Optional[str] = None,
         options: Optional[IngestionOptions] = None,
+        document_id: Optional[str] = None,
     ) -> IngestedDocument:
-        """Processes a file path into an IngestedDocument."""
+        """Processes a file path into an IngestedDocument.
+
+        document_id is optional and defaults to a freshly generated UUID —
+        but document_pipeline_service.py passes its own, so the same ID is
+        shared across the uploaded file's object_key, its row in the
+        `documents` table, and its FAISS index directory. Without this,
+        each of those three would end up with a different, unrelated ID."""
         path = Path(filepath)
         options = options or IngestionOptions()
-        document_id = str(uuid.uuid4())
+        document_id = document_id or str(uuid.uuid4())
 
         raw_text = self.load_file(path, options)
         sections = self.detect_sections(raw_text, path.suffix.lower())
