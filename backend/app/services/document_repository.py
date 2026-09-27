@@ -21,6 +21,7 @@ Output:
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 from typing import List, Optional
+from uuid import UUID
 
 from app.core.config import settings
 from app.infrastructure.supabase_client import get_supabase_client
@@ -31,6 +32,20 @@ from app.schemas.document_record import (
 )
 
 _TABLE_NAME = "documents"
+
+
+def _require_valid_uuid(value: str, field_name: str) -> None:
+    """Validates that value looks like a UUID before it reaches Postgres.
+    document_id and user_id are both `uuid`-typed columns — without this
+    check, a malformed value surfaces as a raw, unfriendly
+    postgrest.exceptions.APIError deep inside the client library instead
+    of a clear message pointing at the actual mistake."""
+    try:
+        UUID(str(value))
+    except (ValueError, AttributeError, TypeError):
+        raise ValueError(
+            f"'{value}' is not a valid {field_name} — expected a UUID string."
+        )
 
 
 class BaseDocumentRepository(ABC):
@@ -82,6 +97,10 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
         object_key: str,
         user_id: Optional[str] = None,
     ) -> DocumentRecord:
+        _require_valid_uuid(document_id, "document_id")
+        if user_id is not None:
+            _require_valid_uuid(user_id, "user_id")
+
         client = get_supabase_client()
         row = {
             "document_id": document_id,
@@ -91,11 +110,18 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
             "object_key": object_key,
         }
         response = client.table(_TABLE_NAME).insert(row).execute()
+
+        # response.data can come back empty or malformed if the insert
+        # succeeded at the HTTP level but Supabase didn't echo the row back
+        # as expected — indexing response.data[0] directly would then raise
+        # an unhelpful IndexError/TypeError instead of a clear error.
         if response.data and isinstance(response.data[0], dict):
             return DocumentRecord(**response.data[0])
+
         raise RuntimeError("Supabase did not return a valid object when inserting the document.")
 
     def mark_ready(self, document_id: str, total_parents: int, total_children: int) -> None:
+        _require_valid_uuid(document_id, "document_id")
         client = get_supabase_client()
         client.table(_TABLE_NAME).update({
             "status": STATUS_READY,
@@ -105,6 +131,7 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
         }).eq("document_id", document_id).execute()
 
     def mark_failed(self, document_id: str, error_message: str) -> None:
+        _require_valid_uuid(document_id, "document_id")
         client = get_supabase_client()
         client.table(_TABLE_NAME).update({
             "status": STATUS_FAILED,
@@ -113,29 +140,30 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
         }).eq("document_id", document_id).execute()
 
     def get_document(self, document_id: str) -> Optional[DocumentRecord]:
+        _require_valid_uuid(document_id, "document_id")
         client = get_supabase_client()
         response = client.table(_TABLE_NAME).select("*").eq("document_id", document_id).execute()
-        if not response.data:
-            return None
-        record_data = response.data[0]
-        if isinstance(record_data, dict):
-            return DocumentRecord(**record_data)
-        raise RuntimeError(f"Unexpected data format received for document_id '{document_id}'.")
+
+        if response.data and isinstance(response.data[0], dict):
+            return DocumentRecord(**response.data[0])
+        return None
 
     def list_documents(self, user_id: Optional[str] = None) -> List[DocumentRecord]:
+        if user_id is not None:
+            _require_valid_uuid(user_id, "user_id")
         client = get_supabase_client()
         query = client.table(_TABLE_NAME).select("*").order("created_at", desc=True)
         if user_id is not None:
             query = query.eq("user_id", user_id)
         response = query.execute()
-        documents = []
-        for row in response.data:
-            if isinstance(row, dict):
-                documents.append(DocumentRecord(**row))
-            else:
-                raise RuntimeError("Unexpected data format encountered in documents list.")
 
-        return documents
+        # Skips any row that isn't a proper dict instead of raising —
+        # one malformed row from Supabase shouldn't break the whole listing.
+        return [
+            DocumentRecord(**row)
+            for row in response.data
+            if isinstance(row, dict)
+        ]
 
     @staticmethod
     def _now_iso() -> str:
