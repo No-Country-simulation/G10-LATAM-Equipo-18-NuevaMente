@@ -78,6 +78,18 @@ class Settings(BaseModel):
     VECTOR_STORE_METHOD: str = os.getenv("VECTOR_STORE_METHOD", "faiss")
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
 
+    # ── Document Storage Configuration (original uploaded files) ──────────────
+    # STORAGE_METHOD: "supabase" (Supabase Storage) or "oci" (pending an OCI
+    # adapter behind the same BaseDocumentStorage interface).
+    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "supabase")
+ 
+    # Supabase project credentials. SUPABASE_KEY must be the service_role key
+    # (backend-only, bypasses Row Level Security) — never the anon/public key,
+    # and never committed; it belongs in .env only.
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
+
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
     OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
