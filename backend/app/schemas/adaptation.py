@@ -28,6 +28,9 @@ class AdaptationRequest(BaseModel):
     output_format: str = Field(..., alias="formato_salida")
     niche: str = Field(default="general", alias="nicho_sector")
     detail_level: str = Field(default="didactic", alias="nivel_detalle")
+    quantity: Optional[int] = Field(default=5, alias="cantidad_generar")
+    chunk_size: Optional[int] = Field(default=500, alias="tamano_chunk", description="Tamaño de fragmentación (chunks) para el procesamiento RAG (100 - 2000)")
+    additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
 
 
 class FlashcardItem(BaseModel):
@@ -94,7 +97,7 @@ class AdaptationResponse(BaseModel):
     """Final unified response returned by adaptation endpoint."""
     model_config = ConfigDict(populate_by_name=True)
 
-    status: str = Field(default="success")
+    status: str = Field(default="exito")
     metadata: ResponseMetadata = Field(..., alias="metadatos")
     adapted_content: AdaptedContent = Field(..., alias="contenido_adaptado")
     quality_evaluation: QualityEvaluation = Field(..., alias="evaluacion_calidad")

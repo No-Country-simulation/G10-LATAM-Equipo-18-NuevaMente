@@ -5,6 +5,9 @@ export interface AdaptationRequest {
   formato_salida: string;     // 'Flashcards' | 'Tutorial' | 'Quiz' | 'TLDR'
   nicho_sector: string;       // 'Fintech' | 'Salud' | 'E-commerce' | 'General'
   nivel_detalle: string;
+  cantidad_generar?: number;
+  tamano_chunk?: number;
+  instrucciones_adicionales?: string;
 }
 
 export interface FlashcardItem {

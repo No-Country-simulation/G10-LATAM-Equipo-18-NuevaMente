@@ -7,7 +7,7 @@ def test_embed_text_gemini_success():
     with patch.object(service, '_embed_gemini', return_value=[0.1, 0.2, 0.3]) as mock_gemini:
         res = service.embed_text("Hola mundo", is_query=False)
         assert res == [0.1, 0.2, 0.3]
-        mock_gemini.assert_called_once_with("Hola mundo", "RETRIEVAL_DOCUMENT")
+        mock_gemini.assert_called_once_with("Hola mundo", is_query=False)
 
 @patch("app.services.embedding_service.logger")
 def test_fallback_cascade_to_jina(mock_logger):

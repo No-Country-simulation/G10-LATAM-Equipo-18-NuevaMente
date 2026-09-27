@@ -1,4 +1,5 @@
 import sys
+import os
 from pathlib import Path
 
 # Ensure UTF-8 output on Windows console
@@ -46,6 +47,31 @@ def test_adapt_content_endpoint():
     assert "almacenamiento_oci" in data
     assert data["evaluacion_calidad"]["anclaje_fuente_score"] >= 0.90
 
+def test_auth_login_endpoint():
+    payload = {
+        "email": "ana.martinez@empresa.com",
+        "password": "password123",
+        "name": "Ana Martínez"
+    }
+    response = client.post("/api/v1/auth/login", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "exito"
+    assert data["user"]["name"] == "Ana Martínez"
+    assert data["user"]["isLoggedIn"] is True
+
+def test_auth_register_endpoint():
+    payload = {
+        "name": "Fernando García",
+        "email": "fernando.garcia@empresa.com",
+        "password": "securepassword"
+    }
+    response = client.post("/api/v1/auth/register", json=payload)
+    assert response.status_code == 200
+    data = response.json()
+    assert data["status"] == "exito"
+    assert data["user"]["name"] == "Fernando García"
+    assert data["user"]["isLoggedIn"] is True
 
 if __name__ == "__main__":
     print("Testing health check...")
@@ -55,3 +81,11 @@ if __name__ == "__main__":
     print("Testing adapt content endpoint (backward compatibility)...")
     test_adapt_content_endpoint()
     print("✓ Adapt content endpoint passed successfully!")
+
+    print("Testing auth login endpoint...")
+    test_auth_login_endpoint()
+    print("✓ Auth login endpoint passed successfully!")
+
+    print("Testing auth register endpoint...")
+    test_auth_register_endpoint()
+    print("✓ Auth register endpoint passed successfully!")

@@ -18,9 +18,12 @@ Output:
 import os
 from typing import Dict, List
 from pydantic import BaseModel
-from dotenv import load_dotenv
 
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 # Module-level constants used inside the class to avoid cross-field references.
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
@@ -39,31 +42,25 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 
     DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
-    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash" # "gemini-3.x-flash-lite"
-    DEFAULT_GROQ_MODEL: str = "llama-3.1-8b-instant" # "qwen-2.5-72b"
-    DEFAULT_OPENROUTER_MODEL: str = "mistral-small-latest" # "pixtral-12b"
+    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
+    DEFAULT_GROQ_MODEL: str = "llama-3.1-8b-instant"
+    DEFAULT_OPENROUTER_MODEL: str = "mistral-small-latest"
 
     # ── Embedding Configuration ───────────────────────────────────────────────
-    # EMBEDDING_METHOD: "api" uses a remote provider; "local" uses sentence-transformers.
     EMBEDDING_METHOD: str = os.getenv("EMBEDDING_METHOD", "api")
-
-    # Active API provider when EMBEDDING_METHOD="api": "gemini" or "jina".
     EMBEDDING_API_PROVIDER: str = os.getenv("EMBEDDING_API_PROVIDER", "gemini")
 
     JINA_API_KEY: str = os.getenv("JINA_API_KEY", "")
 
-    # Model identifier per provider — used to tag collections in the vector store.
     EMBEDDING_API_MODELS: Dict[str, str] = {
         "gemini": _GEMINI_EMBED_MODEL,
         "jina": _JINA_EMBED_MODEL,
     }
 
-    # Default embedding model name (resolved at runtime by EmbeddingService).
     DEFAULT_EMBEDDING_MODEL: str = _GEMINI_EMBED_MODEL
     LOCAL_EMBEDDING_MODEL: str = _LOCAL_EMBED_MODEL
 
     # ── Vector Store Configuration ────────────────────────────────────────────
-    # VECTOR_STORE_METHOD: "chroma" (default) or "faiss".
     VECTOR_STORE_METHOD: str = os.getenv("VECTOR_STORE_METHOD", "chroma")
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
 
