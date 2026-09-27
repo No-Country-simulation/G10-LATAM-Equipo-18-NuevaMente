@@ -20,10 +20,13 @@ from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query
 from app.core.config import settings
 from app.services.ingester_service import IngesterService
 from app.services.pdf_parser_service import PdfParserService
+from app.services.oci_storage_service import OCIStorageService
 
 router = APIRouter()
 ingester_service = IngesterService()
 pdf_parser_service = PdfParserService()
+oci_storage_service = OCIStorageService()
+
 
 
 @router.post("/parse-document", status_code=status.HTTP_200_OK)
@@ -73,6 +76,14 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
             if temp_path.exists():
                 temp_path.unlink()
 
+        # Upload original document to OCI Object Storage Always Free bucket
+        oci_doc_info = oci_storage_service.upload_document_source(
+            bucket_name=settings.OCI_BUCKET_DOCS,
+            object_name=filename,
+            file_bytes=content_bytes,
+            content_type="application/pdf" if extension == ".pdf" else "text/plain"
+        )
+
         return {
             "status": "exito",
             "filename": filename,
@@ -81,7 +92,9 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
             "total_chunks": len(ingested_doc.chunks),
             "texto_extraido": ingested_doc.raw_text,
             "chunks": [chunk.model_dump() for chunk in ingested_doc.chunks],
+            "almacenamiento_oci": oci_doc_info
         }
+
 
     except HTTPException:
         raise
