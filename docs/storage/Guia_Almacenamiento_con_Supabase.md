@@ -49,6 +49,26 @@ uv add supabase
 
 ## 2. Guía Rápida para Desarrolladores: ¿Cómo Usarlo?
 
+### Forma recomendada: `document_pipeline_service.py`
+
+Para procesar un documento subido, no se compone manualmente storage + repository + ingester + embeddings + vector store — eso ya lo hace `process_and_index_document()`, compartiendo un único `document_id` entre las cuatro piezas:
+
+```python
+from app.services.document_pipeline_service import process_and_index_document
+
+record = process_and_index_document(
+    local_path="/tmp/manual_oci.pdf",  # archivo ya recibido por el endpoint
+    title="Manual OCI",                # opcional; por defecto usa el nombre del archivo
+    user_id=None,                      # None hasta que exista login
+)
+
+print(record.status)  # "ready" si todo salió bien, "failed" con error_message si no
+```
+
+Si falla en cualquier punto después de crear la fila (ingesta, embeddings, indexado), el documento queda marcado `status="failed"` con el motivo en `error_message`, en vez de quedar atascado en `"processing"` o perder el error silenciosamente.
+
+Las secciones siguientes explican **qué hace por dentro** — útil para depurar o para usar cada pieza por separado (por ejemplo, en un test aislado).
+
 ### Subir y descargar el archivo original
 
 ```python
@@ -117,4 +137,4 @@ Esta separación es la misma razón por la que `document_pipeline_service.py` (e
 
 ## 3. Cuándo cambia esto (OCI, en el futuro)
 
-Ambos archivos exponen una fábrica (`get_document_storage()`, `get_document_repository()`) que elige la implementación según `settings.STORAGE_METHOD`. Hoy solo existe la rama `"supabase"`. Cuando haya una cuenta de OCI y se revise `oci_storage_service.py` de los compañeros, se agregará una implementación `OCIDocumentStorage` detrás de la misma interfaz `BaseDocumentStorage`, sin tocar `document_pipeline_service.py` ni el resto del código que ya depende de estas fábricas.
+Ambos archivos exponen una fábrica (`get_document_storage()`, `get_document_repository()`) que elige la implementación según `settings.STORAGE_METHOD`. Hoy solo existe la rama `"supabase"`. Cuando haya una cuenta de OCI y se revise `oci_storage_service.py` de los compañeros, se agregará una implementación `OCIDocumentStorage` detrás de la misma interfaz `BaseDocumentStorage`, sin tocar `document_pipeline_service.py` ni el resto del código que ya depende de estas fábricas — es justamente el orquestador descrito arriba, ya implementado.

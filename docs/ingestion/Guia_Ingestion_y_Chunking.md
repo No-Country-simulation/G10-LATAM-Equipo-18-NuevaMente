@@ -4,7 +4,7 @@ Este documento describe la arquitectura, funcionamiento e instrucciones de uso d
 
 ---
 
-## 1. Explicación Simple: ¿Cómo Funciona?
+## 1. Explicación para Principiantes: ¿Cómo Funciona?
 
 Cuando un usuario sube un archivo (manual técnico, documentación o guía) al sistema, el texto no se puede enviar directamente a un modelo de lenguaje porque suele ser demasiado largo, tener contenido basura (como números de página o cabeceras repetitivas) y carecer de estructura clara.
 
@@ -59,6 +59,9 @@ ingester = IngesterService()
 
 # Procesar archivo (.pdf, .md o .txt)
 doc = ingester.process_document(Path("ruta/a/mi_documento.pdf"), title="Mi Manual")
+# document_id es opcional (por defecto genera uno nuevo); document_pipeline_service.py
+# pasa el suyo propio, para que el mismo ID quede compartido entre el archivo
+# subido, la fila de la tabla documents y el índice FAISS del documento.
 
 # 1. Acceso a los atributos del documento
 print(f"ID: {doc.document_id}")
@@ -102,7 +105,7 @@ rag_payload = ingester.build_rag_chunks(doc)
   }
   ```
 
-> ⚠️ **Este endpoint solo parsea y trocea el documento.** No genera embeddings, no indexa en el vector store y no sube nada a OCI — es decir, un documento pasado por aquí todavía no queda "listo para generar" contenido. Esa responsabilidad completa (subir a OCI → ingestar → embeber → indexar) va en `document_pipeline_service.py`, pendiente de implementar; es probable que este endpoint se reemplace o se reduzca a un paso interno de ese pipeline.
+> ⚠️ **Este endpoint solo parsea y trocea el documento.** No genera embeddings, no indexa en el vector store y no sube nada a OCI/Supabase — es decir, un documento pasado por aquí todavía no queda "listo para generar" contenido. Esa responsabilidad completa (subir → registrar metadata → ingestar → embeber → indexar) ya existe en **`document_pipeline_service.py`** (`process_and_index_document()`, ver el documento de Almacenamiento de Documentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
 
 ---
 
