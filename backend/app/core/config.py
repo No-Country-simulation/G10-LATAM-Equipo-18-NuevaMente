@@ -76,7 +76,9 @@ class Settings(BaseModel):
     # Provider rate limits, token thresholds, and batch configurations.
     GEMINI_MAX_RPM: int = int(os.getenv("GEMINI_MAX_RPM", "100"))
     GEMINI_MAX_TPM: int = int(os.getenv("GEMINI_MAX_TPM", "30000"))
+    GEMINI_MAX_RPD: int = int(os.getenv("GEMINI_MAX_RPD", "1000"))
     GEMINI_SAFE_TPM: int = int(os.getenv("GEMINI_SAFE_TPM", "25000"))
+    # Conservative batch size: 20 texts × ~300 chars avg ≈ 1,500 tokens/request.
     GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "20"))
 
     JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
@@ -119,9 +121,13 @@ class Settings(BaseModel):
     # ── Ingestion Configuration ───────────────────────────────────────────────
     SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".md", ".markdown", ".txt"]
     MAX_FILE_SIZE_MB: int = 20
+    # Parent chunks: large context windows sent to the LLM for generation.
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 150
-    CHILD_CHUNK_SIZE: int = 150
+    # Child chunks: smaller dense units embedded and indexed in FAISS.
+    # Must be strictly less than CHUNK_SIZE and greater than CHILD_CHUNK_OVERLAP.
+    CHILD_CHUNK_SIZE: int = int(os.getenv("CHILD_CHUNK_SIZE", "400"))
+    CHILD_CHUNK_OVERLAP: int = int(os.getenv("CHILD_CHUNK_OVERLAP", "40"))
 
     # Extracts short key-concept tags per chunk at ingestion time (KeyBERT).
     # Disabled by default: it loads its own local model and adds ingestion

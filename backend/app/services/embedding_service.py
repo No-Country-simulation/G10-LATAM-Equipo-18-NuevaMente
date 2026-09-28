@@ -41,8 +41,15 @@ _BASE_DELAY_SECONDS = 1.0
 
 
 def estimate_tokens(texts: List[str]) -> int:
-    """Estimates total tokens across texts using a 4-characters-per-token heuristic."""
-    return sum(max(1, len(text) // 4) for text in texts)
+    """Estimates total tokens across texts.
+
+    Uses 3.5 characters per token — a conservative average that accounts for
+    Spanish (shorter avg word length) and multilingual content common in
+    NuevaMente. The value is intentionally slightly pessimistic so the
+    proactive routing triggers before, not after, the real quota is hit.
+    Avoids any API call so it never consumes RPM or RPD budget.
+    """
+    return sum(max(1, round(len(text) / 3.5)) for text in texts)
 
 
 class EmbeddingService:
@@ -227,13 +234,51 @@ class EmbeddingService:
         return self._gemini_client
 
     def _embed_gemini_in_batches(self, texts: List[str], is_query: bool) -> List[List[float]]:
-        """Processes texts in batches complying with Gemini request and token limits."""
+        """Processes texts in batches complying with Gemini RPM and TPM limits.
+
+        After each successful API call the method checks whether the tokens
+        consumed in this minute would exceed GEMINI_SAFE_TPM. If they would,
+        it sleeps the remainder of the 60-second window before sending the
+        next batch. This prevents 429 errors without counting tokens via API.
+        """
         batch_size = settings.GEMINI_BATCH_SIZE
         results: List[List[float]] = []
 
+        # Rolling window accumulators for the current 60-second budget.
+        window_start = time.monotonic()
+        window_tokens = 0
+        window_requests = 0
+
         for start in range(0, len(texts), batch_size):
             chunk = texts[start:start + batch_size]
+            chunk_tokens = estimate_tokens(chunk)
+
+            # If adding this batch would exceed TPM or RPM safe thresholds,
+            # sleep for the remaining time in the current 60-second window.
+            elapsed = time.monotonic() - window_start
+            tokens_after = window_tokens + chunk_tokens
+            requests_after = window_requests + 1
+
+            tpm_would_overflow = tokens_after > settings.GEMINI_SAFE_TPM
+            rpm_would_overflow = requests_after > settings.GEMINI_MAX_RPM
+
+            if (tpm_would_overflow or rpm_would_overflow) and elapsed < 60.0:
+                sleep_secs = 60.0 - elapsed + 0.5  # small buffer
+                logger.info(
+                    "Gemini rate-limit guard: sleeping %.1fs before next batch "
+                    "(window_tokens=%d+%d, window_req=%d, elapsed=%.1fs).",
+                    sleep_secs, window_tokens, chunk_tokens, window_requests, elapsed,
+                )
+                time.sleep(sleep_secs)
+                # Reset window counters after sleeping.
+                window_start = time.monotonic()
+                window_tokens = 0
+                window_requests = 0
+
             results.extend(self._embed_gemini_chunk_with_retry(chunk, is_query=is_query))
+
+            window_tokens += chunk_tokens
+            window_requests += 1
 
         return results
 

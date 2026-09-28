@@ -49,13 +49,15 @@ class IngesterService:
         child_chunk_size: int = settings.CHILD_CHUNK_SIZE,
         parent_chunk_size: int = settings.CHUNK_SIZE,
         overlap: int = settings.CHUNK_OVERLAP,
+        child_overlap: int = settings.CHILD_CHUNK_OVERLAP,
     ):
         # Both sizes are measured in characters, same unit as chunk_text(),
         # so parent and child chunks are produced with identical splitting
-        # quality — only the target size differs.
+        # quality — only the target size and overlap differ.
         self.child_chunk_size = child_chunk_size
         self.parent_chunk_size = parent_chunk_size
         self.overlap = overlap
+        self.child_overlap = child_overlap
 
         # Lazily created on first use so a document that never hits a PDF
         # or never needs key-concept extraction doesn't pay their import cost.
@@ -305,12 +307,14 @@ class IngesterService:
 
         return chunks
 
-    def chunk_text(self, text: str, chunk_size: Optional[int] = None) -> List[str]:
+    def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
         """Groups paragraphs into pieces up to chunk_size, keeping paragraph
         boundaries intact. Defaults to parent_chunk_size, but accepts a
         different size so the same, already-validated splitting logic can
-        also produce child chunks — instead of a separate, cruder pass."""
+        also produce child chunks — instead of a separate, cruder pass.
+        The overlap parameter overrides self.overlap when provided."""
         size = chunk_size or self.parent_chunk_size
+        effective_overlap = overlap if overlap is not None else self.overlap
 
         if not text.strip():
             return []
@@ -324,7 +328,7 @@ class IngesterService:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = ""
-                chunks.extend(self.split_by_characters(paragraph, size, self.overlap))
+                chunks.extend(self.split_by_characters(paragraph, size, effective_overlap))
                 continue
 
             candidate = f"{current_chunk}\n\n{paragraph}".strip() if current_chunk else paragraph
@@ -431,7 +435,11 @@ class IngesterService:
             child_pieces = (
                 [chunk.text]
                 if len(chunk.text) <= self.child_chunk_size
-                else self.chunk_text(chunk.text, chunk_size=self.child_chunk_size)
+                else self.chunk_text(
+                    chunk.text,
+                    chunk_size=self.child_chunk_size,
+                    overlap=self.child_overlap,
+                )
             )
 
             for child_idx, child_text in enumerate(child_pieces):
