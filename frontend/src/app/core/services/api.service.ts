@@ -175,11 +175,20 @@ export class ApiService {
     } else {
       // Default: Tutorial / Guía Paso a Paso
       seccionesTutorial = [];
+      const userNote = (request.instrucciones_adicionales || '').toLowerCase();
+      const wantsDiagrams = ['diagrama', 'grafic', 'gráfic', 'imagen', 'esquema', 'flujo', 'dibujo', 'mapa', 'tabla'].some(kw => userNote.includes(kw));
+
       for (let i = 1; i <= count; i++) {
         const sentence = sentences[(i - 1) % sentences.length] || `Explicación técnica detallada de la fase ${i}.`;
+        
+        let extraVisualBlock = '';
+        if (wantsDiagrams && i === 1) {
+          extraVisualBlock = `\n\n\`\`\`mermaid\ngraph TD\n    A[📥 Ingestión: ${formattedTitle}] --> B[⚙️ Procesamiento de ${derivedConcepts[(i - 1) % derivedConcepts.length]}]\n    B --> C[🎯 Aplicación en ${request.nicho_sector}]\n    C --> D[✅ Verificación para ${request.perfil_destinatario}]\n\`\`\`\n\n| Fase Didáctica | Objetivo | Estado |\n| --- | --- | --- |\n| 1. Diagnóstico | Evaluar ${derivedConcepts[(i - 1) % derivedConcepts.length]} | Completado |\n| 2. Ejecución | Integrar en ${request.nicho_sector} | Validado |\n`;
+        }
+
         seccionesTutorial.push({
           encabezado: `Paso ${i}: ${derivedConcepts[(i - 1) % derivedConcepts.length]}`,
-          contenido: `En el Paso ${i}, se aborda ${derivedConcepts[(i - 1) % derivedConcepts.length]}. ${sentence} Adaptado especialmente al nivel ${request.nivel_detalle} del perfil ${request.perfil_destinatario}.${addNote}`
+          contenido: `En el Paso ${i}, se aborda ${derivedConcepts[(i - 1) % derivedConcepts.length]}. ${sentence} Adaptado especialmente al nivel ${request.nivel_detalle} del perfil ${request.perfil_destinatario}.${addNote}${extraVisualBlock}`
         });
       }
     }

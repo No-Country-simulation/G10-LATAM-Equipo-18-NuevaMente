@@ -1,5 +1,7 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/models/adaptation.model';
+
 
 @Component({
   selector: 'app-content-viewer',
@@ -111,20 +113,21 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
             <!-- TL;DR / Resumen Ejecutivo Card -->
             <div class="tldr-card" *ngIf="(isTldrFormat || isTutorialFormat) && contenido?.resumen_ejecutivo">
               <h3>⚡ Resumen Ejecutivo (TL;DR)</h3>
-              <div class="tldr-text">{{ contenido?.resumen_ejecutivo }}</div>
+              <div class="tldr-text" [innerHTML]="renderRichMarkdown(contenido?.resumen_ejecutivo)"></div>
             </div>
 
             <!-- Section: Tutorial Steps -->
             <div *ngIf="(isTutorialFormat || isTldrFormat) && contenido?.secciones_tutorial && contenido!.secciones_tutorial!.length > 0" class="tutorial-sections">
-              <h3 class="section-title-large">Secciones de Aprendizaje</h3>
+              <h3 class="section-title-large">Secciones de Aprendizaje & Diagramas Visuales</h3>
               <div class="step-card" *ngFor="let sec of contenido?.secciones_tutorial; let i = index">
                 <div class="step-badge-number">{{ i + 1 }}</div>
                 <div class="step-card-content">
                   <h4>{{ sec.encabezado }}</h4>
-                  <p>{{ sec.contenido }}</p>
+                  <div class="step-rich-text" [innerHTML]="renderRichMarkdown(sec.contenido)"></div>
                 </div>
               </div>
             </div>
+
 
             <!-- Interactive Flashcards Component -->
             <app-interactive-flashcards 
@@ -621,6 +624,95 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
       color: #64748b;
     }
 
+    /* Visual Diagram & Table Styles */
+    .visual-diagram-card {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin: 1.25rem 0;
+      color: #f8fafc;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    }
+    .v-diagram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 0.5rem;
+    }
+    .v-badge {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #38bdf8;
+      letter-spacing: 0.05em;
+    }
+    .v-sub {
+      font-size: 0.72rem;
+      color: #94a3b8;
+    }
+    .v-diagram-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .mermaid-node-box {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-left: 4px solid #38bdf8;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+    .node-step {
+      font-size: 0.7rem;
+      font-weight: 800;
+      background: #0284c7;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+    }
+    .node-content {
+      font-size: 0.9rem;
+      color: #f1f5f9;
+      font-weight: 600;
+    }
+
+    .rendered-markdown-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0;
+      font-size: 0.88rem;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .rendered-markdown-table th {
+      background: #f1f5f9;
+      color: #0f172a;
+      font-weight: 800;
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 2px solid #cbd5e1;
+    }
+    .rendered-markdown-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+    }
+    .rendered-markdown-table tr:hover {
+      background: #f8fafc;
+    }
+    .rich-paragraph {
+      margin-bottom: 0.85rem;
+      line-height: 1.6;
+      color: #334155;
+    }
+
     @media (max-width: 900px) {
       .viewer-grid { grid-template-columns: 1fr; }
     }
@@ -637,6 +729,75 @@ export class ContentViewerComponent {
   activeTab: 'preview' | 'json' | 'sources' | 'metadata' = 'preview';
   showMenu: boolean = false;
   Math = Math;
+
+  constructor(private sanitizer: DomSanitizer) {}
+
+  renderRichMarkdown(text: string | undefined): SafeHtml {
+    if (!text) return '';
+
+    let raw = text;
+
+    // 1. Convert Mermaid blocks ```mermaid ... ``` into styled diagram cards
+    raw = raw.replace(/```mermaid([\s\S]*?)```/gi, (match, mermaidCode) => {
+      const lines = mermaidCode.trim().split('\n').filter((l: string) => l.trim() && !l.includes('graph') && !l.includes('flowchart'));
+      let nodesHtml = '';
+      lines.forEach((line: string, idx: number) => {
+        let clean = line.replace(/-->/g, ' ➔ ').replace(/["'\[\]()]/g, '').trim();
+        if (clean) {
+          nodesHtml += `
+            <div class="mermaid-node-box">
+              <span class="node-step">Fase ${idx + 1}</span>
+              <span class="node-content">${clean}</span>
+            </div>
+          `;
+        }
+      });
+      return `
+        <div class="visual-diagram-card">
+          <div class="v-diagram-header">
+            <span class="v-badge">📊 DIAGRAMA VISUAL & ESQUEMA DE FLUJO</span>
+            <span class="v-sub">Generado con Mermaid</span>
+          </div>
+          <div class="v-diagram-flow">
+            ${nodesHtml}
+          </div>
+        </div>
+      `;
+    });
+
+    // 2. Convert Markdown tables (| Col1 | Col2 |) into styled HTML tables
+    raw = raw.replace(/((?:\|[^\n]+\|\n)+)/g, (match, tableBlock) => {
+      const rows = tableBlock.trim().split('\n').filter((r: string) => r.trim() && !r.includes('---'));
+      if (rows.length === 0) return '';
+      let tableHtml = '<table class="rendered-markdown-table">';
+      rows.forEach((row: string, rowIndex: number) => {
+        const cells = row.split('|').map(c => c.trim()).filter((c, i, arr) => i > 0 && i < arr.length - 1);
+        const tag = rowIndex === 0 ? 'th' : 'td';
+        tableHtml += '<tr>';
+        cells.forEach(cell => {
+          tableHtml += `<${tag}>${cell}</${tag}>`;
+        });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</table>';
+      return tableHtml;
+    });
+
+    // 3. Convert **bold** text
+    raw = raw.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // 4. Convert line breaks into paragraphs
+    const paragraphs = raw.split(/\n\n+/);
+    const htmlOutput = paragraphs.map(p => {
+      if (p.includes('<div class="visual-diagram-card"') || p.includes('<table class="rendered-markdown-table"')) {
+        return p;
+      }
+      return `<p class="rich-paragraph">${p.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+
+    return this.sanitizer.bypassSecurityTrustHtml(htmlOutput);
+  }
+
 
   get isFlashcardFormat(): boolean {
     const fmt = (this.metadatos?.formato_generado || '').toLowerCase();
