@@ -73,6 +73,22 @@ class Settings(BaseModel):
     # halves this automatically on a batch-size related failure.
     EMBEDDING_BATCH_SIZE: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "50"))
 
+    # Provider rate limits, token thresholds, and batch configurations.
+    GEMINI_MAX_RPM: int = int(os.getenv("GEMINI_MAX_RPM", "100"))
+    GEMINI_MAX_TPM: int = int(os.getenv("GEMINI_MAX_TPM", "30000"))
+    GEMINI_SAFE_TPM: int = int(os.getenv("GEMINI_SAFE_TPM", "25000"))
+    GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "20"))
+
+    JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
+    JINA_MAX_TPM: int = int(os.getenv("JINA_MAX_TPM", "100000"))
+    JINA_SAFE_TPM: int = int(os.getenv("JINA_SAFE_TPM", "90000"))
+    JINA_BATCH_SIZE: int = int(os.getenv("JINA_BATCH_SIZE", "50"))
+
+    LOCAL_BATCH_SIZE: int = int(os.getenv("LOCAL_BATCH_SIZE", "32"))
+
+    # Priority order for embedding provider fallback.
+    EMBEDDING_FALLBACK_CHAIN: List[str] = ["gemini", "jina", "local"]
+
     # ── Vector Store Configuration ────────────────────────────────────────────
     # VECTOR_STORE_METHOD: "faiss" (default, local per-document index) or "pgvector".
     VECTOR_STORE_METHOD: str = os.getenv("VECTOR_STORE_METHOD", "faiss")

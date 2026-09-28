@@ -1,42 +1,87 @@
+"""
+test_embedding_service.py
+
+Purpose:
+    Unit tests for EmbeddingService covering successful single/batch embeddings,
+    rate-limit token threshold proactive routing, and cascade fallback
+    across Gemini -> Jina -> local models.
+
+Input:
+    Sample string texts and mock provider responses.
+
+Output:
+    Test assertions verifying provider dispatch, fallback transitions, and vector formatting.
+"""
+
+from unittest.mock import MagicMock, patch
 import pytest
-from unittest.mock import patch, MagicMock
-from app.services.embedding_service import EmbeddingService
+
+from app.core.config import settings
+from app.services.embedding_service import EmbeddingService, estimate_tokens
+
+
+def _dummy_vector(dim: int = 768, val: float = 0.5):
+    """Produces a dummy vector of the specified dimension."""
+    vec = [0.0] * dim
+    vec[0] = val
+    return vec
+
+
+def test_estimate_tokens():
+    texts = ["1234", "12345678"]
+    # 4 chars -> 1 token, 8 chars -> 2 tokens. Total = 3
+    assert estimate_tokens(texts) == 3
+
 
 def test_embed_text_gemini_success():
     service = EmbeddingService(provider="gemini")
-    with patch.object(service, '_embed_gemini', return_value=[0.1, 0.2, 0.3]) as mock_gemini:
-        res = service.embed_text("Hola mundo", is_query=False)
-        assert res == [0.1, 0.2, 0.3]
-        mock_gemini.assert_called_once_with("Hola mundo", "RETRIEVAL_DOCUMENT")
+    dummy = _dummy_vector(service.dimensions, 1.0)
 
-@patch("app.services.embedding_service.logger")
-def test_fallback_cascade_to_jina(mock_logger):
-    """Testea que si Gemini falla, pasa a Jina truncando el texto al 50%"""
+    with patch.object(service, "_embed_gemini_in_batches", return_value=[dummy]) as mock_gemini:
+        res = service.embed_text("Sample query", is_query=False)
+        assert len(res) == service.dimensions
+        mock_gemini.assert_called_once()
+
+
+def test_fallback_cascade_from_gemini_to_jina():
     service = EmbeddingService(provider="gemini")
-    
-    # Hacemos que Gemini y Local fallen (o no importan), pero que jina funcione
-    with patch.object(service, '_embed_jina_batch', return_value=[[0.5, 0.6]]) as mock_jina:
-        # Simulamos que falló Gemini pasándole failed_provider="gemini" directamente
-        # En texto largo de 10 caracteres, el 50% es 5.
-        res = service._fallback_embed("1234567890", failed_provider="gemini")
-        
-        assert res == [0.5, 0.6]
-        # Debería haber truncado al 50% ("12345")
-        mock_jina.assert_called_once_with(["12345"])
-        assert service.provider == "jina"
+    dummy = _dummy_vector(service.dimensions, 1.0)
 
-@patch("app.services.embedding_service.logger")
-def test_fallback_cascade_to_local(mock_logger):
-    """Testea que si Jina falla, pasa a Local truncando el texto al 25%"""
-    service = EmbeddingService(provider="jina")
-    
-    with patch.object(service, '_embed_local', return_value=[[0.9, 0.8]]) as mock_local:
-        with patch.object(service, '_load_local_model', return_value=True):
-            service._model = True # Mock
-            # En texto de 12 caracteres, el 25% es 3.
-            res = service._fallback_embed("123456789012", failed_provider="jina")
-            
-            assert res == [0.9, 0.8]
-            # Debería haber truncado al 25% ("123")
-            mock_local.assert_called_once_with(["123"])
-            assert service.method == "local"
+    with patch.object(service, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini 429")):
+        with patch.object(service, "_embed_jina_in_batches", return_value=[dummy]) as mock_jina:
+            res = service.embed_batch(["Sample text"])
+            assert len(res) == 1
+            mock_jina.assert_called_once()
+            assert service.provider == "jina"
+            assert "jina" in service.model_name
+
+
+def test_fallback_cascade_to_local_when_remote_providers_fail():
+    service = EmbeddingService(provider="gemini")
+    dummy = _dummy_vector(service.dimensions, 1.0)
+
+    with patch.object(service, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini 429")):
+        with patch.object(service, "_embed_jina_in_batches", side_effect=RuntimeError("Jina down")):
+            with patch.object(service, "_embed_local", return_value=[dummy]) as mock_local:
+                res = service.embed_batch(["Sample text"])
+                assert len(res) == 1
+                mock_local.assert_called_once()
+                assert service.provider == "local"
+                assert service.method == "local"
+
+
+def test_proactive_routing_when_tokens_exceed_gemini_safe_limit():
+    service = EmbeddingService(provider="gemini")
+    # Generate texts exceeding GEMINI_SAFE_TPM (25,000 tokens ≈ 100,000 chars)
+    large_text = "a" * (settings.GEMINI_SAFE_TPM * 4 + 100)
+    texts = [large_text]
+
+    dummy = _dummy_vector(service.dimensions, 1.0)
+    with patch.object(service, "_embed_gemini_in_batches") as mock_gemini:
+        with patch.object(service, "_embed_jina_in_batches", return_value=[dummy]) as mock_jina:
+            res = service.embed_batch(texts)
+            assert len(res) == 1
+            # Gemini should have been bypassed pro-actively
+            mock_gemini.assert_not_called()
+            mock_jina.assert_called_once()
+            assert service.provider == "jina"

@@ -118,10 +118,13 @@ class RetrievalService:
     ) -> Dict[int, int]:
         """Ranks every indexed child chunk by cosine similarity to the query,
         via the document's own FAISS store — no embeddings are recomputed here."""
-        query_embedding = self.embedding_service.embed_text(query, is_query=True)
+        query_model = store.model_name or self.embedding_service.model_name
+        query_embedding = self.embedding_service.embed_text(
+            query, is_query=True, model_name=query_model
+        )
         ranked_hits = store.similarity_search(
             query_embedding=query_embedding,
-            query_model_name=self.embedding_service.model_name,
+            query_model_name=query_model,
             top_k=len(id_to_position),
         )
         return {
