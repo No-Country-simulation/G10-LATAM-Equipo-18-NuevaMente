@@ -2,7 +2,6 @@ import { Component, Input, Output, EventEmitter } from '@angular/core';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/models/adaptation.model';
 
-
 @Component({
   selector: 'app-content-viewer',
   template: `
@@ -122,12 +121,11 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
               <div class="step-card" *ngFor="let sec of contenido?.secciones_tutorial; let i = index">
                 <div class="step-badge-number">{{ i + 1 }}</div>
                 <div class="step-card-content">
-                  <h4>{{ sec.encabezado }}</h4>
+                  <h4>{{ getCleanHeading(sec.encabezado, i) }}</h4>
                   <div class="step-rich-text" [innerHTML]="renderRichMarkdown(sec.contenido)"></div>
                 </div>
               </div>
             </div>
-
 
             <!-- Interactive Flashcards Component -->
             <app-interactive-flashcards 
@@ -452,7 +450,6 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
     .tldr-text {
       font-size: 0.95rem;
       color: #713f12;
-      white-space: pre-line;
       line-height: 1.6;
     }
 
@@ -488,11 +485,6 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
       font-weight: 700;
       color: #0f172a;
       margin-bottom: 0.35rem;
-    }
-    .step-card-content p {
-      font-size: 0.9rem;
-      color: #475569;
-      line-height: 1.5;
     }
 
     .json-code-box {
@@ -732,10 +724,26 @@ export class ContentViewerComponent {
 
   constructor(private sanitizer: DomSanitizer) {}
 
+  getCleanHeading(heading: string | undefined, index: number): string {
+    if (!heading) return `Paso ${index + 1}`;
+    let clean = heading.trim();
+    // Prevent duplicate "Paso 1: Paso 1:"
+    clean = clean.replace(/^(paso\s*\d+\s*:\s*)+/gi, '').trim();
+    clean = clean.replace(/^(secci[oó]n\s*\d+\s*:\s*)+/gi, '').trim();
+    return `Paso ${index + 1}: ${clean}`;
+  }
+
   renderRichMarkdown(text: string | undefined): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(this.formatContentToHtml(text));
+  }
+
+  formatContentToHtml(text: string | undefined): string {
     if (!text) return '';
 
     let raw = text;
+
+    // Clean up raw user instruction notes like [Instrucción adicional: ...]
+    raw = raw.replace(/\[\s*instrucci[oó]n\s+adicional\s*:[^\]]*\]/gi, '');
 
     // 1. Convert Mermaid blocks ```mermaid ... ``` into styled diagram cards
     raw = raw.replace(/```mermaid([\s\S]*?)```/gi, (match, mermaidCode) => {
@@ -745,18 +753,18 @@ export class ContentViewerComponent {
         let clean = line.replace(/-->/g, ' ➔ ').replace(/["'\[\]()]/g, '').trim();
         if (clean) {
           nodesHtml += `
-            <div class="mermaid-node-box">
-              <span class="node-step">Fase ${idx + 1}</span>
-              <span class="node-content">${clean}</span>
+            <div class="mermaid-node-box" style="background:#1e293b; border:1px solid #475569; border-left:4px solid #38bdf8; border-radius:10px; padding:10px 14px; margin-bottom:8px; display:flex; align-items:center; gap:12px;">
+              <span class="node-step" style="font-size:0.7rem; font-weight:800; background:#0284c7; color:#ffffff; padding:2px 8px; border-radius:6px; text-transform:uppercase;">Fase ${idx + 1}</span>
+              <span class="node-content" style="font-size:0.9rem; color:#f1f5f9; font-weight:600;">${clean}</span>
             </div>
           `;
         }
       });
       return `
-        <div class="visual-diagram-card">
-          <div class="v-diagram-header">
-            <span class="v-badge">📊 DIAGRAMA VISUAL & ESQUEMA DE FLUJO</span>
-            <span class="v-sub">Generado con Mermaid</span>
+        <div class="visual-diagram-card" style="background:linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border:1px solid #334155; border-radius:16px; padding:18px; margin:18px 0; color:#f8fafc;">
+          <div class="v-diagram-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #334155; padding-bottom:8px;">
+            <span class="v-badge" style="font-size:0.75rem; font-weight:800; color:#38bdf8; letter-spacing:0.05em;">📊 DIAGRAMA VISUAL & ESQUEMA DE FLUJO</span>
+            <span class="v-sub" style="font-size:0.72rem; color:#94a3b8;">Generado con Mermaid</span>
           </div>
           <div class="v-diagram-flow">
             ${nodesHtml}
@@ -769,13 +777,14 @@ export class ContentViewerComponent {
     raw = raw.replace(/((?:\|[^\n]+\|\n)+)/g, (match, tableBlock) => {
       const rows = tableBlock.trim().split('\n').filter((r: string) => r.trim() && !r.includes('---'));
       if (rows.length === 0) return '';
-      let tableHtml = '<table class="rendered-markdown-table">';
+      let tableHtml = '<table class="rendered-markdown-table" style="width:100%; border-collapse:collapse; margin:16px 0; font-size:0.88rem; border-radius:10px; overflow:hidden; border:1px solid #cbd5e1;">';
       rows.forEach((row: string, rowIndex: number) => {
         const cells = row.split('|').map(c => c.trim()).filter((c, i, arr) => i > 0 && i < arr.length - 1);
         const tag = rowIndex === 0 ? 'th' : 'td';
+        const bgStyle = rowIndex === 0 ? 'background:#f1f5f9; color:#0f172a; font-weight:800; border-bottom:2px solid #cbd5e1;' : 'border-bottom:1px solid #e2e8f0; color:#334155;';
         tableHtml += '<tr>';
         cells.forEach(cell => {
-          tableHtml += `<${tag}>${cell}</${tag}>`;
+          tableHtml += `<${tag} style="padding:10px 14px; ${bgStyle}">${cell}</${tag}>`;
         });
         tableHtml += '</tr>';
       });
@@ -792,12 +801,11 @@ export class ContentViewerComponent {
       if (p.includes('<div class="visual-diagram-card"') || p.includes('<table class="rendered-markdown-table"')) {
         return p;
       }
-      return `<p class="rich-paragraph">${p.replace(/\n/g, '<br>')}</p>`;
+      return `<p class="rich-paragraph" style="margin-bottom:12px; line-height:1.6; color:#334155;">${p.replace(/\n/g, '<br>')}</p>`;
     }).join('');
 
-    return this.sanitizer.bypassSecurityTrustHtml(htmlOutput);
+    return htmlOutput;
   }
-
 
   get isFlashcardFormat(): boolean {
     const fmt = (this.metadatos?.formato_generado || '').toLowerCase();
@@ -896,7 +904,7 @@ export class ContentViewerComponent {
         <style>
           @page {
             size: A4 portrait;
-            margin: 0mm;
+            margin: 15mm 15mm;
           }
           @media print {
             html, body {
@@ -919,7 +927,7 @@ export class ContentViewerComponent {
             background: #ffffff;
           }
           .pdf-wrapper {
-            padding: 18mm 20mm;
+            padding: 5mm;
             max-width: 100%;
           }
           .brand-banner {
@@ -1015,10 +1023,7 @@ export class ContentViewerComponent {
             font-size: 1.08rem;
             font-weight: 800;
             color: #1e3a8a;
-            margin: 0 0 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            margin: 0 0 10px 0;
           }
           .card-body {
             font-size: 0.92rem;
@@ -1085,7 +1090,6 @@ export class ContentViewerComponent {
           .tldr-content {
             font-size: 0.94rem;
             color: #713f12;
-            white-space: pre-line;
             line-height: 1.65;
           }
           .pdf-footer-bar {
@@ -1140,17 +1144,17 @@ export class ContentViewerComponent {
           ${(this.isTldrFormat || this.isTutorialFormat) && this.contenido?.resumen_ejecutivo ? `
             <div class="tldr-container">
               <h3 class="tldr-title">⚡ Resumen Ejecutivo (TL;DR)</h3>
-              <div class="tldr-content">${this.contenido.resumen_ejecutivo}</div>
+              <div class="tldr-content">${this.formatContentToHtml(this.contenido.resumen_ejecutivo)}</div>
             </div>
           ` : ''}
 
           <!-- Tutorial / Guía Paso a Paso -->
           ${(this.isTutorialFormat || this.isTldrFormat) && this.contenido?.secciones_tutorial ? `
-            <h2 class="section-heading-pdf">Módulos de Aprendizaje</h2>
+            <h2 class="section-heading-pdf">Módulos de Aprendizaje & Diagramas</h2>
             ${this.contenido.secciones_tutorial.map((sec, idx) => `
               <div class="card-box">
-                <h3 class="card-title">Paso ${idx + 1}: ${sec.encabezado}</h3>
-                <p class="card-body">${sec.contenido}</p>
+                <h3 class="card-title">${this.getCleanHeading(sec.encabezado, idx)}</h3>
+                <div class="card-body">${this.formatContentToHtml(sec.contenido)}</div>
               </div>
             `).join('')}
           ` : ''}
