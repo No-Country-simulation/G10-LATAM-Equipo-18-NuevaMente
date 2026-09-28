@@ -11,32 +11,36 @@ Cuando el módulo de ingestión divide un documento en pequeños fragmentos (chu
 Para resolver esto, convertimos el texto en **Embeddings** (vectores numéricos de alta dimensionalidad):
 
 ```
-[ Texto del Chunk / Consulta ]
+[ Texto de Chunks / Consulta ]
                │
                ▼
-1. Selección de Proveedor y Modelo
-   - API de Google Gemini (gemini-embedding-001).
-   - API de Jina AI (jina-embeddings-v3).
-   - Local: sentence-transformers (paraphrase-multilingual-mpnet-base-v2) como respaldo sin conexión.
+1. Estimación de Tokens y Ruteo Proactivo (Etapa Previa)
+   - Analiza el volumen real de chunks e hijos generados tras la partición.
+   - Si tokens estimados <= 25K TPM: procesa con Google Gemini (100 PTM / 30K TPM).
+   - Si 25K < tokens <= 90K TPM: conmuta proactivamente a Jina AI (100 PTM / 100K TPM).
+   - Si tokens > 90K TPM: conmuta proactivamente al modelo Local (sin límites de cuota).
                │
                ▼
-2. Vectorización (Embedding)
-   - Transforma texto en una lista de números flotantes (ej. [-0.032, 0.016, ...]).
-   - Representa matemáticamente el significado semántico del contenido.
-   - Todos los proveedores se fuerzan a la MISMA dimensión (768, configurable).
+2. Vectorización por Lotes y Fallback en Cascada Atómico
+   - Gemini: lotes nativos de 20 chunks (contents=[...]), reduciendo peticiones PTM en un 95%.
+   - Jina: lotes de 50 chunks con reducción recursiva en caso de rechazo.
+   - Cascada reactiva ante errores (429 / Cuota / Red): Gemini -> Jina -> Local.
+   - Atómico por documento: nunca se mezclan vectores de distintos proveedores en un mismo índice.
+   - Dimensión fija unificada: 768 dimensiones para todos los proveedores.
                │
                ▼
 3. Control Estricto de Compatibilidad (Model Tracking)
-   - Se registra en los metadatos qué modelo (y dimensión) generó cada vector.
-   - Evita comparar vectores de dimensiones o espacios semánticos incompatibles.
+   - Se registra en los metadatos qué modelo generó el índice (ej. models/gemini-embedding-001@768).
+   - En la consulta (retrieval), se resuelve el vector de búsqueda con el mismo modelo del documento.
 ```
 
 ### Conceptos Clave
-- **Dimensión fija entre proveedores:** Antes cada proveedor tenía su propia dimensión (Gemini 3072, Jina 1024, local 384), lo cual impedía mezclarlos. Ahora `EMBEDDING_DIMENSIONS` (por defecto **768**) se aplica a los tres: Gemini vía `output_dimensionality`, Jina vía el parámetro `dimensions`, y el modelo local eligiendo uno que ya produce 768 (`mpnet`). Esto permite que un índice FAISS local sea directamente compatible con una futura tabla `pgvector`, sin reindexar.
-- **Espacio Vectorial:** Aunque la dimensión coincida, cada modelo proyecta el texto en un mapa matemático distinto. Por eso el `model_name` (la *etiqueta* de compatibilidad, ej. `models/gemini-embedding-001@768`) se sigue registrando y comparando estrictamente — no basta con que la dimensión sea igual.
-- **`model_id` vs. `model_name`:** `model_id` es el identificador real que se envía a la API del proveedor (ej. `models/gemini-embedding-001`). `model_name` es la etiqueta de compatibilidad que se guarda en el vector store, e incluye la dimensión (`...@768`) para que un cambio de `EMBEDDING_DIMENSIONS` fuerce naturalmente un reindexado en vez de mezclar vectores incompatibles.
-- **Reintentos, sin cambiar de proveedor:** Si una llamada falla por un error transitorio (límite de tasa, error de servidor), el servicio reintenta con espera creciente (*backoff exponencial*). En Jina, si el lote completo falla, se divide a la mitad y se reintenta — hasta procesar de a un texto si hace falta. El servicio **no cambia de proveedor ni trunca el texto** ante un fallo: eso corrompería el embedding resultante sin que nadie se entere. Si todos los reintentos fallan, se lanza un error explícito.
-- **Task Type:** Distingue entre vectorizar un documento (`RETRIEVAL_DOCUMENT` en Gemini, `retrieval.passage` en Jina) y vectorizar una consulta del usuario (`RETRIEVAL_QUERY` / `retrieval.query`) para maximizar la precisión de recuperación. Se controla con el parámetro `is_query` de `embed_text` / `embed_batch`.
+- **Dimensión fija entre proveedores:** `EMBEDDING_DIMENSIONS` (por defecto **768**) se aplica a los tres proveedores: Gemini vía `output_dimensionality`, Jina vía el parámetro `dimensions`, y el modelo local eligiendo uno que produce 768 (`mpnet`). Esto permite que un índice FAISS local sea directamente compatible con una futura tabla `pgvector`, sin reindexar.
+- **Espacio Vectorial e Integridad Atómica:** Aunque la dimensión coincida, cada modelo proyecta el texto en un mapa matemático distinto. Por eso, el fallback entre proveedores es **atómico por documento**: si Gemini falla con 429 a mitad de un archivo, se descartan los vectores parciales y se procesa todo el documento con Jina (o Local). El `model_name` resultante se actualiza en el `VectorStore` para que la búsqueda por similitud no compare espacios incompatibles.
+- **Ruteo Proactivo según Cuotas (PTM y TPM):** Antes de enviar peticiones a la API, el servicio estima los tokens reales de los fragmentos hijos (`estimate_tokens`). Si un documento requeriría demoras artificiales en Gemini por sobrepasar los 25K–30K TPM, el sistema conmuta de forma preventiva a Jina (100K TPM), acelerando el procesamiento.
+- **Batching Nativo en Gemini y Jina:** En lugar de realizar una llamada HTTP por cada fragmento (lo que agotaría de inmediato el límite de 100 PTM), Gemini envía lotes de 20 chunks por llamada (`GEMINI_BATCH_SIZE = 20`) y Jina lotes de 50 (`JINA_BATCH_SIZE = 50`), reduciendo drásticamente las solicitudes de red.
+- **`model_id` vs. `model_name`:** `model_id` es el identificador real enviado a la API (ej. `models/gemini-embedding-001`). `model_name` es la etiqueta guardada en el almacén vectorial (`models/gemini-embedding-001@768`), que incluye la dimensión para asegurar compatibilidad.
+- **Task Type:** Distingue entre vectorizar un documento (`RETRIEVAL_DOCUMENT` en Gemini, `retrieval.passage` en Jina) y vectorizar una consulta del usuario (`RETRIEVAL_QUERY` / `retrieval.query`). Se controla con el parámetro `is_query`.
 
 ---
 
@@ -179,7 +183,21 @@ JINA_API_KEY=jina_...
 EMBEDDING_METHOD = "api"            # 'api' o 'local'
 EMBEDDING_API_PROVIDER = "gemini"   # 'gemini' o 'jina'
 EMBEDDING_DIMENSIONS = 768          # fija en los tres proveedores
-EMBEDDING_BATCH_SIZE = 50           # tamaño de lote inicial para Jina
+EMBEDDING_BATCH_SIZE = 50           # tamaño de lote inicial
+
+# Límites de cuotas y lotes por proveedor
+GEMINI_MAX_RPM = 100
+GEMINI_MAX_TPM = 30000
+GEMINI_SAFE_TPM = 25000             # Umbral seguro antes de conmutar a Jina
+GEMINI_BATCH_SIZE = 20              # Chunks agrupados por llamada a Gemini
+
+JINA_MAX_RPM = 100
+JINA_MAX_TPM = 100000
+JINA_SAFE_TPM = 90000               # Umbral seguro antes de conmutar a Local
+JINA_BATCH_SIZE = 50
+
+LOCAL_BATCH_SIZE = 32
+EMBEDDING_FALLBACK_CHAIN = ["gemini", "jina", "local"]
 
 VECTOR_STORE_METHOD = "faiss"       # 'faiss' (por documento) o 'pgvector' (rama Supabase)
 VECTOR_STORE_DIR = "vector_store"

@@ -55,9 +55,9 @@ Una vez que un documento fue ingerido, embebido e indexado (ver los documentos d
 from app.services.embedding_service import EmbeddingService
 from app.services.retrieval_service import RetrievalService
 
-# El mismo EmbeddingService usado para indexar el documento debe usarse
-# para vectorizar la consulta — de lo contrario, el vector store rechaza
-# la búsqueda por incompatibilidad de modelo (model_name no coincide).
+# RetrievalService detecta automáticamente el store.model_name guardado en el
+# índice del documento y vectoriza la consulta con el modelo correspondiente,
+# garantizando compatibilidad semántica incluso si hubo fallback a Jina o Local.
 embedding_svc = EmbeddingService()
 retrieval_svc = RetrievalService(embedding_service=embedding_svc)
 
