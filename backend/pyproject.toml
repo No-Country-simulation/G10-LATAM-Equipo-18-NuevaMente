@@ -39,6 +39,7 @@ dependencies = [
     "keybert>=0.9.0",
     # ── Supabase (storage + future auth/pgvector) ──────────────────────────────
     "supabase>=2.31.0",
+    "gradio>=6.28.0",
 ]
 
 [tool.uv]
