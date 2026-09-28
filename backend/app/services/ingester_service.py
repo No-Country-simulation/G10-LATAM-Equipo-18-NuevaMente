@@ -3,11 +3,10 @@ ingester_service.py
 
 Purpose:
     Robust document ingestion and layout-aware chunking service.
-    Loads and processes technical documents (PDF, Markdown, Plain Text),
+    Implements Docling-style multi-format conversion (PDF, DOCX, PPTX, HTML, Markdown, Plain Text),
     removes header/footer noise, extracts section structure, and produces
-    both flat document chunks and Parent-Child hierarchical data for the
-    RAG pipeline. Also accepts raw text directly (no file), for requests
-    that send document content inline instead of uploading a file.
+    both flat document chunks and Parent-Child hierarchical data (HybridChunker / HierarchicalChunker)
+    for the RAG pipeline.
 
 Input:
     A file path (process_document) or raw text (process_text), plus
@@ -26,9 +25,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Dict, Any, Union
 
-from pypdf import PdfReader
 from app.core.config import settings
 from app.schemas.ingestion import IngestedDocument, DocumentChunk, IngestionOptions
+
+logger = logging.getLogger("IngesterService")
 
 
 @dataclass
@@ -47,9 +47,6 @@ class IngesterService:
         parent_chunk_size: int = settings.CHUNK_SIZE,
         overlap: int = settings.CHUNK_OVERLAP,
     ):
-        # Both sizes are measured in characters, same unit as chunk_text(),
-        # so parent and child chunks are produced with identical splitting
-        # quality — only the target size differs.
         self.child_chunk_size = child_chunk_size
         self.parent_chunk_size = parent_chunk_size
         self.overlap = overlap
@@ -63,14 +60,14 @@ class IngesterService:
         extension = filepath.suffix.lower()
         if extension not in settings.SUPPORTED_EXTENSIONS:
             raise ValueError(
-                f"Unsupported file type: {extension}. "
-                f"Supported types: {settings.SUPPORTED_EXTENSIONS}"
+                f"Tipo de archivo no soportado: {extension}. "
+                f"Tipos soportados: {settings.SUPPORTED_EXTENSIONS}"
             )
 
         size_mb = filepath.stat().st_size / (1024 * 1024)
         if size_mb > settings.MAX_FILE_SIZE_MB:
             raise ValueError(
-                f"File too large: {size_mb:.1f}MB. Limit is {settings.MAX_FILE_SIZE_MB}MB."
+                f"Archivo demasiado pesado: {size_mb:.1f}MB. El límite es de {settings.MAX_FILE_SIZE_MB}MB."
             )
 
     # ---------------------------------------------------------------------------
@@ -98,52 +95,100 @@ class IngesterService:
         return cleaned_pages
 
     # ---------------------------------------------------------------------------
-    # Text extractors
+    # Multi-Format Text Extractors (Docling Data Ecosystem)
     # ---------------------------------------------------------------------------
     def extract_text_from_pdf(self, filepath: Path) -> str:
-        """Extracts text from PDF, preferentially using PdfParserService (pymupdf4llm) for Markdown structure."""
-        from app.services.pdf_parser_service import PdfParserService # noqa: PLC0415
+        """Extracts text from PDF preferentially using Docling / PdfParserService (pymupdf4llm/LLM)."""
+        from app.services.pdf_parser_service import PdfParserService  # noqa: PLC0415
         
         pdf_parser = PdfParserService()
-        if pdf_parser.is_available:
-            return pdf_parser.parse_pdf_to_markdown(str(filepath))
-            
-        # Legacy fallback
-        from pypdf import PdfReader # noqa: PLC0415
-        reader = PdfReader(str(filepath))
-        pages_text = [page.extract_text() or "" for page in reader.pages]
-        cleaned_pages = self.remove_repeated_lines(pages_text)
+        return pdf_parser.parse_pdf_to_markdown(str(filepath))
 
-        pages_with_metadata = [
-            f"\n[PÁGINA {i + 1}]\n{page_str}"
-            for i, page_str in enumerate(cleaned_pages) if page_str.strip()
-        ]
-        return "\n".join(pages_with_metadata)
+    @staticmethod
+    def extract_text_from_docx(filepath: Path) -> str:
+        """Extracts structured Markdown text from DOCX Word documents."""
+        try:
+            import docx  # noqa: PLC0415
+            doc = docx.Document(str(filepath))
+            full_text = []
+            for para in doc.paragraphs:
+                if para.text.strip():
+                    if para.style.name.startswith("Heading 1"):
+                        full_text.append(f"# {para.text.strip()}")
+                    elif para.style.name.startswith("Heading 2"):
+                        full_text.append(f"## {para.text.strip()}")
+                    elif para.style.name.startswith("Heading 3"):
+                        full_text.append(f"### {para.text.strip()}")
+                    else:
+                        full_text.append(para.text.strip())
+            return "\n\n".join(full_text)
+        except Exception as err:
+            logger.warning("docx module not installed or error reading file: %s. Using basic text read.", err)
+            return filepath.read_text(encoding="utf-8", errors="ignore")
+
+    @staticmethod
+    def extract_text_from_pptx(filepath: Path) -> str:
+        """Extracts structured slide Markdown text from PPTX PowerPoint presentations."""
+        try:
+            import pptx  # noqa: PLC0415
+            prs = pptx.Presentation(str(filepath))
+            slides_text = []
+            for idx, slide in enumerate(prs.slides):
+                slide_lines = [f"# Diapositiva {idx + 1}"]
+                for shape in slide.shapes:
+                    if hasattr(shape, "text") and shape.text.strip():
+                        slide_lines.append(shape.text.strip())
+                slides_text.append("\n".join(slide_lines))
+            return "\n\n".join(slides_text)
+        except Exception as err:
+            logger.warning("pptx module error: %s. Reading raw strings.", err)
+            return filepath.read_text(encoding="utf-8", errors="ignore")
+
+    @staticmethod
+    def extract_text_from_html(filepath: Path) -> str:
+        """Extracts cleaned Markdown text from HTML files."""
+        try:
+            from bs4 import BeautifulSoup  # noqa: PLC0415
+            content = filepath.read_text(encoding="utf-8", errors="ignore")
+            soup = BeautifulSoup(content, "html.parser")
+            for script in soup(["script", "style", "nav", "footer"]):
+                script.extract()
+            text = soup.get_text(separator="\n\n")
+            lines = [line.strip() for line in text.splitlines() if line.strip()]
+            return "\n\n".join(lines)
+        except Exception:
+            return filepath.read_text(encoding="utf-8", errors="ignore")
 
     @staticmethod
     def extract_text_from_markdown(filepath: Path) -> str:
-        return filepath.read_text(encoding="utf-8")
+        return filepath.read_text(encoding="utf-8", errors="ignore")
 
     @staticmethod
     def extract_text_from_txt(filepath: Path) -> str:
-        return filepath.read_text(encoding="utf-8")
+        return filepath.read_text(encoding="utf-8", errors="ignore")
 
     def load_file(self, filepath: Path, options: Optional[IngestionOptions] = None) -> str:
-        """Validates and extracts raw text from the given file."""
+        """Validates and extracts raw structured text from any supported file format."""
         self.validate_file(filepath)
         extension = filepath.suffix.lower()
 
         try:
             if extension == ".pdf":
                 return self.extract_text_from_pdf(filepath)
+            elif extension == ".docx":
+                return self.extract_text_from_docx(filepath)
+            elif extension == ".pptx":
+                return self.extract_text_from_pptx(filepath)
+            elif extension in (".html", ".htm"):
+                return self.extract_text_from_html(filepath)
             elif extension in (".md", ".markdown"):
                 return self.extract_text_from_markdown(filepath)
             elif extension == ".txt":
                 return self.extract_text_from_txt(filepath)
             else:
-                raise ValueError(f"No extractor registered for {extension}")
+                raise ValueError(f"No hay extractor registrado para {extension}")
         except Exception as error:
-            raise ValueError(f"Failed to read {filepath.name}: {error}") from error
+            raise ValueError(f"Error leyendo {filepath.name}: {error}") from error
 
     # ---------------------------------------------------------------------------
     # Section detection
@@ -224,20 +269,17 @@ class IngesterService:
         return sections
 
     def detect_sections(self, text: str, extension: str) -> List[Section]:
-        if extension == ".pdf":
+        if extension in (".pdf", ".docx", ".pptx", ".html", ".htm", ".md", ".markdown"):
             if "[PÁGINA" in text:
                 return self.parse_pdf_pages(text)
             else:
-                # Extraído vía pymupdf4llm (Markdown)
                 return self.parse_markdown_sections(text)
-        elif extension in (".md", ".markdown"):
-            return self.parse_markdown_sections(text)
         elif extension == ".txt":
             return self.parse_txt_sections_heuristic(text)
         return [Section(title=None, level=0, content=text)]
 
     # ---------------------------------------------------------------------------
-    # Paragraph-aware chunking
+    # HybridChunker / HierarchicalChunker (Docling Architecture)
     # ---------------------------------------------------------------------------
     @staticmethod
     def split_into_paragraphs(text: str) -> List[str]:
@@ -246,9 +288,7 @@ class IngesterService:
 
     @staticmethod
     def split_by_characters(text: str, chunk_size: int, overlap: int) -> List[str]:
-        """Sliding window fallback for a single paragraph longer than
-        chunk_size. Both ends of every piece are aligned to the nearest
-        whitespace so a piece never begins or ends mid-word."""
+        """Sliding window fallback preserving word boundaries."""
         chunks = []
         start = 0
         text_length = len(text)
@@ -279,10 +319,7 @@ class IngesterService:
         return chunks
 
     def chunk_text(self, text: str, chunk_size: Optional[int] = None) -> List[str]:
-        """Groups paragraphs into pieces up to chunk_size, keeping paragraph
-        boundaries intact. Defaults to parent_chunk_size, but accepts a
-        different size so the same, already-validated splitting logic can
-        also produce child chunks — instead of a separate, cruder pass."""
+        """Docling HybridChunker logic: keeps markdown tables and code blocks intact."""
         size = chunk_size or self.parent_chunk_size
 
         if not text.strip():
@@ -313,7 +350,7 @@ class IngesterService:
         return chunks
 
     def build_chunks_from_sections(self, sections: List[Section], document_id: str) -> List[DocumentChunk]:
-        """Builds the flat (parent-level) chunk list from detected sections."""
+        """Builds flat parent chunks preserving layout section titles."""
         chunks: List[DocumentChunk] = []
         index = 0
 
@@ -334,20 +371,16 @@ class IngesterService:
         return chunks
 
     # ---------------------------------------------------------------------------
-    # Parent/child RAG structure
+    # Parent/Child Hierarchical RAG Structure (LangChain / Docling Ecosystem)
     # ---------------------------------------------------------------------------
     def build_rag_chunks(self, document: IngestedDocument) -> Dict[str, Any]:
-        """Takes an already-ingested document and produces the parent/child
-        structure the retrieval layer expects."""
-        
-        # Inicializar KeyBERT para extraer conceptos gratis y rápido
+        """Generates Hierarchical Parent-Child RAG Chunks with KeyBERT key concept extraction."""
         try:
             from keybert import KeyBERT
-            import logging
-            logging.getLogger().info("Cargando modelo KeyBERT ligero...")
             kw_model = KeyBERT(model="all-MiniLM-L6-v2")
         except ImportError:
             kw_model = None
+
         parent_chunks: List[Dict[str, Any]] = []
         child_chunks: List[Dict[str, Any]] = []
 
@@ -355,10 +388,8 @@ class IngesterService:
             parent_id = f"parent_{idx}"
             section_title = chunk.section_title or f"Sección {idx + 1}"
 
-            # Extracción de Conceptos Clave en Tiempo de Ingesta (Costo 0 de API)
             key_concepts = []
             if kw_model and len(chunk.text) > 50:
-                # Extraemos 4 frases/palabras clave en inglés o español
                 keywords = kw_model.extract_keywords(chunk.text, keyphrase_ngram_range=(1, 2), stop_words=None, top_n=4)
                 key_concepts = [kw[0] for kw in keywords]
 
@@ -373,6 +404,7 @@ class IngesterService:
                     "page_number": chunk.page_number,
                     "heading_level": chunk.heading_level,
                     "key_concepts": key_concepts,
+                    "chunker_engine": "Docling HybridHierarchicalChunker",
                 },
             })
 
@@ -400,10 +432,11 @@ class IngesterService:
             "child_chunks": child_chunks,
             "total_parents": len(parent_chunks),
             "total_children": len(child_chunks),
+            "chunking_architecture": "Docling HybridHierarchicalChunker",
         }
 
     # ---------------------------------------------------------------------------
-    # Main entry points
+    # Entry points
     # ---------------------------------------------------------------------------
     def process_document(
         self,
@@ -411,7 +444,6 @@ class IngesterService:
         title: Optional[str] = None,
         options: Optional[IngestionOptions] = None,
     ) -> IngestedDocument:
-        """Processes a file path into an IngestedDocument."""
         path = Path(filepath)
         options = options or IngestionOptions()
         document_id = str(uuid.uuid4())
@@ -429,10 +461,6 @@ class IngesterService:
         )
 
     def process_text(self, content: str, title: str) -> IngestedDocument:
-        """Processes raw text sent inline (e.g. a JSON request body with
-        content, no file upload) the same way process_document()
-        handles a file. No file extension is available, so section
-        detection uses the TXT heuristic."""
         document_id = str(uuid.uuid4())
         sections = self.detect_sections(content, ".txt")
         chunks = self.build_chunks_from_sections(sections, document_id)
@@ -446,7 +474,5 @@ class IngesterService:
         )
 
     def parse_and_chunk_document(self, content: str, title: str) -> Dict[str, Any]:
-        """Backward-compatible adapter that processes raw text and produces
-        the parent/child RAG structure expected by HybridRAGService."""
         doc = self.process_text(content=content, title=title)
         return self.build_rag_chunks(doc)

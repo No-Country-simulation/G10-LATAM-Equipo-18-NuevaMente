@@ -75,7 +75,7 @@ class Settings(BaseModel):
     RRF_SPARSE_WEIGHT: float = 0.4
 
     # ── Ingestion Configuration ───────────────────────────────────────────────
-    SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".md", ".markdown", ".txt"]
+    SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".docx", ".pptx", ".html", ".htm", ".md", ".markdown", ".txt"]
     MAX_FILE_SIZE_MB: int = 20
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 150
