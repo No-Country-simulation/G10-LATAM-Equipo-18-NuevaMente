@@ -9,7 +9,6 @@ from app.core.config import settings
 from app.services.embedding_service import EmbeddingService
 from app.infrastructure.cohere_client import CohereClient
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -45,7 +44,6 @@ class HybridRAGService:
         variantes conceptuales para elevar la precisión de recuperación.
         """
         queries = [original_query]
-        # Generar variaciones léxicas sin llamadas costosas si la consulta es larga
         words = original_query.strip().split()
         if len(words) > 3:
             queries.append(" ".join(words[:4]))
@@ -103,6 +101,18 @@ class HybridRAGService:
 
         fused.sort(key=lambda x: x["rrf_score"], reverse=True)
         return fused
+
+    def _map_to_parents(self, children: List[Dict[str, Any]], parent_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Mapea fragmentos hijos a sus correspondientes bloques padres."""
+        parent_dict = {p["id"]: p for p in parent_chunks}
+        selected_parent_ids = set()
+        candidates = []
+        for child in children:
+            pid = child.get("parent_id") or child.get("id")
+            if pid and pid in parent_dict and pid not in selected_parent_ids:
+                selected_parent_ids.add(pid)
+                candidates.append(parent_dict[pid].copy())
+        return candidates
 
     def retrieve_top_passages(
         self,
@@ -172,17 +182,8 @@ class HybridRAGService:
         # ---------------------------------------------------------
         # 4. Parent Document Mapping
         # ---------------------------------------------------------
-        selected_parent_ids = set()
-        candidates_for_rerank = []
-        parent_dict = {p["id"]: p for p in parent_chunks}
-
-        for child_idx in top_n_children_indices:
-            child = child_chunks[child_idx]
-            pid = child["parent_id"]
-            if pid not in selected_parent_ids and pid in parent_dict:
-                selected_parent_ids.add(pid)
-                parent_obj = parent_dict[pid].copy()
-                candidates_for_rerank.append(parent_obj)
+        top_children_objs = [child_chunks[child_idx] for child_idx in top_n_children_indices]
+        candidates_for_rerank = self._map_to_parents(top_children_objs, parent_chunks)
 
         if not getattr(self.co_client, "client", None) or len(candidates_for_rerank) == 0:
             return candidates_for_rerank[:top_k]
