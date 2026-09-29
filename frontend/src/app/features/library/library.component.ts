@@ -313,7 +313,10 @@ export class LibraryComponent implements OnInit {
 
   private refreshProjects(): void {
     const list = this.stateService.getProjects();
-    if (list.length === 0) {
+    const isInitialized = localStorage.getItem('nuevamente_library_initialized');
+
+    if (list.length === 0 && !isInitialized) {
+      localStorage.setItem('nuevamente_library_initialized', 'true');
       const sampleRequest: AdaptationRequest = {
         documento_titulo: 'Guía Paso a Paso: MsJava',
         documento_contenido: 'MsJava Microservicios',
@@ -370,7 +373,7 @@ export class LibraryComponent implements OnInit {
       this.stateService.addProjectFromResponse(sampleRequest, sampleResponse);
       this.projectsList.set(this.stateService.getProjects());
     } else {
-      this.projectsList.set(list);
+      this.projectsList.set([...list]);
     }
   }
 
@@ -415,7 +418,10 @@ export class LibraryComponent implements OnInit {
   }
 
   deleteDoc(id: string): void {
-    this.stateService.deleteProject(id);
-    this.projectsList.set(this.stateService.getProjects());
+    if (confirm('¿Estás seguro de que deseas eliminar este documento de la biblioteca?')) {
+      localStorage.setItem('nuevamente_library_initialized', 'true');
+      this.stateService.deleteProject(id);
+      this.projectsList.set([...this.stateService.getProjects()]);
+    }
   }
 }
