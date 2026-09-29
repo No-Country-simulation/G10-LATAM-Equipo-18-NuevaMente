@@ -1,7 +1,11 @@
 import { Component, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 
 @Component({
   selector: 'app-parameter-config',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="config-panel">
       <h3 class="title">⚙️ Criterios de Personalización Didáctica</h3>

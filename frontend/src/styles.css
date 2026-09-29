@@ -1,47 +1,104 @@
-/* Global Design Tokens & Base CSS for NuevaMente */
+/* ==========================================================================
+   NUEVAMENTE - DESIGN SYSTEM TOKENS & GLOBAL STYLES
+   ========================================================================== */
 
 :root {
-  --primary: #3b82f6;
-  --primary-hover: #2563eb;
-  --primary-light: #eff6ff;
-  --primary-border: #bfdbfe;
+  /* Brand Palette (Indigo -> Violet) */
+  --primary-50: #EEF2FF;
+  --primary-100: #E0E7FF;
+  --primary-500: #6366F1;
+  --primary-600: #4F46E5;
+  --primary-700: #4338CA;
+  --primary-gradient: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
   
-  --dark: #0f172a;
-  --dark-heading: #1e293b;
-  --text-body: #475569;
-  --text-muted: #64748b;
-  --text-light: #94a3b8;
-  
-  --bg-page: #f8fafc;
-  --bg-card: #ffffff;
-  --bg-subtle: #f1f5f9;
-  
-  --border-color: #e2e8f0;
-  --border-focus: #93c5fd;
-  
-  --success: #10b981;
-  --success-bg: #ecfdf5;
-  --success-text: #047857;
-  
-  --warning: #f59e0b;
-  --warning-bg: #fffbeb;
-  --warning-text: #b45309;
-  
-  --info: #0284c7;
-  --info-bg: #f0f9ff;
+  /* AI & RAG Accent (Cyan) */
+  --accent-cyan: #22D3EE;
+  --accent-cyan-glow: rgba(34, 211, 238, 0.25);
+
+  /* Status Colors */
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-error: #EF4444;
+  --color-info: #3B82F6;
+
+  /* 10-Tone Neutrals (Slate) - Light Mode */
+  --slate-50: #F8FAFC;
+  --slate-100: #F1F5F9;
+  --slate-200: #E2E8F0;
+  --slate-300: #CBD5E1;
+  --slate-400: #94A3B8;
+  --slate-500: #64748B;
+  --slate-600: #475569;
+  --slate-700: #334155;
+  --slate-800: #1E293B;
+  --slate-900: #0F172A;
+
+  /* Semantic Theme Variables - Light Mode */
+  --bg-app: #F8FAFC;
+  --bg-surface: #FFFFFF;
+  --bg-surface-glass: rgba(255, 255, 255, 0.75);
+  --border-subtle: #E2E8F0;
+  --border-translucent: rgba(226, 232, 240, 0.8);
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
+  --text-muted: #94A3B8;
+
+  /* Profile Colors */
+  --color-principiante: #3B82F6;
+  --color-desarrollador: #10B981;
+  --color-lider: #8B5CF6;
+  --color-ejecutivo: #F59E0B;
+
+  /* Format Colors */
+  --fmt-flashcards: #EC4899;
+  --fmt-quiz: #8B5CF6;
+  --fmt-tutorial: #3B82F6;
+  --fmt-summary: #10B981;
+  --fmt-script: #F59E0B;
+
+  /* Typography */
+  --font-heading: 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+  --font-code: 'JetBrains Mono', monospace;
+
+  /* Radii & Shadows */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-xl: 28px;
   
   --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
-  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.07), 0 2px 4px -2px rgba(0, 0, 0, 0.05);
-  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -4px rgba(0, 0, 0, 0.05);
-  
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 16px;
-  --radius-full: 9999px;
-  
-  --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  --shadow-glow: 0 0 20px rgba(79, 70, 229, 0.2);
+
+  /* Transitions */
+  --transition-fast: 150ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --transition-normal: 250ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
+/* ==========================================================================
+   DARK MODE OVERRIDES
+   ========================================================================== */
+[data-theme="dark"] {
+  --bg-app: #090D16;
+  --bg-surface: #111827;
+  --bg-surface-glass: rgba(17, 24, 39, 0.8);
+  --border-subtle: #1F2937;
+  --border-translucent: rgba(31, 41, 55, 0.8);
+  --text-primary: #F9FAFB;
+  --text-secondary: #9CA3AF;
+  --text-muted: #6B7280;
+
+  --slate-50: #111827;
+  --slate-100: #1F2937;
+  --slate-200: #374151;
+  --slate-300: #4B5563;
+  --slate-400: #9CA3AF;
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+}
+
+/* Base Styles */
 * {
   box-sizing: border-box;
   margin: 0;
@@ -49,193 +106,141 @@
 }
 
 body {
-  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background-color: var(--bg-page);
-  color: var(--text-body);
+  font-family: var(--font-body);
+  background-color: var(--bg-app);
+  color: var(--text-primary);
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
 }
 
-/* Typography Helpers */
 h1, h2, h3, h4, h5, h6 {
-  color: var(--dark-heading);
+  font-family: var(--font-heading);
+  color: var(--text-primary);
   font-weight: 700;
-  line-height: 1.25;
 }
 
-a {
-  color: var(--primary);
-  text-decoration: none;
-  transition: var(--transition);
-}
-a:hover {
-  color: var(--primary-hover);
-}
-
-button {
-  font-family: inherit;
-  cursor: pointer;
-  border: none;
-  outline: none;
-}
-
-input, select, textarea {
-  font-family: inherit;
-  outline: none;
-}
-
-/* Common UI Elements */
-.badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.35rem;
-  padding: 0.25rem 0.75rem;
-  border-radius: var(--radius-full);
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-.badge-blue { background: var(--primary-light); color: var(--primary-hover); border: 1px solid var(--primary-border); }
-.badge-green { background: var(--success-bg); color: var(--success-text); border: 1px solid #a7f3d0; }
-.badge-yellow { background: var(--warning-bg); color: var(--warning-text); border: 1px solid #fde68a; }
-.badge-gray { background: #f1f5f9; color: var(--text-muted); border: 1px solid #cbd5e1; }
-
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  padding: 0.75rem 1.5rem;
+/* Utility Glassmorphism Class */
+.glass-card {
+  background: var(--bg-surface-glass);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  font-size: 0.95rem;
-  font-weight: 600;
-  transition: var(--transition);
-}
-.btn-primary {
-  background: var(--primary);
-  color: #ffffff;
-  box-shadow: 0 2px 4px rgba(59, 130, 246, 0.3);
-}
-.btn-primary:hover {
-  background: var(--primary-hover);
-  transform: translateY(-1px);
-  box-shadow: 0 4px 8px rgba(59, 130, 246, 0.4);
-}
-.btn-secondary {
-  background: #ffffff;
-  color: var(--dark-heading);
-  border: 1px solid var(--border-color);
-}
-.btn-secondary:hover {
-  background: var(--bg-subtle);
-  border-color: #cbd5e1;
-}
-.btn-ghost {
-  background: transparent;
-  color: var(--text-body);
-}
-.btn-ghost:hover {
-  background: var(--bg-subtle);
-  color: var(--dark-heading);
+  box-shadow: var(--shadow-md);
 }
 
-/* Form Styles */
-.form-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.4rem;
-  margin-bottom: 1.25rem;
-}
-.form-group label {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--dark-heading);
-}
-.form-group .form-subtext {
-  font-size: 0.78rem;
-  color: var(--text-muted);
-}
-.form-control {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-md);
-  border: 1px solid var(--border-color);
-  background: #ffffff;
-  font-size: 0.95rem;
-  color: var(--dark-heading);
-  transition: var(--transition);
-}
-.form-control:focus {
-  border-color: var(--primary);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+/* Skeleton Loaders */
+.skeleton-pulse {
+  background: linear-gradient(90deg, var(--slate-100) 25%, var(--slate-200) 50%, var(--slate-100) 75%);
+  background-size: 200% 100%;
+  animation: skeletonPulse 1.5s infinite;
+  border-radius: var(--radius-sm);
 }
 
-/* Card Container */
-.card-box {
-  background: var(--bg-card);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  box-shadow: var(--shadow-sm);
+@keyframes skeletonPulse {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
 }
 
-/* Stepper Indicator */
-.stepper-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  margin-bottom: 2rem;
-  position: relative;
-}
-.stepper-header::before {
-  content: '';
-  position: absolute;
-  top: 18px;
-  left: 40px;
-  right: 40px;
-  height: 2px;
-  background: #e2e8f0;
-  z-index: 1;
-}
-.step-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  z-index: 2;
-  background: var(--bg-page);
-  padding: 0 0.5rem;
-}
-.step-number {
-  width: 36px;
-  height: 36px;
-  border-radius: var(--radius-full);
-  background: #ffffff;
-  border: 2px solid #cbd5e1;
-  color: var(--text-muted);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 700;
-  font-size: 0.9rem;
-  transition: var(--transition);
-}
-.step-item.active .step-number {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #ffffff;
-  box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
-}
-.step-item.completed .step-number {
-  background: var(--primary);
-  border-color: var(--primary);
-  color: #ffffff;
-}
-.step-label {
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.step-item.active .step-label {
-  color: var(--primary);
-  font-weight: 700;
+/* ==========================================================================
+   STRICT PDF / PRINT MEDIA OVERRIDES (@media print)
+   ========================================================================== */
+@media print {
+  /* 1. Hide All Sidebar Navigation & Web UI Elements with High Specificity */
+  html body aside,
+  html body .sidebar-shell,
+  html body .sidebar,
+  html body .sidebar-brand,
+  html body .sidebar-nav,
+  html body .sidebar-footer,
+  html body .app-topbar,
+  html body .workspace-header,
+  html body .presets-row,
+  html body .result-action-bar,
+  html body .controls-row,
+  html body .keyboard-hint,
+  html body .study-bar,
+  html body .review-buttons,
+  html body .btn-nav,
+  html body .btn-action,
+  html body .btn-copy,
+  html body .btn-copy-id,
+  html body .btn-close,
+  html body .btn-pause-anim,
+  html body .btn-exp,
+  html body .btn-back,
+  html body .no-print,
+  html body button,
+  html body .json-section,
+  html body .top-controls,
+  html body .drawer-overlay {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    width: 0 !important;
+    opacity: 0 !important;
+    position: absolute !important;
+    left: -9999px !important;
+    top: -9999px !important;
+  }
+
+  /* 2. Reset Page Layout & Margins so Content Starts Top-Left */
+  @page {
+    margin: 1.5cm;
+    size: auto;
+  }
+
+  html, body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    font-size: 11pt !important;
+  }
+
+  html body .app-shell-layout,
+  html body .main-content-area,
+  html body .workspace-layout,
+  html body .result-viewer-container {
+    margin: 0 !important;
+    margin-left: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    display: block !important;
+    position: static !important;
+    left: 0 !important;
+    top: 0 !important;
+  }
+
+  /* 3. Clean Card Borders and Backgrounds for Paper */
+  .glass-card,
+  .result-header,
+  .quality-card,
+  .oci-card,
+  .summary-card,
+  .step-content,
+  .scene-row {
+    background: #ffffff !important;
+    border: 1px solid #d1d5db !important;
+    box-shadow: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    color: #000000 !important;
+    page-break-inside: avoid !important;
+    margin-bottom: 1.25rem !important;
+  }
+
+  h1, h2, h3, h4, p, span, div {
+    color: #000000 !important;
+    text-shadow: none !important;
+  }
+
+  /* 4. Disable 3D Transforms in Print */
+  .card-3d-wrapper, .card-3d, .card-face {
+    transform: none !important;
+    perspective: none !important;
+    backface-visibility: visible !important;
+  }
 }

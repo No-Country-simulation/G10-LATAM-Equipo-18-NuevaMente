@@ -28,7 +28,9 @@ except ImportError:
 # Module-level constants used inside the class to avoid cross-field references.
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 _JINA_EMBED_MODEL = "jina-embeddings-v3"
-_LOCAL_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+# 768-dim local model, matched to EMBEDDING_DIMENSIONS below so FAISS and
+# pgvector indexes stay interchangeable regardless of which provider produced them.
+_LOCAL_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
 
 
 class Settings(BaseModel):
@@ -60,9 +62,66 @@ class Settings(BaseModel):
     DEFAULT_EMBEDDING_MODEL: str = _GEMINI_EMBED_MODEL
     LOCAL_EMBEDDING_MODEL: str = _LOCAL_EMBED_MODEL
 
+    # Fixed output dimension enforced across every provider (Gemini, Jina, local),
+    # so FAISS and a future pgvector column always hold compatible vectors.
+    EMBEDDING_DIMENSIONS: int = int(os.getenv("EMBEDDING_DIMENSIONS", "768"))
+
+    # Number of texts sent per API call in embed_batch(). Kept conservative
+    # since the exact provider ceiling isn't confirmed; EmbeddingService
+    # halves this automatically on a batch-size related failure.
+    EMBEDDING_BATCH_SIZE: int = int(os.getenv("EMBEDDING_BATCH_SIZE", "50"))
+
+    # Provider rate limits, token thresholds, and batch configurations.
+    GEMINI_MAX_RPM: int = int(os.getenv("GEMINI_MAX_RPM", "100"))
+    GEMINI_MAX_TPM: int = int(os.getenv("GEMINI_MAX_TPM", "30000"))
+    GEMINI_MAX_RPD: int = int(os.getenv("GEMINI_MAX_RPD", "1000"))
+    GEMINI_SAFE_TPM: int = int(os.getenv("GEMINI_SAFE_TPM", "25000"))
+    # Safe ceilings enforced by the shared rate limiter. Each text in a batch
+    # counts as one request, so these are measured in texts, not API calls.
+    GEMINI_SAFE_RPM: int = int(os.getenv("GEMINI_SAFE_RPM", "80"))
+    GEMINI_SAFE_RPD: int = int(os.getenv("GEMINI_SAFE_RPD", "900"))
+    # Maximum total wait (seconds) accepted to index one document with Gemini
+    # before routing it to the next provider instead.
+    GEMINI_MAX_WAIT_SECONDS: int = int(os.getenv("GEMINI_MAX_WAIT_SECONDS", "600"))
+    # Upper bound of texts per Gemini call; the effective size is also capped by GEMINI_SAFE_RPM.
+    GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "20"))
+
+    # Full passes over the provider chain when indexing a document (1 = no retry pass).
+    EMBEDDING_CHAIN_ROUNDS: int = int(os.getenv("EMBEDDING_CHAIN_ROUNDS", "2"))
+    # Waits allowed on one provider after a mid-document failure, before its partial results are discarded.
+    EMBEDDING_PARTIAL_RETRIES: int = int(os.getenv("EMBEDDING_PARTIAL_RETRIES", "2"))
+    # Default wait (seconds) between retries when the provider gives no retry delay.
+    EMBEDDING_RETRY_WAIT_SECONDS: int = int(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "60"))
+
+    JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
+    JINA_MAX_TPM: int = int(os.getenv("JINA_MAX_TPM", "100000"))
+    JINA_SAFE_TPM: int = int(os.getenv("JINA_SAFE_TPM", "90000"))
+    JINA_BATCH_SIZE: int = int(os.getenv("JINA_BATCH_SIZE", "50"))
+
+    LOCAL_BATCH_SIZE: int = int(os.getenv("LOCAL_BATCH_SIZE", "32"))
+    # Max tokens per text for the local model; longer texts are truncated silently by the
+    # library, so a warning is logged when a text exceeds it. The model supports up to 512.
+    LOCAL_MAX_SEQ_LENGTH: int = int(os.getenv("LOCAL_MAX_SEQ_LENGTH", "256"))
+
+    # Priority order for embedding provider fallback.
+    EMBEDDING_FALLBACK_CHAIN: List[str] = ["gemini", "jina", "local"]
+
     # ── Vector Store Configuration ────────────────────────────────────────────
-    VECTOR_STORE_METHOD: str = os.getenv("VECTOR_STORE_METHOD", "chroma")
+    # VECTOR_STORE_METHOD: "faiss" (default, local per-document index) or "pgvector".
+    VECTOR_STORE_METHOD: str = os.getenv("VECTOR_STORE_METHOD", "faiss")
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
+
+    # ── Document Storage Configuration (original uploaded files) ──────────────
+    # STORAGE_METHOD: "supabase" (Supabase Storage) or "oci" (pending an OCI
+    # adapter behind the same BaseDocumentStorage interface).
+    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "supabase")
+ 
+    # Supabase project credentials. SUPABASE_KEY must be the service_role key
+    # (backend-only, bypasses Row Level Security) — never the anon/public key,
+    # and never committed; it belongs in .env only.
+    SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
+    SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
+    SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
@@ -75,11 +134,20 @@ class Settings(BaseModel):
     RRF_SPARSE_WEIGHT: float = 0.4
 
     # ── Ingestion Configuration ───────────────────────────────────────────────
-    SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".docx", ".pptx", ".html", ".htm", ".md", ".markdown", ".txt"]
+    SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".md", ".markdown", ".txt"]
     MAX_FILE_SIZE_MB: int = 20
+    # Parent chunks: large context windows sent to the LLM for generation.
     CHUNK_SIZE: int = 1000
     CHUNK_OVERLAP: int = 150
-    CHILD_CHUNK_SIZE: int = 150
+    # Child chunks: smaller dense units embedded and indexed in FAISS.
+    # Must be strictly less than CHUNK_SIZE and greater than CHILD_CHUNK_OVERLAP.
+    CHILD_CHUNK_SIZE: int = int(os.getenv("CHILD_CHUNK_SIZE", "400"))
+    CHILD_CHUNK_OVERLAP: int = int(os.getenv("CHILD_CHUNK_OVERLAP", "40"))
+
+    # Extracts short key-concept tags per chunk at ingestion time (KeyBERT).
+    # Disabled by default: it loads its own local model and adds ingestion
+    # latency, so it's opt-in until measured on real documents.
+    USE_KEYBERT_CONCEPTS: bool = os.getenv("USE_KEYBERT_CONCEPTS", "false").lower() == "true"
 
     # ── Domain Profiles ───────────────────────────────────────────────────────
     PROFILE_BEGINNER: str = "beginner"

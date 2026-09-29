@@ -1,9 +1,13 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/models/adaptation.model';
 
 @Component({
   selector: 'app-content-viewer',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="result-viewer-container">
       <!-- Top Action Bar -->
@@ -1141,7 +1145,7 @@ export class ContentViewerComponent {
           </div>
 
           <!-- TL;DR / Resumen Ejecutivo -->
-          ${(this.isTldrFormat || this.isTutorialFormat) && this.contenido?.resumen_ejecutivo ? `
+          ${this.contenido?.resumen_ejecutivo ? `
             <div class="tldr-container">
               <h3 class="tldr-title">⚡ Resumen Ejecutivo (TL;DR)</h3>
               <div class="tldr-content">${this.formatContentToHtml(this.contenido.resumen_ejecutivo)}</div>
@@ -1149,7 +1153,7 @@ export class ContentViewerComponent {
           ` : ''}
 
           <!-- Tutorial / Guía Paso a Paso -->
-          ${(this.isTutorialFormat || this.isTldrFormat) && this.contenido?.secciones_tutorial ? `
+          ${this.contenido?.secciones_tutorial && this.contenido.secciones_tutorial.length > 0 ? `
             <h2 class="section-heading-pdf">Módulos de Aprendizaje & Diagramas</h2>
             ${this.contenido.secciones_tutorial.map((sec, idx) => `
               <div class="card-box">
@@ -1160,13 +1164,13 @@ export class ContentViewerComponent {
           ` : ''}
 
           <!-- Flashcards -->
-          ${this.isFlashcardFormat && this.contenido?.items ? `
+          ${this.contenido?.items && this.contenido.items.length > 0 ? `
             <h2 class="section-heading-pdf">Flashcards de Memorización</h2>
-            ${this.contenido.items.map((item, idx) => `
+            ${this.contenido.items.map((item: any, idx: number) => `
               <div class="card-box">
-                <div class="flashcard-q">Card #${idx + 1}: ${item.frente}</div>
+                <div class="flashcard-q">Card #${idx + 1}: ${item.frente || item.titulo || ''}</div>
                 <div class="flashcard-a">
-                  <strong>Respuesta:</strong> ${item.dorso}
+                  <strong>Respuesta:</strong> ${item.dorso || item.instruccion || ''}
                   ${item.pista_didactica ? `<div style="font-size:0.82rem; color:#64748b; margin-top:6px;"><em>Pista didáctica: ${item.pista_didactica}</em></div>` : ''}
                 </div>
               </div>
@@ -1174,13 +1178,13 @@ export class ContentViewerComponent {
           ` : ''}
 
           <!-- Quiz Interactivo -->
-          ${this.isQuizFormat && this.contenido?.quizzes ? `
+          ${this.contenido?.quizzes && this.contenido.quizzes.length > 0 ? `
             <h2 class="section-heading-pdf">Quiz de Evaluación Interactiva</h2>
-            ${this.contenido.quizzes.map((q, idx) => `
+            ${this.contenido.quizzes.map((q: any, idx: number) => `
               <div class="card-box">
                 <h3 class="card-title">Pregunta #${idx + 1}: ${q.pregunta}</h3>
                 <div style="margin: 10px 0;">
-                  ${q.opciones.map(opt => `
+                  ${q.opciones.map((opt: string) => `
                     <div class="quiz-option-item ${opt === q.respuesta_correcta ? 'is-correct' : ''}">
                       <span>${opt === q.respuesta_correcta ? '✓' : '⚪'}</span>
                       <span>${opt}</span>
@@ -1188,7 +1192,7 @@ export class ContentViewerComponent {
                   `).join('')}
                 </div>
                 <div class="justification-callout">
-                  <strong>Justificación Pedagógica:</strong> ${q.justificacion_didactica}
+                  <strong>Justificación Pedagógica:</strong> ${q.justificacion || q.justificacion_didactica || ''}
                 </div>
               </div>
             `).join('')}

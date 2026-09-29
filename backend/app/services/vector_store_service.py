@@ -8,10 +8,16 @@ Purpose:
     and model compatibility tracking. Designed to allow seamless substitution
     with alternative stores such as Supabase (pgvector).
 
+    Also exposes a factory (get_store / save_store) that gives each document
+    its own FAISS index under VECTOR_STORE_DIR/{document_id}/, since content
+    generation always works against a single document — never a cross-
+    document search — so indexes never need to mix documents together.
+
 Input:
     - Text chunks and metadata produced by IngesterService.
     - Vector embeddings produced by EmbeddingService.
     - Query vector and query model identifier for retrieval.
+    - document_id, to resolve which per-document index to open (factory only).
 
 Output:
     - Ranked search results (child chunks with similarity scores).
@@ -26,6 +32,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -304,3 +312,67 @@ class FAISSVectorStore(BaseVectorStore):
             self.index.ntotal,
             self.model_name,
         )
+
+
+# ---------------------------------------------------------------------------
+# Store factory (per-document FAISS indices)
+# ---------------------------------------------------------------------------
+# Content generation always targets a single document, never a cross-document
+# search, so each document gets its own index directory instead of one shared
+# index. This keeps deleting a document (drop its folder) and swapping this
+# factory's internals for a future pgvector-backed one both straightforward,
+# without changing BaseVectorStore or FAISSVectorStore themselves.
+
+# In-process cache so repeated calls for the same document within one running
+# server reuse the already-loaded store instead of hitting disk every time.
+# Not shared across processes or safe for concurrent writers — acceptable at
+# hackathon scale with a single backend process.
+_store_cache: Dict[str, FAISSVectorStore] = {}
+
+
+def _document_store_dir(document_id: str) -> Path:
+    """Resolves the on-disk directory for one document's FAISS index."""
+    return Path(settings.VECTOR_STORE_DIR) / document_id
+
+
+def get_store(document_id: str) -> FAISSVectorStore:
+    """
+    Returns the FAISS store for a given document, creating an empty one if
+    none exists yet on disk. Callers add_documents() and save_store() as needed;
+    this function never writes to disk by itself.
+    """
+    if document_id in _store_cache:
+        return _store_cache[document_id]
+
+    store_dir = _document_store_dir(document_id)
+    # Deliberately not pre-initialized with a dimension: FAISSVectorStore
+    # only sets self.model_name on its first add_documents() call, which is
+    # gated on self.index being None. Pre-creating the index here would skip
+    # that branch and silently leave model_name empty forever, breaking the
+    # incompatible-model check in similarity_search(). The dimension is still
+    # enforced — embedding_service.py guarantees every vector already has
+    # settings.EMBEDDING_DIMENSIONS before it reaches add_documents().
+    store = FAISSVectorStore()
+
+    if (store_dir / "index.faiss").exists() and (store_dir / "metadata.json").exists():
+        store.load(str(store_dir))
+    else:
+        logger.info("No existing index for document_id=%s — starting a new one.", document_id)
+
+    _store_cache[document_id] = store
+    return store
+
+
+def save_store(document_id: str, store: FAISSVectorStore) -> None:
+    """Persists a document's store to its on-disk directory and refreshes the cache."""
+    store.save(str(_document_store_dir(document_id)))
+    _store_cache[document_id] = store
+
+
+def clear_store_cache(document_id: Optional[str] = None) -> None:
+    """Drops the in-process cache for one document, or all of them if omitted.
+    Useful in tests, or after a document is deleted from disk."""
+    if document_id is None:
+        _store_cache.clear()
+    else:
+        _store_cache.pop(document_id, None)

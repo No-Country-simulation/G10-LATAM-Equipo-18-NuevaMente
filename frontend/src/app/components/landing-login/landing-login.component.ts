@@ -1,4 +1,6 @@
 import { Component, EventEmitter, Output } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 
 export interface LoginEvent {
@@ -9,6 +11,8 @@ export interface LoginEvent {
 
 @Component({
   selector: 'app-landing-login',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="landing-page">
       <!-- Navbar header for Landing -->
