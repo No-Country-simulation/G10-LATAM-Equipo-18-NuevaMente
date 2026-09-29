@@ -128,6 +128,7 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
       height: 100%;
       position: relative;
       transform-style: preserve-3d;
+      -webkit-transform-style: preserve-3d;
       transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
@@ -138,7 +139,12 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
     .card-face {
       position: absolute;
       inset: 0;
-      backface-visibility: hidden;
+      width: 100%;
+      height: 100%;
+      backface-visibility: hidden !important;
+      -webkit-backface-visibility: hidden !important;
+      transform-style: preserve-3d;
+      -webkit-transform-style: preserve-3d;
       border-radius: 20px;
       padding: 2.25rem;
       display: flex;
@@ -150,13 +156,32 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
     }
 
     .card-front {
+      transform: rotateY(0deg);
       border-top: 4px solid #EC4899;
+      background: var(--bg-surface);
+      z-index: 2;
     }
 
     .card-back {
       transform: rotateY(180deg);
       border-top: 4px solid #10B981;
-      background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(16, 185, 129, 0.04) 100%);
+      background: var(--bg-surface);
+      z-index: 1;
+    }
+
+    /* Hide unexposed face when flipped to prevent text ghosting/overlap */
+    .card-3d.flipped .card-front {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s 0.2s, visibility 0.15s 0.2s;
+    }
+
+    .card-3d:not(.flipped) .card-back {
+      opacity: 0;
+      visibility: hidden;
+      pointer-events: none;
+      transition: opacity 0.15s 0.2s, visibility 0.15s 0.2s;
     }
 
     .face-badge {
