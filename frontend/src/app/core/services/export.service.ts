@@ -25,7 +25,7 @@ export class ExportService {
         if (item.pista_didactica) md += `- *Pista:* ${item.pista_didactica}\n`;
       } else if ('pregunta' in item) {
         md += `### Pregunta ${idx + 1}: ${item.pregunta}\n`;
-        item.opciones.forEach((opt: string) => md += `  - [ ] ${opt}\n`);
+        (item.opciones || []).forEach((opt: string) => md += `  - [ ] ${opt}\n`);
         md += `**Respuesta Correcta:** ${item.respuesta_correcta}\n`;
         md += `*Justificación:* ${item.justificacion || item.justificacion_didactica}\n`;
       } else if ('paso' in item) {
@@ -68,9 +68,9 @@ export class ExportService {
   }
 
   exportPdfDidactico(response: AdaptationResponse): void {
-    const printWindow = window.open('', '_blank', 'width=900,height=900');
+    const printWindow = window.open('', '_blank', 'width=950,height=900,scrollbars=yes');
     if (!printWindow) {
-      window.print();
+      alert('Por favor permite ventanas emergentes (popups) en tu navegador para ver la vista previa del PDF.');
       return;
     }
 
@@ -83,7 +83,6 @@ export class ExportService {
 
     items.forEach((item: any, idx: number) => {
       if ('paso' in item || 'instruccion' in item) {
-        // Tutorial Item
         itemsHtml += `
           <div class="pdf-card">
             <div class="card-step-badge">PASO ${item.paso || idx + 1}</div>
@@ -104,7 +103,6 @@ export class ExportService {
           </div>
         `;
       } else if ('frente' in item) {
-        // Flashcard Item
         itemsHtml += `
           <div class="pdf-card">
             <div class="card-step-badge">TARJETA #${idx + 1}</div>
@@ -114,7 +112,6 @@ export class ExportService {
           </div>
         `;
       } else if ('pregunta' in item) {
-        // Quiz Item
         itemsHtml += `
           <div class="pdf-card">
             <div class="card-step-badge">PREGUNTA #${idx + 1}</div>
@@ -132,7 +129,6 @@ export class ExportService {
           </div>
         `;
       } else if ('punto_clave' in item) {
-        // Resumen Ejecutivo Item
         itemsHtml += `
           <div class="pdf-card">
             <div class="card-step-badge">PUNTO CLAVE 0${idx + 1}</div>
@@ -144,7 +140,6 @@ export class ExportService {
           </div>
         `;
       } else if ('escena' in item) {
-        // Guion de Clase Item
         itemsHtml += `
           <div class="pdf-card">
             <div class="card-step-badge">ESCENA ${item.escena} (${item.duracion_seg}s)</div>
@@ -162,8 +157,29 @@ export class ExportService {
         <meta charset="utf-8">
         <title>${title} - PDF Didáctico NuevaMente</title>
         <style>
-          @page { size: A4; margin: 2cm; }
-          body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0f172a; line-height: 1.5; margin: 0; padding: 0; background: #fff; }
+          @page { size: A4; margin: 1.5cm; }
+          body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0f172a; line-height: 1.5; margin: 0; padding: 0; background: #f8fafc; }
+          
+          /* Top Action Bar (hidden when printing) */
+          .no-print-bar {
+            position: sticky; top: 0; z-index: 100;
+            background: #0f172a; color: #ffffff;
+            padding: 12px 24px; display: flex; justify-content: space-between; align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          }
+          .no-print-bar span { font-size: 14px; font-weight: 600; color: #e2e8f0; }
+          .action-btns { display: flex; gap: 10px; }
+          .btn-print { background: #4f46e5; color: #ffffff; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; cursor: pointer; font-size: 13px; }
+          .btn-print:hover { background: #4338ca; }
+          .btn-close { background: rgba(255,255,255,0.15); color: #ffffff; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 13px; }
+          .btn-close:hover { background: rgba(255,255,255,0.25); }
+
+          @media print {
+            .no-print-bar { display: none !important; }
+            body { background: #ffffff; }
+          }
+
+          .document-wrapper { max-width: 800px; margin: 20px auto; padding: 30px; background: #ffffff; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.05); }
           .pdf-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #4f46e5; padding-bottom: 12px; margin-bottom: 24px; }
           .brand-title { font-size: 20px; font-weight: 800; color: #4f46e5; }
           .oracle-badge { font-size: 11px; font-weight: 700; color: #ea580c; background: #fff7ed; padding: 3px 8px; border-radius: 4px; border: 1px solid #ffedd5; }
@@ -192,52 +208,51 @@ export class ExportService {
         </style>
       </head>
       <body>
-        <div class="pdf-header">
-          <div class="brand-title">🎓 NuevaMente — Adaptación Educativa</div>
-          <div class="oracle-badge">Powered by Oracle Cloud Infrastructure</div>
+        <div class="no-print-bar">
+          <span>📄 Vista Previa PDF — NuevaMente Adaptación Educativa</span>
+          <div class="action-btns">
+            <button onclick="window.print()" class="btn-print">🖨️ Imprimir / Guardar PDF</button>
+            <button onclick="window.close()" class="btn-close">❌ Cerrar</button>
+          </div>
         </div>
 
-        <div class="meta-chips">
-          <span class="chip chip-profile">👤 Perfil: ${response.metadatos.perfil_aplicado}</span>
-          <span class="chip chip-format">🎯 Formato: ${response.metadatos.formato_generado}</span>
-          <span class="chip">⏱️ Tiempo Estudio: ${response.metadatos.tiempo_estimado_estudio_minutos} min</span>
-          <span class="chip">🛡️ Fidelidad RAG: ${scorePct}%</span>
+        <div class="document-wrapper">
+          <div class="pdf-header">
+            <div class="brand-title">🎓 NuevaMente — Adaptación Educativa</div>
+            <div class="oracle-badge">Powered by Oracle Cloud Infrastructure</div>
+          </div>
+
+          <div class="meta-chips">
+            <span class="chip chip-profile">👤 Perfil: ${response.metadatos.perfil_aplicado}</span>
+            <span class="chip chip-format">🎯 Formato: ${response.metadatos.formato_generado}</span>
+            <span class="chip">⏱️ Tiempo Estudio: ${response.metadatos.tiempo_estimado_estudio_minutos} min</span>
+            <span class="chip">🛡️ Fidelidad RAG: ${scorePct}%</span>
+          </div>
+
+          <h1 class="doc-title">${title}</h1>
+          <p class="intro-text">${response.contenido_adaptado.introduccion_contextualizada}</p>
+
+          <div class="items-wrapper">
+            ${itemsHtml}
+          </div>
+
+          <div class="quality-panel-pdf">
+            <div class="quality-title">🛡️ Panel de Calidad y Anclaje RAG Verificado (Score: ${scorePct}%)</div>
+            <p style="font-size:12px; color:#065f46; margin:0;">
+              <strong>Claridad Pedagógica:</strong> ${response.evaluacion_calidad.claridad_pedagogica} | 
+              <strong>Observaciones:</strong> ${response.evaluacion_calidad.observaciones}
+            </p>
+          </div>
+
+          <div class="oci-footer-card">
+            <strong>☁️ Persistencia OCI Object Storage:</strong> Bucket: <code>${response.almacenamiento_oci?.bucket || 'nuevamente-contenidos-educativos'}</code> | Objeto ID: <code>${response.almacenamiento_oci?.objeto_id || 'obj_' + Date.now()}</code>
+          </div>
+
+          <div class="pdf-footer">
+            <span>Generado por NuevaMente RAG • Oracle Next Education × Alura (Grupo 10)</span>
+            <span>${dateStr}</span>
+          </div>
         </div>
-
-        <h1 class="doc-title">${title}</h1>
-        <p class="intro-text">${response.contenido_adaptado.introduccion_contextualizada}</p>
-
-        <div class="items-wrapper">
-          ${itemsHtml}
-        </div>
-
-        <!-- Panel de Calidad RAG -->
-        <div class="quality-panel-pdf">
-          <div class="quality-title">🛡️ Panel de Calidad y Anclaje RAG Verificado (Score: ${scorePct}%)</div>
-          <p style="font-size:12px; color:#065f46; margin:0;">
-            <strong>Claridad Pedagógica:</strong> ${response.evaluacion_calidad.claridad_pedagogica} | 
-            <strong>Observaciones:</strong> ${response.evaluacion_calidad.observaciones}
-          </p>
-        </div>
-
-        <!-- OCI Metadata -->
-        <div class="oci-footer-card">
-          <strong>☁️ Persistencia OCI Object Storage:</strong> Bucket: <code>${response.almacenamiento_oci?.bucket}</code> | Objeto ID: <code>${response.almacenamiento_oci?.objeto_id}</code>
-        </div>
-
-        <div class="pdf-footer">
-          <span>Generado por NuevaMente RAG • Oracle Next Education × Alura (Grupo 10)</span>
-          <span>${dateStr}</span>
-        </div>
-
-        <script>
-          window.onload = function() {
-            setTimeout(function() {
-              window.print();
-              window.close();
-            }, 300);
-          };
-        </script>
       </body>
       </html>
     `;
