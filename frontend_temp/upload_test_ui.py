@@ -3,19 +3,23 @@ upload_test_ui.py (frontend_temp)
 
 Purpose:
     Gradio web interface for testing document ingestion, chunking, embedding
-    generation, and vector store indexing. Displays real-time pipeline status,
-    active model identification, and samples of generated chunks and vectors.
+    generation, and vector store indexing. Displays live pipeline progress
+    (batches, waits, retries, provider switches), active model identification,
+    and samples of generated chunks and vectors.
 
 Input:
     Uploaded document file (.pdf, .md, .markdown, .txt) and optional title,
     or document identifier for existing indexed stores.
 
 Output:
-    Document processing status, active embedding model details, and formatted
-    inspection samples (first, second, penultimate, and final chunks with vector values).
+    Live progress messages while processing, then document processing status,
+    active embedding model details, and formatted inspection samples (first,
+    second, penultimate, and final chunks with vector values).
 """
 
+import queue
 import sys
+import threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -27,11 +31,25 @@ sys.path.insert(0, str(BACKEND_DIR))
 
 from app.services.document_pipeline_service import process_and_index_document
 from app.services.document_repository import get_document_repository
+from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import get_store
 
 DOCUMENT_TABLE_HEADERS = [
     "document_id", "title", "status", "total_parents", "total_children", "created_at",
 ]
+
+# Icon shown next to each pipeline stage in the live progress list.
+STAGE_ICONS = {
+    "uploading": "📤",
+    "ingesting": "📄",
+    "embedding": "🧮",
+    "waiting": "⏸️",
+    "retrying": "🔁",
+    "switching_provider": "🔀",
+    "indexing": "🗂️",
+    "ready": "✅",
+    "failed": "❌",
+}
 
 
 def select_sample_indices(total_count: int) -> List[Tuple[str, int]]:
@@ -144,20 +162,77 @@ def format_document_inspection(document_id: str) -> str:
     return "\n".join(lines)
 
 
+def format_progress_line(event: Dict[str, Any]) -> str:
+    """Formats one pipeline event as a Markdown line, with a text progress bar when counts are present."""
+    icon = STAGE_ICONS.get(event.get("stage", ""), "•")
+    line = f"{icon} {event.get('message', '')}"
+
+    current, total = event.get("current"), event.get("total")
+    if event.get("stage") == "embedding" and current is not None and total:
+        filled = round(10 * current / total)
+        line += f"  `{'█' * filled}{'░' * (10 - filled)}` {round(100 * current / total)}%"
+    return line
+
+
+def render_progress(lines: List[str], working: bool) -> str:
+    """Builds the live progress Markdown: the history so far, marked as running while work continues."""
+    header = "### ⏳ Procesando documento…" if working else "### 🧾 Registro del proceso"
+    return header + "\n\n" + "\n\n".join(lines)
+
+
 def handle_upload(file_path: str, title: str):
-    """Executes ingestion pipeline and yields progress followed by inspection details."""
+    """Runs the ingestion pipeline in a worker thread and yields live progress, then the final report."""
     if not file_path:
         yield "⚠️ No se seleccionó ningún archivo."
         return
 
-    yield "⏳ Procesando documento... esto puede tardar varios segundos (subida, ingesta, embeddings e indexado)."
+    events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+    outcome: Dict[str, Any] = {}
 
-    try:
-        record = process_and_index_document(local_path=file_path, title=title or None)
-    except Exception as exc:
-        yield f"❌ **El pipeline falló antes de crear el registro del documento:**\n\n{exc}"
+    def run_pipeline() -> None:
+        try:
+            outcome["record"] = process_and_index_document(
+                local_path=file_path,
+                title=title or None,
+                on_progress=events.put,
+            )
+        except Exception as exc:
+            outcome["error"] = exc
+        finally:
+            events.put(None)  # Sentinel: the pipeline finished (successfully or not).
+
+    threading.Thread(target=run_pipeline, daemon=True).start()
+
+    progress_lines: List[str] = []
+    last_stage: Optional[str] = None
+    yield render_progress(["⏳ Iniciando…"], working=True)
+
+    while True:
+        event = events.get()
+        if event is None:
+            break
+
+        line = format_progress_line(event)
+        # Consecutive embedding events update one line instead of listing every batch.
+        if event.get("stage") == "embedding" and last_stage == "embedding":
+            progress_lines[-1] = line
+        else:
+            progress_lines.append(line)
+        last_stage = event.get("stage")
+
+        yield render_progress(progress_lines, working=True)
+
+    progress_log = render_progress(progress_lines, working=False)
+
+    if "error" in outcome:
+        yield (
+            f"❌ **El pipeline falló:**\n\n{outcome['error']}\n\n"
+            "Si el documento ya se había registrado, quedó con estado `failed` "
+            "en la pestaña *Documentos existentes*.\n\n---\n\n" + progress_log
+        )
         return
 
+    record = outcome["record"]
     summary_lines = [
         "### 📄 Document Pipeline Summary",
         f"- **document_id:** `{record.document_id}`",
@@ -170,13 +245,11 @@ def handle_upload(file_path: str, title: str):
     if record.error_message:
         summary_lines.append(f"- **error_message:** `{record.error_message}`")
 
+    full_output = "\n".join(summary_lines)
     if record.status == "ready":
-        inspection_details = format_document_inspection(record.document_id)
-        full_output = "\n".join(summary_lines) + "\n\n---\n\n" + inspection_details
-    else:
-        full_output = "\n".join(summary_lines)
+        full_output += "\n\n---\n\n" + format_document_inspection(record.document_id)
 
-    yield full_output
+    yield full_output + "\n\n---\n\n" + progress_log
 
 
 def list_documents_table():
@@ -236,5 +309,10 @@ with gr.Blocks(title="NuevaMente — Prueba de carga") as demo:
 
 
 if __name__ == "__main__":
+    # Reports at startup whether the local embedding fallback can load, so a
+    # missing dependency is visible now and not in the middle of an upload.
+    local_available, local_message = EmbeddingService().check_local_available()
+    print(f"[Fallback local] {'OK' if local_available else 'NO DISPONIBLE'}: {local_message}")
+
     demo.queue()
     demo.launch()

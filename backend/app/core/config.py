@@ -76,8 +76,22 @@ class Settings(BaseModel):
     GEMINI_MAX_TPM: int = int(os.getenv("GEMINI_MAX_TPM", "30000"))
     GEMINI_MAX_RPD: int = int(os.getenv("GEMINI_MAX_RPD", "1000"))
     GEMINI_SAFE_TPM: int = int(os.getenv("GEMINI_SAFE_TPM", "25000"))
-    # Conservative batch size: 20 texts × ~300 chars avg ≈ 1,500 tokens/request.
+    # Safe ceilings enforced by the shared rate limiter. Each text in a batch
+    # counts as one request, so these are measured in texts, not API calls.
+    GEMINI_SAFE_RPM: int = int(os.getenv("GEMINI_SAFE_RPM", "80"))
+    GEMINI_SAFE_RPD: int = int(os.getenv("GEMINI_SAFE_RPD", "900"))
+    # Maximum total wait (seconds) accepted to index one document with Gemini
+    # before routing it to the next provider instead.
+    GEMINI_MAX_WAIT_SECONDS: int = int(os.getenv("GEMINI_MAX_WAIT_SECONDS", "600"))
+    # Upper bound of texts per Gemini call; the effective size is also capped by GEMINI_SAFE_RPM.
     GEMINI_BATCH_SIZE: int = int(os.getenv("GEMINI_BATCH_SIZE", "20"))
+
+    # Full passes over the provider chain when indexing a document (1 = no retry pass).
+    EMBEDDING_CHAIN_ROUNDS: int = int(os.getenv("EMBEDDING_CHAIN_ROUNDS", "2"))
+    # Waits allowed on one provider after a mid-document failure, before its partial results are discarded.
+    EMBEDDING_PARTIAL_RETRIES: int = int(os.getenv("EMBEDDING_PARTIAL_RETRIES", "2"))
+    # Default wait (seconds) between retries when the provider gives no retry delay.
+    EMBEDDING_RETRY_WAIT_SECONDS: int = int(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "60"))
 
     JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
     JINA_MAX_TPM: int = int(os.getenv("JINA_MAX_TPM", "100000"))
@@ -85,6 +99,9 @@ class Settings(BaseModel):
     JINA_BATCH_SIZE: int = int(os.getenv("JINA_BATCH_SIZE", "50"))
 
     LOCAL_BATCH_SIZE: int = int(os.getenv("LOCAL_BATCH_SIZE", "32"))
+    # Max tokens per text for the local model; longer texts are truncated silently by the
+    # library, so a warning is logged when a text exceeds it. The model supports up to 512.
+    LOCAL_MAX_SEQ_LENGTH: int = int(os.getenv("LOCAL_MAX_SEQ_LENGTH", "256"))
 
     # Priority order for embedding provider fallback.
     EMBEDDING_FALLBACK_CHAIN: List[str] = ["gemini", "jina", "local"]
