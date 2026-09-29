@@ -16,6 +16,7 @@ import { SourcesDrawerComponent } from './sources-drawer.component';
 import { OciCardComponent } from './oci-card.component';
 import { JsonViewerComponent } from './json-viewer.component';
 import { ExportService } from '../../core/services/export.service';
+import { StateService } from '../../core/services/state.service';
 
 @Component({
   selector: 'app-workspace',
@@ -768,6 +769,7 @@ export class WorkspaceComponent {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
+  private stateService = inject(StateService);
 
   activeTab = signal<'upload' | 'text'>('text');
   isDragging = signal<boolean>(false);
@@ -931,6 +933,8 @@ export class WorkspaceComponent {
     this.api.adaptContent(req).subscribe(res => {
       this.currentResponse.set(res);
       this.isPipelineRunning.set(false);
+      localStorage.setItem('nuevamente_library_initialized', 'true');
+      this.stateService.addProjectFromResponse(req, res);
     });
   }
 
