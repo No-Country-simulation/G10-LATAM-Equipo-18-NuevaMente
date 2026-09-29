@@ -1,138 +1,117 @@
-import os
-import json
+"""
+pdf_parser_service.py
+
+Purpose:
+    Converts a PDF into structured Markdown (headings, lists, tables) with
+    pymupdf4llm, so IngesterService can split it by section headings into
+    parent and child chunks. Running headers and footers that repeat across
+    pages are removed before returning, matching the cleanup the ingester
+    applies to its plain-text extraction.
+
+    This service is an optional first choice, not the only path: when
+    pymupdf4llm is not installed (is_available is False), or a specific file
+    cannot be converted (an exception is raised), IngesterService falls back
+    to its own pypdf plain-text extraction, which adds page markers. No LLM
+    is involved.
+
+Input:
+    - pdf_path (str): path to a PDF already validated by IngesterService
+      (supported extension and maximum size).
+
+Output:
+    - is_available (bool): whether pymupdf4llm could be imported.
+    - parse_pdf_to_markdown(): the whole document as one Markdown string.
+      Raises FileNotFoundError if the path does not exist, RuntimeError if
+      pymupdf4llm is not installed, and ValueError if the PDF has no
+      extractable text (for example, a scanned or image-only PDF).
+"""
+
 import logging
-from typing import Optional, Dict, Any
+import re
+from collections import Counter
+from pathlib import Path
+from typing import List
 
-from app.infrastructure.gemini_client import GeminiClient
+logger = logging.getLogger(__name__)
 
-logger = logging.getLogger("PdfParserService")
+# A page line is treated as a running header/footer when it repeats on at
+# least this share of the pages (same rule as IngesterService.remove_repeated_lines).
+_MIN_REPETITION_RATIO = 0.4
+_MIN_PAGES_FOR_NOISE_REMOVAL = 3
+
+# Markdown structure that is never removed even when it repeats across pages:
+# headings, table rows, list items, block quotes, code fences and numbered items.
+_MARKDOWN_STRUCTURE = re.compile(r"^(#{1,6}\s|\||[-*+]\s|>|```|\d+[.)]\s)")
+
 
 class PdfParserService:
-    """
-    Servicio avanzado de parsing de documentos PDF impulsado por IA LLM (Gemini Vision)
-    y pymupdf4llm para convertir manuales técnicos densos en Markdown estructurado,
-    preservando tablas, diagramas y jerarquías de código.
-    """
+    """Markdown extraction from PDFs using pymupdf4llm."""
+
     def __init__(self):
-        self.gemini_client = GeminiClient()
+        self._pymupdf4llm = self._import_pymupdf4llm()
+
+    @staticmethod
+    def _import_pymupdf4llm():
+        """Returns the pymupdf4llm module, or None (with the reason logged) if it cannot be imported."""
         try:
-            import pymupdf4llm  # noqa: F401, PLC0415
-            self.pymupdf_available = True
-        except ImportError:
-            self.pymupdf_available = False
+            import pymupdf4llm  # noqa: PLC0415
+            return pymupdf4llm
+        except ImportError as exc:
+            logger.warning("pymupdf4llm is unavailable (%s). PDFs will use plain-text extraction.", exc)
+            return None
+
+    @property
+    def is_available(self) -> bool:
+        """True when pymupdf4llm was imported successfully."""
+        return self._pymupdf4llm is not None
 
     def parse_pdf_to_markdown(self, pdf_path: str) -> str:
         """
-        Convierte PDF a Markdown estructurado combinando PyMuPDF/PyPDF o LLM Vision fallback.
+        Converts the PDF to Markdown and removes repeated page headers/footers.
+        Any conversion error is raised, not swallowed, so the caller can fall back.
         """
-        if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"El archivo PDF no existe en la ruta: {pdf_path}")
+        path = Path(pdf_path)
+        if not path.exists():
+            raise FileNotFoundError(f"PDF file not found: {pdf_path}")
+        if not self.is_available:
+            raise RuntimeError("pymupdf4llm is not installed.")
 
-        try:
-            import pymupdf
-            doc = pymupdf.open(pdf_path)
-            pages_text = [page.get_text() for page in doc]
-            full_text = "\n\n".join([p.strip() for p in pages_text if p.strip()])
-            if full_text and len(full_text) > 10:
-                logger.info("PDF parseado con PyMuPDF exitosamente: %s", pdf_path)
-                return f"# {os.path.basename(pdf_path)}\n\n{full_text}"
-        except Exception as exc:
-            logger.warning("PyMuPDF falló (%s). Intentando PyPDF.", exc)
+        logger.info("Parsing PDF with pymupdf4llm: %s", path.name)
 
-        try:
-            from pypdf import PdfReader
-            reader = PdfReader(pdf_path)
-            pages_text = [p.extract_text() or "" for p in reader.pages]
-            full_text = "\n\n".join([p.strip() for p in pages_text if p.strip()])
-            if full_text and len(full_text) > 10:
-                logger.info("PDF parseado con PyPDF exitosamente: %s", pdf_path)
-                return f"# {os.path.basename(pdf_path)}\n\n{full_text}"
-        except Exception as exc:
-            logger.warning("PyPDF falló (%s). Probando Gemini LLM Parser.", exc)
+        # One Markdown string per page, which repeated header/footer detection needs.
+        page_chunks = self._pymupdf4llm.to_markdown(str(path), page_chunks=True)
+        pages = [chunk.get("text", "") for chunk in page_chunks]
+        pages = self._remove_repeated_page_lines(pages)
 
-        return self.parse_pdf_with_llm(pdf_path)["markdown_text"]
-
-    def parse_pdf_with_llm(self, pdf_path: str) -> Dict[str, Any]:
-        """
-        Extrae el contenido del PDF usando PyMuPDF/PyPDF y lo estructura con Gemini LLM Multimodal.
-        """
-        if not os.path.exists(pdf_path):
-            raise FileNotFoundError(f"El archivo PDF no existe en la ruta: {pdf_path}")
-
-        logger.info("Parseando PDF con IA LLM Gemini Vision: %s", pdf_path)
-
-        extracted_text = ""
-        page_count = 1
-        try:
-            import pymupdf
-            doc = pymupdf.open(pdf_path)
-            page_count = len(doc)
-            pages = [page.get_text() for page in doc]
-            extracted_text = "\n\n".join([p.strip() for p in pages if p.strip()])
-        except Exception:
-            try:
-                from pypdf import PdfReader
-                reader = PdfReader(pdf_path)
-                page_count = len(reader.pages)
-                pages = [p.extract_text() or "" for p in reader.pages]
-                extracted_text = "\n\n".join([p.strip() for p in pages if p.strip()])
-            except Exception as err:
-                logger.warning("Extracción local de PDF falló: %s", err)
-
-        if not extracted_text:
-            extracted_text = f"Documento PDF: {os.path.basename(pdf_path)}"
-
-        prompt = f"""
-        Analiza el siguiente texto extraído del documento técnico '{os.path.basename(pdf_path)}'. Realiza un parsing estructurado inteligente:
-        1. Estructura todo el contenido conservando la jerarquía de encabezados (#, ##, ###).
-        2. Formatea tablas en Markdown estándar.
-        3. Identifica bloques de código y organízalos sintácticamente.
-        4. Infiere los conceptos clave y un resumen ejecutivo estructurado.
-        
-        Devuelve el resultado ÚNICAMENTE en formato JSON estricto con esta estructura:
-        {{
-            "markdown_text": "Texto completo estructurado en Markdown",
-            "page_count": {page_count},
-            "detected_tables": 0,
-            "key_concepts": ["Concepto 1", "Concepto 2"],
-            "summary": "Resumen ejecutivo del documento"
-        }}
-
-        TEXTO DEL DOCUMENTO:
-        {extracted_text[:12000]}
-        """
-
-        system_instruction = (
-            "Eres un Parser de Documentos Técnicos asistido por IA de alta precisión. "
-            "Reconstruyes manuales en Markdown limpio sin perder datos. Responde solo con JSON válido."
-        )
-
-        try:
-            raw_response = self.gemini_client.generate_content(
-                prompt=prompt,
-                system_instruction=system_instruction,
-                json_output=True
+        markdown = "\n\n".join(page.strip() for page in pages if page.strip())
+        if not markdown:
+            raise ValueError(
+                f"No extractable text found in {path.name} (it may be a scanned or image-only PDF)."
             )
-            raw_response = raw_response.strip().removeprefix("```json").removesuffix("```").strip()
-            parsed = json.loads(raw_response)
-            md_text = parsed.get("markdown_text", "")
-            if not md_text:
-                md_text = extracted_text
-            return {
-                "markdown_text": md_text,
-                "page_count": parsed.get("page_count", page_count),
-                "detected_tables": parsed.get("detected_tables", 0),
-                "key_concepts": parsed.get("key_concepts", []),
-                "summary": parsed.get("summary", ""),
-                "engine": "Gemini 1.5 LLM Vision Parser"
-            }
-        except Exception as exc:
-            logger.error("Fallo en Gemini LLM PDF Parser: %s. Aplicando lectura textual básica.", exc)
-            return {
-                "markdown_text": f"# {os.path.basename(pdf_path)}\n\n{extracted_text}",
-                "page_count": page_count,
-                "detected_tables": 0,
-                "key_concepts": [],
-                "summary": extracted_text[:200] + "...",
-                "engine": "PyMuPDF / PyPDF Fallback Parser"
-            }
+
+        return markdown
+
+    @staticmethod
+    def _remove_repeated_page_lines(pages: List[str]) -> List[str]:
+        """
+        Strips plain-text lines that repeat across pages (running headers and
+        footers). Markdown structure lines are kept even when they repeat, so
+        recurring headings and table separators are not damaged.
+        """
+        if len(pages) < _MIN_PAGES_FOR_NOISE_REMOVAL:
+            return pages
+
+        line_counts: Counter = Counter()
+        for page in pages:
+            line_counts.update({line.strip() for line in page.split("\n") if line.strip()})
+
+        threshold = max(2, int(len(pages) * _MIN_REPETITION_RATIO))
+        noisy_lines = {
+            line for line, count in line_counts.items()
+            if count >= threshold and not _MARKDOWN_STRUCTURE.match(line)
+        }
+
+        return [
+            "\n".join(line for line in page.split("\n") if line.strip() not in noisy_lines)
+            for page in pages
+        ]

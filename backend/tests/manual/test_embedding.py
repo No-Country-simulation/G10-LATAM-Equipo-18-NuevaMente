@@ -21,6 +21,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../..")))
 
 from app.services.embedding_service import EmbeddingService, estimate_tokens
+from app.services.embedding_rate_limiter import SlidingWindowRateLimiter, reset_gemini_limiter
 from app.core.config import settings
 
 SEPARATOR = "-" * 60
@@ -110,13 +111,14 @@ def test_model_name_tracking():
 
 
 def test_jina_batch_halving_on_failure():
-    """Verifies recursive batch halving when a large Jina batch encounters payload errors."""
+    """Verifica que un lote de Jina rechazado por tamaño se divide a la mitad y se reintenta."""
     print("\n" + SEPARATOR)
     print("PRUEBA 4 — Reducción de lote en Jina ante fallo de tamaño (Mock)")
     print(SEPARATOR)
     print("  Simula que un lote grande de Jina falla por tamaño de payload")
-    print("  y verifica que el servicio reduce el tamaño de lote a la mitad y reintenta.")
+    print("  y verifica que el servicio lo divide a la mitad y reintenta cada mitad.")
 
+    reset_gemini_limiter()
     svc = EmbeddingService(method="api", provider="jina")
     texts = [f"fragmento de prueba número {i}" for i in range(4)]
     call_sizes = []
@@ -128,52 +130,59 @@ def test_jina_batch_halving_on_failure():
         return [[0.0] * settings.EMBEDDING_DIMENSIONS for _ in piece]
 
     with patch.object(svc._jina_client, "embed_batch", side_effect=flaky_embed_batch):
-        vectors = svc._embed_jina_in_batches(texts, is_query=False)
+        # La división de lotes vive en _embed_batch_with_split (antes en _embed_jina_in_batches).
+        vectors = svc._embed_batch_with_split("jina", texts, False, None, True)
 
     print(f"  Tamaños de lote intentados en orden: {call_sizes}")
     assert len(vectors) == len(texts), "Deben regresar tantos vectores como textos de entrada"
-    assert max(call_sizes) > 2 and min(call_sizes) <= 2
+    assert call_sizes == [4, 2, 2], f"Se esperaba [4, 2, 2], llegó {call_sizes}"
     print("  ✅ Reducción automática de lote en Jina OK")
 
 
 def test_fallback_cascade_gemini_to_jina():
-    """Verifies reactive cascade from Gemini to Jina on HTTP 429 / quota failure."""
+    """Verifica el cambio inmediato de Gemini a Jina cuando Gemini falla en el primer lote."""
     print("\n" + SEPARATOR)
     print("PRUEBA 5 — Fallback reactivo simulado (Gemini 429 / Cuota -> Jina)")
     print(SEPARATOR)
-    print("  Simula que Gemini devuelve error 429 Too Many Requests y verifica")
-    print("  que el servicio conmuta automáticamente a Jina y actualiza model_name.")
+    print("  Simula que Gemini devuelve error 429 antes de generar ningún vector y")
+    print("  verifica que el servicio conmuta de inmediato a Jina (sin reintentar")
+    print("  Gemini ni esperar) y actualiza model_name.")
 
+    reset_gemini_limiter()
     svc = EmbeddingService(method="api", provider="gemini")
     dummy_vec = [0.05] * settings.EMBEDDING_DIMENSIONS
 
-    with patch.object(svc, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini 429 ResourceExhausted")):
-        with patch.object(svc, "_embed_jina_in_batches", return_value=[dummy_vec for _ in SAMPLE_TEXTS]) as mock_jina:
+    with patch.object(svc, "_embed_gemini_direct", side_effect=RuntimeError("Gemini 429 ResourceExhausted")) as mock_gemini:
+        with patch.object(svc, "_embed_jina_batch", return_value=[dummy_vec for _ in SAMPLE_TEXTS]) as mock_jina:
             vectors = svc.embed_batch(SAMPLE_TEXTS)
 
+            # Un 429 no se arregla con lotes más chicos ni con reintentos inmediatos.
+            mock_gemini.assert_called_once()
             mock_jina.assert_called_once()
             assert svc.provider == "jina", f"Se esperaba proveedor 'jina', quedó '{svc.provider}'"
             assert "jina" in svc.model_name, f"El model_name debe reflejar Jina: {svc.model_name}"
             assert len(vectors) == len(SAMPLE_TEXTS)
 
+    print(f"  Llamadas a Gemini         : {mock_gemini.call_count}")
     print(f"  Proveedor final resultante: {svc.provider}")
     print(f"  Model tag actualizado     : {svc.model_name}")
     print("  ✅ Fallback reactivo Gemini -> Jina OK")
 
 
 def test_fallback_cascade_to_local_model():
-    """Verifies full cascade to local model when both Gemini and Jina fail."""
+    """Verifica la cascada completa hacia el modelo local cuando Gemini y Jina fallan."""
     print("\n" + SEPARATOR)
     print("PRUEBA 6 — Fallback reactivo completo (Gemini & Jina caídos -> Modelo Local)")
     print(SEPARATOR)
     print("  Simula que tanto Gemini como Jina fallan, verificando que la cascada")
     print("  conmuta exitosamente al modelo local sentence-transformers.")
 
+    reset_gemini_limiter()
     svc = EmbeddingService(method="api", provider="gemini")
     dummy_vec = [0.1] * settings.EMBEDDING_DIMENSIONS
 
-    with patch.object(svc, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini no disponible")):
-        with patch.object(svc, "_embed_jina_in_batches", side_effect=RuntimeError("Jina no disponible")):
+    with patch.object(svc, "_embed_gemini_direct", side_effect=RuntimeError("Gemini no disponible")):
+        with patch.object(svc, "_embed_jina_batch", side_effect=RuntimeError("Jina no disponible")):
             with patch.object(svc, "_embed_local", return_value=[dummy_vec for _ in SAMPLE_TEXTS]) as mock_local:
                 vectors = svc.embed_batch(SAMPLE_TEXTS)
 
@@ -188,34 +197,46 @@ def test_fallback_cascade_to_local_model():
     print("  ✅ Fallback reactivo a Modelo Local OK")
 
 
-def test_proactive_routing_on_token_overflow():
-    """Verifies proactive routing to Jina when estimated tokens exceed Gemini safe threshold."""
+def test_proactive_routing_on_daily_quota():
+    """Verifica que Gemini se omite, sin gastar cuota, cuando la cuota diaria no alcanza para el lote."""
     print("\n" + SEPARATOR)
-    print("PRUEBA 7 — Ruteo proactivo por volumen de tokens (> 25K TPM)")
+    print("PRUEBA 7 — Ruteo proactivo por cuota diaria insuficiente")
     print(SEPARATOR)
-    print("  Genera un payload con tokens estimados superiores a GEMINI_SAFE_TPM")
-    print("  y verifica que el servicio desvía el lote directamente a Jina sin llamar a Gemini.")
+    print("  El ruteo ya no depende del total de tokens: se simula el envío contra el")
+    print("  limitador compartido. Con solo 10 requests diarias disponibles, un lote de")
+    print("  40 textos no cabe hoy, así que debe ir directo a Jina sin llamar a Gemini.")
 
-    # Generates text exceeding GEMINI_SAFE_TPM (30,000 tokens > 25,000 threshold)
-    large_payload = ["texto largo " * 100 for _ in range(100)]
-    total_tokens = estimate_tokens(large_payload)
-    print(f"  Tokens estimados en el lote: {total_tokens} (Umbral seguro Gemini: {settings.GEMINI_SAFE_TPM})")
-
-    svc = EmbeddingService(method="api", provider="gemini")
+    reset_gemini_limiter()
+    texts = [f"texto de prueba número {i}" for i in range(40)]
     dummy_vec = [0.02] * settings.EMBEDDING_DIMENSIONS
 
-    with patch.object(svc, "_embed_gemini_in_batches", return_value=[dummy_vec for _ in large_payload]) as mock_gemini:
-        with patch.object(svc, "_embed_jina_in_batches", return_value=[dummy_vec for _ in large_payload]) as mock_jina:
-            vectors = svc.embed_batch(large_payload)
+    # Limitador aislado con cuota diaria de solo 10 requests (cada texto cuenta como una).
+    limiter = SlidingWindowRateLimiter(
+        max_requests_per_minute=80,
+        max_tokens_per_minute=25000,
+        max_requests_per_day=10,
+    )
+    print(f"  Textos a indexar: {len(texts)} | Cuota diaria restante: {limiter.daily_remaining()}")
 
-            mock_gemini.assert_not_called()
-            mock_jina.assert_called_once()
-            assert svc.provider == "jina"
-            assert len(vectors) == len(large_payload)
+    svc = EmbeddingService(method="api", provider="gemini")
 
+    with patch("app.services.embedding_service.get_gemini_limiter", return_value=limiter):
+        with patch.object(svc, "_embed_gemini_direct") as mock_gemini:
+            with patch.object(
+                svc, "_embed_jina_batch", side_effect=lambda batch, is_query: [dummy_vec for _ in batch]
+            ) as mock_jina:
+                vectors = svc.embed_batch(texts)
+
+                mock_gemini.assert_not_called()
+                mock_jina.assert_called_once()
+                assert svc.provider == "jina"
+                assert len(vectors) == len(texts)
+
+    assert limiter.daily_remaining() == 10, "Omitir Gemini no debe consumir cuota"
     print("  Gemini fue omitido preventivamente: Sí (0 llamadas)")
+    print(f"  Cuota diaria tras el ruteo: {limiter.daily_remaining()} (sin consumir)")
     print(f"  Lote procesado por: {svc.provider}")
-    print("  ✅ Ruteo proactivo por cuota OK")
+    print("  ✅ Ruteo proactivo por cuota diaria OK")
 
 
 if __name__ == "__main__":
@@ -232,7 +253,7 @@ if __name__ == "__main__":
     test_jina_batch_halving_on_failure()
     test_fallback_cascade_gemini_to_jina()
     test_fallback_cascade_to_local_model()
-    test_proactive_routing_on_token_overflow()
+    test_proactive_routing_on_daily_quota()
 
     print("\n" + "=" * 60)
     print("Tests completados exitosamente.")
