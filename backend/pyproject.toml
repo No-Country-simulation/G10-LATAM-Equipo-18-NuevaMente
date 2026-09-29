@@ -29,10 +29,18 @@ dependencies = [
     "networkx>=3.2.1",
     # ── Document parsing ──────────────────────────────────────────────────────
     "pypdf>=5.0",
+    "pymupdf4llm>=0.0.17",
+    # ── HTTP client for Jina embeddings (jina_client.py) ───────────────────────
+    "requests>=2.31.0",
     # ── OCI Object Storage ────────────────────────────────────────────────────
     "oci>=2.120.0",
     "cohere>=7.1.1",
+    "groq>=0.11.0",
     "keybert>=0.9.0",
+    # ── Supabase (storage + future auth/pgvector) ──────────────────────────────
+    "supabase>=2.31.0",
+    # ── Gradio (for tests with UI) ──────────────────────────────
+    "gradio>=6.28.0",
 ]
 
 [tool.uv]
