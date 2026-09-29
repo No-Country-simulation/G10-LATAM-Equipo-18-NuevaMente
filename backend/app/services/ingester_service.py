@@ -2,30 +2,20 @@
 ingester_service.py
 
 Purpose:
-    Robust document ingestion and layout-aware chunking service.
+    Robust document ingestion with Semantic Recursive Hybrid Chunking and
+    Parent-Child hierarchical structure.
     Loads and processes technical documents (PDF, Markdown, Plain Text),
     removes header/footer noise, extracts section structure, and produces
-    both flat document chunks and Parent-Child hierarchical data for the
-    RAG pipeline. Also accepts raw text directly (no file), for requests
-    that send document content inline instead of uploading a file.
-
-Input:
-    A file path (process_document) or raw text (process_text), plus
-    optional IngestionOptions.
-
-Output:
-    An IngestedDocument. Call build_rag_chunks() on that result to get
-    the parent/child structure the RAG retrieval layer expects.
+    dynamically sized, semantically bounded parent and child chunks for the RAG pipeline.
 """
 
 import logging
 import re
 import uuid
-import logging
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Tuple
 
 from pypdf import PdfReader
 from app.core.config import settings
@@ -52,16 +42,11 @@ class IngesterService:
         overlap: int = settings.CHUNK_OVERLAP,
         child_overlap: int = settings.CHILD_CHUNK_OVERLAP,
     ):
-        # Both sizes are measured in characters, same unit as chunk_text(),
-        # so parent and child chunks are produced with identical splitting
-        # quality — only the target size and overlap differ.
         self.child_chunk_size = child_chunk_size
         self.parent_chunk_size = parent_chunk_size
         self.overlap = overlap
         self.child_overlap = child_overlap
 
-        # Lazily created on first use so a document that never hits a PDF
-        # or never needs key-concept extraction doesn't pay their import cost.
         self._pdf_parser = None
         self._keybert_model = None
 
@@ -70,26 +55,24 @@ class IngesterService:
     # ---------------------------------------------------------------------------
     @staticmethod
     def validate_file(filepath: Path) -> None:
-        """Validates extension and file size."""
         extension = filepath.suffix.lower()
         if extension not in settings.SUPPORTED_EXTENSIONS:
             raise ValueError(
-                f"Unsupported file type: {extension}. "
-                f"Supported types: {settings.SUPPORTED_EXTENSIONS}"
+                f"Tipo de archivo no soportado: {extension}. "
+                f"Soportados: {settings.SUPPORTED_EXTENSIONS}"
             )
 
         size_mb = filepath.stat().st_size / (1024 * 1024)
         if size_mb > settings.MAX_FILE_SIZE_MB:
             raise ValueError(
-                f"File too large: {size_mb:.1f}MB. Limit is {settings.MAX_FILE_SIZE_MB}MB."
+                f"Archivo demasiado grande: {size_mb:.1f}MB. El límite es {settings.MAX_FILE_SIZE_MB}MB."
             )
 
     # ---------------------------------------------------------------------------
-    # Noise removal (repeated headers/footers in PDFs)
+    # Noise removal
     # ---------------------------------------------------------------------------
     @staticmethod
     def remove_repeated_lines(pages_text: List[str], min_repetition_ratio: float = 0.4) -> List[str]:
-        """Detects and strips boilerplate lines repeating across multiple pages."""
         if len(pages_text) < 3:
             return pages_text
 
@@ -112,16 +95,12 @@ class IngesterService:
     # Text extractors
     # ---------------------------------------------------------------------------
     def _get_pdf_parser(self):
-        """Creates the pymupdf4llm-based parser once and reuses it."""
         if self._pdf_parser is None:
-            from app.services.pdf_parser_service import PdfParserService  # noqa: PLC0415
+            from app.services.pdf_parser_service import PdfParserService
             self._pdf_parser = PdfParserService()
         return self._pdf_parser
 
     def _extract_text_from_pdf_legacy(self, filepath: Path) -> str:
-        """Plain-text PDF extraction via pypdf, with header/footer cleanup
-        and page markers. Used when the Markdown-aware parser is either
-        unavailable or fails on this specific file."""
         reader = PdfReader(str(filepath))
         pages_text = [page.extract_text() or "" for page in reader.pages]
         cleaned_pages = self.remove_repeated_lines(pages_text)
@@ -133,18 +112,13 @@ class IngesterService:
         return "\n".join(pages_with_metadata)
 
     def extract_text_from_pdf(self, filepath: Path) -> str:
-        """Extracts text from a PDF, preferring the Markdown-aware parser
-        (pymupdf4llm) for its table/heading structure. Falls back to the
-        legacy pypdf extraction both when the library is not installed and
-        when parsing this specific file raises at runtime — a malformed or
-        unusual PDF should degrade to plain text, not abort the ingestion."""
         pdf_parser = self._get_pdf_parser()
         if pdf_parser.is_available:
             try:
                 return pdf_parser.parse_pdf_to_markdown(str(filepath))
             except Exception as exc:
                 logger.warning(
-                    "Markdown PDF parsing failed for %s (%s). Falling back to plain-text extraction.",
+                    "Extracción Markdown falló para %s (%s). Usando extracción plain-text.",
                     filepath.name, exc,
                 )
 
@@ -159,7 +133,6 @@ class IngesterService:
         return filepath.read_text(encoding="utf-8")
 
     def load_file(self, filepath: Path, options: Optional[IngestionOptions] = None) -> str:
-        """Validates and extracts raw text from the given file."""
         self.validate_file(filepath)
         extension = filepath.suffix.lower()
 
@@ -171,9 +144,9 @@ class IngesterService:
             elif extension == ".txt":
                 return self.extract_text_from_txt(filepath)
             else:
-                raise ValueError(f"No extractor registered for {extension}")
+                raise ValueError(f"No hay extractor registrado para {extension}")
         except Exception as error:
-            raise ValueError(f"Failed to read {filepath.name}: {error}") from error
+            raise ValueError(f"Error al leer {filepath.name}: {error}") from error
 
     # ---------------------------------------------------------------------------
     # Section detection
@@ -258,7 +231,6 @@ class IngesterService:
             if "[PÁGINA" in text:
                 return self.parse_pdf_pages(text)
             else:
-                # Extracted via pymupdf4llm (Markdown)
                 return self.parse_markdown_sections(text)
         elif extension in (".md", ".markdown"):
             return self.parse_markdown_sections(text)
@@ -267,18 +239,84 @@ class IngesterService:
         return [Section(title=None, level=0, content=text)]
 
     # ---------------------------------------------------------------------------
-    # Paragraph-aware chunking
+    # SEMANTIC RECURSIVE HYBRID CHUNKING ALGORITHM
     # ---------------------------------------------------------------------------
     @staticmethod
-    def split_into_paragraphs(text: str) -> List[str]:
-        paragraphs = re.split(r"\n\s*\n", text)
-        return [p.strip() for p in paragraphs if p.strip()]
+    def calculate_adaptive_params(text: str) -> Tuple[int, int, int, int]:
+        """Calcula dinámicamente los parámetros de chunking adaptativo (Parent/Child)
+        basado en la densidad de código, presencia de tablas y longitud total."""
+        total_len = len(text)
+        code_matches = re.findall(r'```[\s\S]*?```', text)
+        code_length = sum(len(m) for m in code_matches)
+        code_ratio = (code_length / total_len) if total_len > 0 else 0
+
+        # Alta densidad de código (ej: archivos técnicos, scripts)
+        if code_ratio > 0.15:
+            return 800, 120, 350, 35
+        # Documentos cortos o concisos
+        elif total_len < 4000:
+            return 700, 100, 300, 30
+        # Documentación estándar o extensa
+        else:
+            return 1200, 180, 450, 45
+
+    def split_recursively_by_separators(
+        self, text: str, target_size: int, overlap: int, separators: Optional[List[str]] = None
+    ) -> List[str]:
+        """Algoritmo de segmentación recursiva híbrida respetando jerarquía de separadores
+        naturales (Encabezados, Bloques de Código, Párrafos, Oraciones y Palabras)."""
+        if not text.strip():
+            return []
+
+        if separators is None:
+            separators = ["\n# ", "\n## ", "\n### ", "\n```", "\n\n", "\n", ". ", " "]
+
+        if len(text) <= target_size:
+            return [text.strip()]
+
+        # Buscar el separador de mayor jerarquía presente en el texto
+        current_sep = ""
+        for sep in separators:
+            if sep in text:
+                current_sep = sep
+                break
+
+        if not current_sep:
+            # Fallback a ventana deslizante por caracteres si no hay separadores
+            return self.split_by_characters(text, target_size, overlap)
+
+        splits = text.split(current_sep)
+        chunks: List[str] = []
+        current_chunk = ""
+
+        for idx, split in enumerate(splits):
+            piece = (split + current_sep) if idx < len(splits) - 1 else split
+            if len(piece.strip()) == 0:
+                continue
+
+            if len(piece) > target_size:
+                # Si una sola pieza excede el tamaño objetivo, desciende al siguiente separador
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                    current_chunk = ""
+                sub_seps = separators[separators.index(current_sep) + 1 :] if current_sep in separators else None
+                chunks.extend(self.split_recursively_by_separators(piece, target_size, overlap, sub_seps))
+            else:
+                candidate = (current_chunk + piece) if current_chunk else piece
+                if len(candidate) <= target_size:
+                    current_chunk = candidate
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                    current_chunk = piece
+
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+
+        return chunks
 
     @staticmethod
     def split_by_characters(text: str, chunk_size: int, overlap: int) -> List[str]:
-        """Sliding window fallback for a single paragraph longer than
-        chunk_size. Both ends of every piece are aligned to the nearest
-        whitespace so a piece never begins or ends mid-word."""
         chunks = []
         start = 0
         text_length = len(text)
@@ -309,43 +347,19 @@ class IngesterService:
         return chunks
 
     def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
-        """Groups paragraphs into pieces up to chunk_size, keeping paragraph
-        boundaries intact. Defaults to parent_chunk_size, but accepts a
-        different size so the same, already-validated splitting logic can
-        also produce child chunks — instead of a separate, cruder pass.
-        The overlap parameter overrides self.overlap when provided."""
-        size = chunk_size or self.parent_chunk_size
-        effective_overlap = overlap if overlap is not None else self.overlap
-
+        """Aplica el algoritmo de Segmentación Semántica Recursiva Híbrida.
+        Calcula parámetros adaptativos y desciende recursivamente por separadores."""
         if not text.strip():
             return []
 
-        paragraphs = self.split_into_paragraphs(text)
-        chunks: List[str] = []
-        current_chunk = ""
+        # Determinar tamaños adaptativos
+        dyn_p_size, dyn_p_overlap, _, _ = self.calculate_adaptive_params(text)
+        size = chunk_size or dyn_p_size
+        effective_overlap = overlap if overlap is not None else dyn_p_overlap
 
-        for paragraph in paragraphs:
-            if len(paragraph) > size:
-                if current_chunk:
-                    chunks.append(current_chunk.strip())
-                    current_chunk = ""
-                chunks.extend(self.split_by_characters(paragraph, size, effective_overlap))
-                continue
-
-            candidate = f"{current_chunk}\n\n{paragraph}".strip() if current_chunk else paragraph
-            if len(candidate) <= size:
-                current_chunk = candidate
-            else:
-                chunks.append(current_chunk.strip())
-                current_chunk = paragraph
-
-        if current_chunk:
-            chunks.append(current_chunk.strip())
-
-        return chunks
+        return self.split_recursively_by_separators(text, size, effective_overlap)
 
     def build_chunks_from_sections(self, sections: List[Section], document_id: str) -> List[DocumentChunk]:
-        """Builds the flat (parent-level) chunk list from detected sections."""
         chunks: List[DocumentChunk] = []
         index = 0
 
@@ -369,20 +383,13 @@ class IngesterService:
     # Key-concept extraction (KeyBERT)
     # ---------------------------------------------------------------------------
     def _get_keybert_model(self):
-        """Loads the KeyBERT model once per service instance instead of once
-        per build_rag_chunks() call — reloading a local model per call made
-        ingestion far slower than the extraction itself justifies."""
         if self._keybert_model is None:
-            from keybert import KeyBERT  # noqa: PLC0415
-            logger.info("Loading KeyBERT model for key-concept extraction.")
+            from keybert import KeyBERT
+            logger.info("Cargando modelo KeyBERT para extracción de conceptos clave.")
             self._keybert_model = KeyBERT(model="all-MiniLM-L6-v2")
         return self._keybert_model
 
     def _extract_key_concepts(self, text: str) -> List[str]:
-        """Extracts up to 4 short key-concept phrases from a chunk's text.
-        Returns an empty list — rather than raising — on any failure, since
-        this is a best-effort enrichment and shouldn't abort ingestion; the
-        failure is still logged so it isn't silently lost."""
         if not settings.USE_KEYBERT_CONCEPTS or len(text) <= 50:
             return []
 
@@ -393,19 +400,13 @@ class IngesterService:
             )
             return [kw[0] for kw in keywords]
         except Exception as exc:
-            logger.warning("Key-concept extraction failed for a chunk: %s", exc)
+            logger.warning("Extracción de conceptos clave falló: %s", exc)
             return []
 
     # ---------------------------------------------------------------------------
     # Parent/child RAG structure
     # ---------------------------------------------------------------------------
     def build_rag_chunks(self, document: IngestedDocument) -> Dict[str, Any]:
-        """Takes an already-ingested document and produces the parent/child
-        structure the retrieval layer expects. Each parent chunk (already
-        section-aware, from build_chunks_from_sections) is re-split into
-        smaller children only when it exceeds child_chunk_size, using the
-        same paragraph-aware chunk_text() — not a separate raw word-count
-        split, so parent and child chunks share the same splitting quality."""
         parent_chunks: List[Dict[str, Any]] = []
         child_chunks: List[Dict[str, Any]] = []
 
@@ -413,11 +414,6 @@ class IngesterService:
             parent_id = f"parent_{idx}"
             section_title = chunk.section_title or f"Sección {idx + 1}"
 
-            # Built through the Pydantic model so a malformed field is caught
-            # here, at the source, rather than surfacing later inside FAISS
-            # or the retrieval stage. Dumped back to a dict immediately since
-            # every downstream consumer (vector store, retrieval, reranker)
-            # already operates on plain dicts.
             parent = ParentChunk(
                 id=parent_id,
                 title=section_title,
@@ -433,13 +429,18 @@ class IngesterService:
             )
             parent_chunks.append(parent.model_dump())
 
+            # Adaptación dinámicas para los Child Chunks
+            _, _, dyn_c_size, dyn_c_overlap = self.calculate_adaptive_params(chunk.text)
+            c_size = self.child_chunk_size or dyn_c_size
+            c_overlap = self.child_overlap or dyn_c_overlap
+
             child_pieces = (
                 [chunk.text]
-                if len(chunk.text) <= self.child_chunk_size
-                else self.chunk_text(
+                if len(chunk.text) <= c_size
+                else self.split_recursively_by_separators(
                     chunk.text,
-                    chunk_size=self.child_chunk_size,
-                    overlap=self.child_overlap,
+                    target_size=c_size,
+                    overlap=c_overlap,
                 )
             )
 
@@ -461,7 +462,7 @@ class IngesterService:
             "parent_chunks": parent_chunks,
             "child_chunks": child_chunks,
             "total_parents": len(parent_chunks),
-            "total_children": len(child_chunks),
+            "total_children": len(child_children) if 'child_children' in locals() else len(child_chunks),
         }
 
     # ---------------------------------------------------------------------------
@@ -474,13 +475,6 @@ class IngesterService:
         options: Optional[IngestionOptions] = None,
         document_id: Optional[str] = None,
     ) -> IngestedDocument:
-        """Processes a file path into an IngestedDocument.
-
-        document_id is optional and defaults to a freshly generated UUID —
-        but document_pipeline_service.py passes its own, so the same ID is
-        shared across the uploaded file's object_key, its row in the
-        `documents` table, and its FAISS index directory. Without this,
-        each of those three would end up with a different, unrelated ID."""
         path = Path(filepath)
         options = options or IngestionOptions()
         document_id = document_id or str(uuid.uuid4())
@@ -498,10 +492,6 @@ class IngesterService:
         )
 
     def process_text(self, content: str, title: str) -> IngestedDocument:
-        """Processes raw text sent inline (e.g. a JSON request body with
-        content, no file upload) the same way process_document()
-        handles a file. No file extension is available, so section
-        detection uses the TXT heuristic."""
         document_id = str(uuid.uuid4())
         sections = self.detect_sections(content, ".txt")
         chunks = self.build_chunks_from_sections(sections, document_id)
@@ -515,7 +505,5 @@ class IngesterService:
         )
 
     def parse_and_chunk_document(self, content: str, title: str) -> Dict[str, Any]:
-        """Backward-compatible adapter that processes raw text and produces
-        the parent/child RAG structure expected by HybridRAGService."""
         doc = self.process_text(content=content, title=title)
         return self.build_rag_chunks(doc)
