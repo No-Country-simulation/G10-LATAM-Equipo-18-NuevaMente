@@ -85,8 +85,8 @@ import { AdaptationResponse, AdaptationRequest } from '../../core/models/adaptat
                 <button class="btn-action-secondary" (click)="downloadMd(proj)" title="Descargar Markdown">
                   📥 MD
                 </button>
-                <button class="btn-action-icon" (click)="deleteDoc(proj.id)" title="Eliminar de Biblioteca">
-                  🗑️
+                <button class="btn-action-danger" (click)="deleteDoc(proj.id)" title="Eliminar de Biblioteca">
+                  🗑️ Eliminar
                 </button>
               </td>
             </tr>
@@ -265,12 +265,24 @@ import { AdaptationResponse, AdaptationRequest } from '../../core/models/adaptat
       cursor: pointer;
     }
 
-    .btn-action-icon {
-      background: transparent;
-      border: none;
+    .btn-action-danger {
+      background: rgba(239, 68, 68, 0.12);
+      color: #EF4444;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
       cursor: pointer;
-      font-size: 1rem;
-      padding: 0.4rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      transition: all 0.2s;
+    }
+    .btn-action-danger:hover {
+      background: #EF4444;
+      color: #ffffff;
+      border-color: #EF4444;
     }
 
     .empty-state {
