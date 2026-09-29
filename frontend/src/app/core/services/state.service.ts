@@ -50,6 +50,7 @@ export class StateService {
 
   constructor() {
     this.loadUserFromStorage();
+    this.loadProjectsFromStorage();
   }
 
   private loadUserFromStorage(): void {
@@ -63,6 +64,32 @@ export class StateService {
       }
     } catch (e) {
       console.log('Error al cargar sesión de localStorage', e);
+    }
+  }
+
+  private loadProjectsFromStorage(): void {
+    try {
+      const savedProjects = localStorage.getItem('nuevamente_projects');
+      if (savedProjects) {
+        const parsed = JSON.parse(savedProjects);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.projects = parsed;
+          this.metrics.documentos = this.projects.length;
+          this.metrics.contenidos = this.projects.length;
+          this.metrics.ejecucionesRag = this.projects.length;
+          this.metrics.fuentes = this.projects.length;
+        }
+      }
+    } catch (e) {
+      console.log('Error al cargar proyectos de localStorage', e);
+    }
+  }
+
+  private saveProjectsToStorage(): void {
+    try {
+      localStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
+    } catch (e) {
+      console.log('Error al guardar proyectos en localStorage', e);
     }
   }
 
@@ -134,6 +161,7 @@ export class StateService {
       this.metrics.contenidos = Math.max(0, this.metrics.contenidos - 1);
       this.metrics.ejecucionesRag = Math.max(0, this.metrics.ejecucionesRag - 1);
       this.metrics.fuentes = Math.max(0, this.metrics.fuentes - 1);
+      this.saveProjectsToStorage();
     }
   }
 
@@ -160,7 +188,7 @@ export class StateService {
       nombre: request.documento_titulo || 'Documento Técnico Adaptado',
       descripcion: `Adaptación Didáctica (${request.perfil_destinatario})`,
       perfil: request.perfil_destinatario,
-      formato: formatCode,
+      formato: request.formato_salida,
       estado: 'Completado',
       fecha: formattedDate,
       typeIcon: formatCode,
@@ -169,6 +197,7 @@ export class StateService {
     };
 
     this.projects.unshift(newProject);
+    this.saveProjectsToStorage();
     return newProject;
   }
 }

@@ -2,13 +2,12 @@ import { Component, OnInit, signal, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { LoginComponent } from './features/auth/login/login.component';
 import { WorkspaceComponent } from './features/workspace/workspace.component';
-import { ComparatorComponent } from './features/compare/comparator.component';
 import { LibraryComponent } from './features/library/library.component';
 import { ThemeService } from './core/services/theme.service';
 import { I18nService } from './core/services/i18n.service';
 import { AuthStore } from './core/store/auth.store';
 
-export type MainView = 'workspace' | 'compare' | 'library';
+export type MainView = 'workspace' | 'library';
 
 @Component({
   selector: 'app-root',
@@ -17,7 +16,6 @@ export type MainView = 'workspace' | 'compare' | 'library';
     CommonModule,
     LoginComponent,
     WorkspaceComponent,
-    ComparatorComponent,
     LibraryComponent
   ],
   template: `
@@ -51,15 +49,6 @@ export type MainView = 'workspace' | 'compare' | 'library';
           >
             <span class="nav-icon">⚡</span>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
-          </button>
-
-          <button 
-            class="nav-btn" 
-            [class.active]="currentView() === 'compare'"
-            (click)="navigate('compare')"
-          >
-            <span class="nav-icon">📊</span>
-            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Comparador</span>
           </button>
 
           <button 
@@ -101,7 +90,6 @@ export type MainView = 'workspace' | 'compare' | 'library';
       <!-- Main Content Area -->
       <main class="main-content-area">
         <app-workspace *ngIf="currentView() === 'workspace'"></app-workspace>
-        <app-comparator *ngIf="currentView() === 'compare'"></app-comparator>
         <app-library *ngIf="currentView() === 'library'"></app-library>
       </main>
 
@@ -199,7 +187,6 @@ export class AppComponent implements OnInit {
   isSidebarCollapsed = signal<boolean>(false);
 
   ngOnInit(): void {
-    // Attempt silent session refresh on startup
     this.authStore.initSession();
   }
 
