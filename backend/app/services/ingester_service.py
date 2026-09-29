@@ -114,8 +114,12 @@ class IngesterService:
     def _get_pdf_parser(self):
         """Creates the pymupdf4llm-based parser once and reuses it."""
         if self._pdf_parser is None:
-            from app.services.pdf_parser_service import PdfParserService  # noqa: PLC0415
-            self._pdf_parser = PdfParserService()
+            # Force a fresh import to avoid loading stale .pyc bytecode that
+            # may predate the is_available property.
+            import importlib
+            import app.services.pdf_parser_service as _pdf_mod  # noqa: PLC0415
+            importlib.reload(_pdf_mod)
+            self._pdf_parser = _pdf_mod.PdfParserService()
         return self._pdf_parser
 
     def _extract_text_from_pdf_legacy(self, filepath: Path) -> str:
@@ -138,8 +142,20 @@ class IngesterService:
         legacy pypdf extraction both when the library is not installed and
         when parsing this specific file raises at runtime — a malformed or
         unusual PDF should degrade to plain text, not abort the ingestion."""
-        pdf_parser = self._get_pdf_parser()
-        if pdf_parser.is_available:
+        try:
+            pdf_parser = self._get_pdf_parser()
+            available = pdf_parser.is_available
+        except AttributeError:
+            # Stale .pyc loaded a version of PdfParserService without
+            # is_available. Reset so the next call re-imports cleanly.
+            logger.warning(
+                "PdfParserService is missing 'is_available' (stale bytecode?). "
+                "Resetting parser and falling back to plain-text extraction."
+            )
+            self._pdf_parser = None
+            return self._extract_text_from_pdf_legacy(filepath)
+
+        if available:
             try:
                 return pdf_parser.parse_pdf_to_markdown(str(filepath))
             except Exception as exc:

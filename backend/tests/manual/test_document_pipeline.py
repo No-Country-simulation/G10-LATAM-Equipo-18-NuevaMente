@@ -114,14 +114,21 @@ def test_pipeline_marks_failed_on_embedding_error():
 
     from app.services.document_repository import get_document_repository
 
-    def failing_ingest_embed_and_index(path, title, document_id, repo):
+    def failing_ingest_embed_and_index(path, title, document_id, repo, on_progress=None):
         raise RuntimeError("Fallo simulado de embeddings")
+
+    # Eventos de progreso recibidos por el callback durante esta ejecución.
+    eventos = []
 
     with patch.object(
         document_pipeline_service, "_ingest_embed_and_index", side_effect=failing_ingest_embed_and_index
     ):
         try:
-            process_and_index_document(local_path=str(SAMPLE_FILE), title="Documento que fallará")
+            process_and_index_document(
+                local_path=str(SAMPLE_FILE),
+                title="Documento que fallará",
+                on_progress=eventos.append,
+            )
             print("  ❌ ERROR: debió propagar la excepción simulada.")
             assert False
         except RuntimeError as err:
@@ -134,6 +141,10 @@ def test_pipeline_marks_failed_on_embedding_error():
     recent_failed = [d for d in repo.list_documents() if d.title == "Documento que fallará"]
     assert recent_failed, "No se encontró el documento fallido en la tabla"
     failed_record = recent_failed[-1]
+
+    etapas = [evento["stage"] for evento in eventos]
+    print(f"  Etapas de progreso reportadas: {etapas}")
+    assert etapas == ["uploading", "failed"], f"Etapas inesperadas: {etapas}"
 
     print(f"  document_id: {failed_record.document_id} | status: {failed_record.status}")
     print(f"  error_message: {failed_record.error_message}")

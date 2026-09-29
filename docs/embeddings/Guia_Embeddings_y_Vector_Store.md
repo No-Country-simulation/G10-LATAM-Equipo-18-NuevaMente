@@ -14,18 +14,23 @@ Para resolver esto, convertimos el texto en **Embeddings** (vectores numéricos 
 [ Texto de Chunks / Consulta ]
                │
                ▼
-1. Estimación de Tokens y Ruteo Proactivo (Etapa Previa)
-   - Analiza el volumen real de chunks e hijos generados tras la partición.
-   - Si tokens estimados <= 25K TPM: procesa con Google Gemini (100 PTM / 30K TPM).
-   - Si 25K < tokens <= 90K TPM: conmuta proactivamente a Jina AI (100 PTM / 100K TPM).
-   - Si tokens > 90K TPM: conmuta proactivamente al modelo Local (sin límites de cuota).
+1. Verificación previa de cuota (antes de enviar nada)
+   - Se simula el envío de todos los lotes contra el limitador compartido de Gemini.
+   - Cuota diaria (GEMINI_SAFE_RPD) insuficiente para el documento: se omite Gemini.
+   - Espera total estimada mayor a GEMINI_MAX_WAIT_SECONDS: se omite Gemini.
+   - Tokens estimados > JINA_SAFE_TPM (90K): se omite Jina.
+   - El modelo local siempre es candidato (sin cuotas).
+   - Omitir un proveedor en esta etapa no gasta ninguna request.
                │
                ▼
-2. Vectorización por Lotes y Fallback en Cascada Atómico
-   - Gemini: lotes nativos de 20 chunks (contents=[...]), reduciendo peticiones PTM en un 95%.
-   - Jina: lotes de 50 chunks con reducción recursiva en caso de rechazo.
-   - Cascada reactiva ante errores (429 / Cuota / Red): Gemini -> Jina -> Local.
-   - Atómico por documento: nunca se mezclan vectores de distintos proveedores en un mismo índice.
+2. Vectorización por lotes con control de cuota y fallback en cascada
+   - Gemini: lotes de hasta 20 textos; el limitador espera lo necesario entre lotes.
+   - Jina: lotes de hasta 50 textos.
+   - Falla antes del primer vector: cambio inmediato al siguiente proveedor.
+   - Falla a mitad del documento: espera y retoma el lote fallido con el mismo proveedor;
+     si se agotan los reintentos, descarta lo generado y re-embebe todo con el siguiente.
+   - Si todos los proveedores fallan: pausa y reintenta la cadena completa (máx. 2 rondas).
+   - Atómico por documento: nunca se mezclan vectores de distintos proveedores en un índice.
    - Dimensión fija unificada: 768 dimensiones para todos los proveedores.
                │
                ▼
@@ -36,9 +41,22 @@ Para resolver esto, convertimos el texto en **Embeddings** (vectores numéricos 
 
 ### Conceptos Clave
 - **Dimensión fija entre proveedores:** `EMBEDDING_DIMENSIONS` (por defecto **768**) se aplica a los tres proveedores: Gemini vía `output_dimensionality`, Jina vía el parámetro `dimensions`, y el modelo local eligiendo uno que produce 768 (`mpnet`). Esto permite que un índice FAISS local sea directamente compatible con una futura tabla `pgvector`, sin reindexar.
-- **Espacio Vectorial e Integridad Atómica:** Aunque la dimensión coincida, cada modelo proyecta el texto en un mapa matemático distinto. Por eso, el fallback entre proveedores es **atómico por documento**: si Gemini falla con 429 a mitad de un archivo, se descartan los vectores parciales y se procesa todo el documento con Jina (o Local). El `model_name` resultante se actualiza en el `VectorStore` para que la búsqueda por similitud no compare espacios incompatibles.
-- **Ruteo Proactivo según Cuotas (PTM y TPM):** Antes de enviar peticiones a la API, el servicio estima los tokens reales de los fragmentos hijos (`estimate_tokens`). Si un documento requeriría demoras artificiales en Gemini por sobrepasar los 25K–30K TPM, el sistema conmuta de forma preventiva a Jina (100K TPM), acelerando el procesamiento.
-- **Batching Nativo en Gemini y Jina:** En lugar de realizar una llamada HTTP por cada fragmento (lo que agotaría de inmediato el límite de 100 PTM), Gemini envía lotes de 20 chunks por llamada (`GEMINI_BATCH_SIZE = 20`) y Jina lotes de 50 (`JINA_BATCH_SIZE = 50`), reduciendo drásticamente las solicitudes de red.
+- **Espacio vectorial e integridad atómica:** Aunque la dimensión coincida, cada modelo proyecta el texto en un mapa matemático distinto. Por eso, todos los vectores de un documento deben venir del mismo proveedor. Si un proveedor no puede terminar el documento, se descartan los vectores parciales y se procesa el documento completo con el siguiente. El `model_name` resultante se actualiza en el `VectorStore` para que la búsqueda por similitud no compare espacios incompatibles.
+- **La cuota de Gemini se cuenta por texto, no por llamada:** cada texto de un lote cuenta como una request para el límite por minuto (RPM) y el diario (RPD). Enviar lotes de 20 reduce las llamadas HTTP, pero **no** reduce la cuota consumida: 20 textos siguen siendo 20 requests. Por eso el control se hace por texto.
+- **Limitador de cuota compartido (`embedding_rate_limiter.py`):** lleva una ventana deslizante de 60 s (requests y tokens) y una ventana diaria móvil de 24 h. Es un único limitador por proceso, compartido por todas las instancias de `EmbeddingService` y por las consultas. Usa márgenes bajo los límites reales (`GEMINI_SAFE_RPM=80` frente a 100, `GEMINI_SAFE_RPD=900` frente a 1000). Limitaciones conocidas: vive en memoria (se reinicia con el proceso), no ve el consumo de otros procesos o herramientas que usen la misma API key, y la ventana diaria es una aproximación móvil del reinicio real del proveedor. Un 429 real de Gemini sigue siendo el respaldo.
+- **Reglas de fallo al indexar un documento:**
+
+| Situación | Comportamiento |
+|---|---|
+| Gemini no tiene cuota diaria suficiente, o la espera estimada supera el máximo | Se omite antes de enviar; pasa al siguiente proveedor sin gastar requests |
+| Falla el primer lote (aún no hay vectores) | Cambio inmediato al siguiente proveedor |
+| Falla un lote posterior | Espera (el `retryDelay` del error, o 60 s) y reintenta ese lote, hasta `EMBEDDING_PARTIAL_RETRIES` veces |
+| Se agotan esos reintentos, o la cuota diaria se acaba a mitad | Descarta lo generado y re-embebe el documento completo con el siguiente proveedor |
+| Fallan todos los proveedores | Pausa de `EMBEDDING_RETRY_WAIT_SECONDS` y reintenta la cadena, hasta `EMBEDDING_CHAIN_ROUNDS` rondas; luego lanza error (el pipeline marca el documento `failed`) |
+
+- **División de lotes rechazados:** si un proveedor rechaza un lote por su tamaño, el lote se divide a la mitad y se reintenta cada mitad. En Gemini solo ocurre ante un error 400; en Jina, ante cualquier error que no sea de cuota (429).
+- **Consultas (`is_query=True`):** las consultas sin modelo objetivo nunca esperan; pasan al siguiente proveedor si Gemini no tiene cupo. Las consultas con `model_name` (las de retrieval) sí esperan cupo, porque su vector debe venir del mismo modelo que construyó el índice.
+- **Modelo local:** se carga una sola vez por proceso y es compartido por todas las instancias. Si la carga falla (por ejemplo, por una dependencia faltante de `transformers`), se registra la causa real con su traceback, se recuerda el fallo para no reintentar el import en cada llamada, y el error final incluye el motivo. `max_seq_length` se fija en `LOCAL_MAX_SEQ_LENGTH` (256 por defecto, máximo 512) y se avisa en el log cuando algún texto lo supera y será truncado.
 - **`model_id` vs. `model_name`:** `model_id` es el identificador real enviado a la API (ej. `models/gemini-embedding-001`). `model_name` es la etiqueta guardada en el almacén vectorial (`models/gemini-embedding-001@768`), que incluye la dimensión para asegurar compatibilidad.
 - **Task Type:** Distingue entre vectorizar un documento (`RETRIEVAL_DOCUMENT` en Gemini, `retrieval.passage` en Jina) y vectorizar una consulta del usuario (`RETRIEVAL_QUERY` / `retrieval.query`). Se controla con el parámetro `is_query`.
 
@@ -72,8 +90,9 @@ query_text = "¿Qué es una VCN?"
 vector_query = embedding_svc.embed_text(query_text, is_query=True)
 
 # 4. Vectorización por lote (Batch)
-# Internamente se envía en grupos de EMBEDDING_BATCH_SIZE (Jina), o de a uno
-# con reintentos (Gemini, que no expone un endpoint de batch público).
+# Internamente se envía en lotes: hasta GEMINI_BATCH_SIZE textos por llamada en
+# Gemini (esperando cupo en el limitador compartido) y JINA_BATCH_SIZE en Jina.
+# Todos los textos de la lista se vectorizan con un único proveedor.
 textos = [
     "Las subredes dividen la red en segmentos públicos y privados.",
     "Las listas de seguridad funcionan como firewalls virtuales."
@@ -94,6 +113,38 @@ local_svc = EmbeddingService(method="local")
 ```
 
 > **Nota:** si cambias `EMBEDDING_DIMENSIONS` en `.env`, el modelo local (`mpnet`) tiene una salida fija de 768. Un valor distinto en esa variable hará que `embed_batch` lance un error explícito al no coincidir la dimensión — es intencional, para no indexar vectores truncados en silencio.
+
+### Reportar el Progreso (`on_progress`)
+`embed_batch` y `process_and_index_document` aceptan un callback opcional que recibe un diccionario por evento. Sin callback, todo funciona igual.
+
+```python
+def mostrar(evento: dict) -> None:
+    print(evento["stage"], "|", evento["message"])
+
+embedding_svc.embed_batch(textos, on_progress=mostrar)
+
+# Pipeline completo (agrega las etapas de subida, ingesta e indexado)
+record = process_and_index_document(local_path="doc.pdf", on_progress=mostrar)
+```
+
+Claves del evento: `stage` y `message` (texto en español listo para mostrar), y opcionalmente `current`, `total`, `wait_seconds` y `provider`.
+
+| `stage` | Quién lo emite | Cuándo |
+|---|---|---|
+| `uploading`, `ingesting`, `indexing`, `ready`, `failed` | Pipeline | Etapas del procesamiento del documento |
+| `embedding` | Servicio de embeddings | Tras cada lote (`current` / `total` textos) |
+| `waiting` | Servicio de embeddings | Esperando cupo de Gemini, o pausa entre rondas de la cadena (`wait_seconds`) |
+| `retrying` | Servicio de embeddings | Reintento tras un fallo a mitad del documento |
+| `switching_provider` | Servicio de embeddings | Cambio de proveedor |
+
+El callback se ejecuta en el hilo que llama, y si lanza un error se ignora. Como el pipeline puede bloquearse hasta 60 s en una espera, una UI debe ejecutarlo en un hilo aparte (la UI de prueba usa un hilo y una cola).
+
+### Verificar el Modelo Local
+```python
+disponible, mensaje = EmbeddingService().check_local_available()
+print(disponible, mensaje)   # (False, "Missing dependency 'x' required by ...") si falta algo
+```
+No lanza excepciones. Comprueba que el modelo cargue y que su dimensión coincida con `EMBEDDING_DIMENSIONS`. Conviene llamarlo al arrancar la aplicación, para ver un problema de dependencias en ese momento y no a mitad de un fallback. Ojo: la primera vez descarga el modelo, lo que puede tardar.
 
 ### Uso del Vector Store (FAISS)
 
@@ -185,25 +236,37 @@ EMBEDDING_API_PROVIDER = "gemini"   # 'gemini' o 'jina'
 EMBEDDING_DIMENSIONS = 768          # fija en los tres proveedores
 EMBEDDING_BATCH_SIZE = 50           # tamaño de lote inicial
 
-# Límites de cuotas y lotes por proveedor
-GEMINI_MAX_RPM = 100
+# Límites de Gemini (cada texto cuenta como una request)
+GEMINI_MAX_RPM = 100                # límites publicados por el proveedor (referencia)
 GEMINI_MAX_TPM = 30000
-GEMINI_SAFE_TPM = 25000             # Umbral seguro antes de conmutar a Jina
-GEMINI_BATCH_SIZE = 20              # Chunks agrupados por llamada a Gemini
+GEMINI_MAX_RPD = 1000
+GEMINI_SAFE_RPM = 80                # techo que aplica el limitador (con margen)
+GEMINI_SAFE_TPM = 25000
+GEMINI_SAFE_RPD = 900
+GEMINI_BATCH_SIZE = 20              # máximo de textos por llamada (tope efectivo: GEMINI_SAFE_RPM)
+GEMINI_MAX_WAIT_SECONDS = 600       # espera total aceptada para un documento antes de omitir Gemini
 
 JINA_MAX_RPM = 100
 JINA_MAX_TPM = 100000
-JINA_SAFE_TPM = 90000               # Umbral seguro antes de conmutar a Local
+JINA_SAFE_TPM = 90000               # sobre este volumen estimado se omite Jina
 JINA_BATCH_SIZE = 50
 
 LOCAL_BATCH_SIZE = 32
+LOCAL_MAX_SEQ_LENGTH = 256          # tokens por texto en el modelo local (máx. 512)
 EMBEDDING_FALLBACK_CHAIN = ["gemini", "jina", "local"]
+
+# Reintentos y esperas al indexar un documento
+EMBEDDING_CHAIN_ROUNDS = 2          # pasadas completas por la cadena de proveedores
+EMBEDDING_PARTIAL_RETRIES = 2       # esperas permitidas tras un fallo a mitad del documento
+EMBEDDING_RETRY_WAIT_SECONDS = 60   # espera por defecto si el proveedor no indica una
 
 VECTOR_STORE_METHOD = "faiss"       # 'faiss' (por documento) o 'pgvector' (rama Supabase)
 VECTOR_STORE_DIR = "vector_store"
 
 USE_KEYBERT_CONCEPTS = False        # extracción de conceptos clave en ingesta (ver doc de Ingestión)
 ```
+
+Si una API key gratuita se satura seguido, baja `GEMINI_SAFE_RPM` / `GEMINI_SAFE_RPD` o `GEMINI_BATCH_SIZE`; si otras herramientas usan la misma key, deja más margen.
 
 ---
 
@@ -216,9 +279,19 @@ Para validar los módulos de forma aislada:
 cd backend
 uv run python tests/manual/test_embedding.py
 ```
-1. Generación de vector individual, de consulta y batch vía Google Gemini y Jina AI, verificando que ambos entreguen 768 dimensiones.
-2. Verificación de rechazo de compatibilidad cruzada entre modelos de distinto `model_name`.
-3. **Pendiente de agregar:** una prueba que fuerce un fallo simulado en un lote de Jina y confirme que el tamaño de lote se reduce a la mitad en vez de cambiar de proveedor.
+1. Generación de vector individual, de consulta y batch vía Google Gemini (prueba 1) y Jina AI (prueba 2), verificando que ambos entreguen 768 dimensiones. Son pruebas en vivo y consumen cuota real.
+2. Verificación del `model_name` con el sufijo de dimensión y rechazo de compatibilidad cruzada entre modelos (prueba 3).
+3. División de un lote de Jina rechazado por tamaño, con mock (prueba 4).
+4. Cambio inmediato de Gemini a Jina cuando Gemini falla en el primer lote, sin reintentos (prueba 5).
+5. Cascada completa hasta el modelo local cuando Gemini y Jina fallan (prueba 6).
+6. Ruteo proactivo: Gemini se omite, sin gastar cuota, cuando la cuota diaria no alcanza para el documento (prueba 7).
+
+Las pruebas con mocks llaman a `reset_gemini_limiter()` al inicio, porque el limitador es global del proceso y arrastraría la cuota de pruebas anteriores.
+
+**Pendiente de agregar:** pruebas propias del limitador (`embedding_rate_limiter.py`: ventana deslizante, cuota diaria, `estimate_wait`), del reintento tras un fallo a mitad del documento, del comportamiento de las consultas y del modelo local. Por ahora se validan desde la UI de prueba.
+
+### Prueba de Extremo a Extremo desde la UI
+La UI de prueba (`upload_test_ui.py`, en `frontend_temp`) ejecuta el pipeline completo con un documento real y muestra el progreso en vivo: lote actual, esperas de cuota, reintentos y cambios de proveedor. Al terminar muestra el proveedor y modelo usados y muestras de chunks y vectores. Al iniciar imprime en consola `[Fallback local] OK / NO DISPONIBLE` con el motivo, para detectar de entrada si el modelo local puede cargar.
 
 ### Test Completo de Cadena con FAISS Vector Store
 ```powershell
