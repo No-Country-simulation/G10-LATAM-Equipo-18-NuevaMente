@@ -18,6 +18,7 @@ Output:
     the parent/child structure the RAG retrieval layer expects.
 """
 
+import logging
 import re
 import uuid
 import logging
@@ -29,6 +30,9 @@ from typing import List, Optional, Dict, Any, Union
 from pypdf import PdfReader
 from app.core.config import settings
 from app.schemas.ingestion import IngestedDocument, DocumentChunk, IngestionOptions
+from app.schemas.rag_chunks import ParentChunk, ParentChunkMetadata, ChildChunk, ChildChunkMetadata
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -46,13 +50,20 @@ class IngesterService:
         child_chunk_size: int = settings.CHILD_CHUNK_SIZE,
         parent_chunk_size: int = settings.CHUNK_SIZE,
         overlap: int = settings.CHUNK_OVERLAP,
+        child_overlap: int = settings.CHILD_CHUNK_OVERLAP,
     ):
         # Both sizes are measured in characters, same unit as chunk_text(),
         # so parent and child chunks are produced with identical splitting
-        # quality — only the target size differs.
+        # quality — only the target size and overlap differ.
         self.child_chunk_size = child_chunk_size
         self.parent_chunk_size = parent_chunk_size
         self.overlap = overlap
+        self.child_overlap = child_overlap
+
+        # Lazily created on first use so a document that never hits a PDF
+        # or never needs key-concept extraction doesn't pay their import cost.
+        self._pdf_parser = None
+        self._keybert_model = None
 
     # ---------------------------------------------------------------------------
     # File validation
@@ -100,16 +111,17 @@ class IngesterService:
     # ---------------------------------------------------------------------------
     # Text extractors
     # ---------------------------------------------------------------------------
-    def extract_text_from_pdf(self, filepath: Path) -> str:
-        """Extracts text from PDF, preferentially using PdfParserService (pymupdf4llm) for Markdown structure."""
-        from app.services.pdf_parser_service import PdfParserService # noqa: PLC0415
-        
-        pdf_parser = PdfParserService()
-        if pdf_parser.is_available:
-            return pdf_parser.parse_pdf_to_markdown(str(filepath))
-            
-        # Legacy fallback
-        from pypdf import PdfReader # noqa: PLC0415
+    def _get_pdf_parser(self):
+        """Creates the pymupdf4llm-based parser once and reuses it."""
+        if self._pdf_parser is None:
+            from app.services.pdf_parser_service import PdfParserService  # noqa: PLC0415
+            self._pdf_parser = PdfParserService()
+        return self._pdf_parser
+
+    def _extract_text_from_pdf_legacy(self, filepath: Path) -> str:
+        """Plain-text PDF extraction via pypdf, with header/footer cleanup
+        and page markers. Used when the Markdown-aware parser is either
+        unavailable or fails on this specific file."""
         reader = PdfReader(str(filepath))
         pages_text = [page.extract_text() or "" for page in reader.pages]
         cleaned_pages = self.remove_repeated_lines(pages_text)
@@ -119,6 +131,24 @@ class IngesterService:
             for i, page_str in enumerate(cleaned_pages) if page_str.strip()
         ]
         return "\n".join(pages_with_metadata)
+
+    def extract_text_from_pdf(self, filepath: Path) -> str:
+        """Extracts text from a PDF, preferring the Markdown-aware parser
+        (pymupdf4llm) for its table/heading structure. Falls back to the
+        legacy pypdf extraction both when the library is not installed and
+        when parsing this specific file raises at runtime — a malformed or
+        unusual PDF should degrade to plain text, not abort the ingestion."""
+        pdf_parser = self._get_pdf_parser()
+        if pdf_parser.is_available:
+            try:
+                return pdf_parser.parse_pdf_to_markdown(str(filepath))
+            except Exception as exc:
+                logger.warning(
+                    "Markdown PDF parsing failed for %s (%s). Falling back to plain-text extraction.",
+                    filepath.name, exc,
+                )
+
+        return self._extract_text_from_pdf_legacy(filepath)
 
     @staticmethod
     def extract_text_from_markdown(filepath: Path) -> str:
@@ -228,7 +258,7 @@ class IngesterService:
             if "[PÁGINA" in text:
                 return self.parse_pdf_pages(text)
             else:
-                # Extraído vía pymupdf4llm (Markdown)
+                # Extracted via pymupdf4llm (Markdown)
                 return self.parse_markdown_sections(text)
         elif extension in (".md", ".markdown"):
             return self.parse_markdown_sections(text)
@@ -278,12 +308,14 @@ class IngesterService:
 
         return chunks
 
-    def chunk_text(self, text: str, chunk_size: Optional[int] = None) -> List[str]:
+    def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
         """Groups paragraphs into pieces up to chunk_size, keeping paragraph
         boundaries intact. Defaults to parent_chunk_size, but accepts a
         different size so the same, already-validated splitting logic can
-        also produce child chunks — instead of a separate, cruder pass."""
+        also produce child chunks — instead of a separate, cruder pass.
+        The overlap parameter overrides self.overlap when provided."""
         size = chunk_size or self.parent_chunk_size
+        effective_overlap = overlap if overlap is not None else self.overlap
 
         if not text.strip():
             return []
@@ -297,7 +329,7 @@ class IngesterService:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = ""
-                chunks.extend(self.split_by_characters(paragraph, size, self.overlap))
+                chunks.extend(self.split_by_characters(paragraph, size, effective_overlap))
                 continue
 
             candidate = f"{current_chunk}\n\n{paragraph}".strip() if current_chunk else paragraph
@@ -334,20 +366,46 @@ class IngesterService:
         return chunks
 
     # ---------------------------------------------------------------------------
+    # Key-concept extraction (KeyBERT)
+    # ---------------------------------------------------------------------------
+    def _get_keybert_model(self):
+        """Loads the KeyBERT model once per service instance instead of once
+        per build_rag_chunks() call — reloading a local model per call made
+        ingestion far slower than the extraction itself justifies."""
+        if self._keybert_model is None:
+            from keybert import KeyBERT  # noqa: PLC0415
+            logger.info("Loading KeyBERT model for key-concept extraction.")
+            self._keybert_model = KeyBERT(model="all-MiniLM-L6-v2")
+        return self._keybert_model
+
+    def _extract_key_concepts(self, text: str) -> List[str]:
+        """Extracts up to 4 short key-concept phrases from a chunk's text.
+        Returns an empty list — rather than raising — on any failure, since
+        this is a best-effort enrichment and shouldn't abort ingestion; the
+        failure is still logged so it isn't silently lost."""
+        if not settings.USE_KEYBERT_CONCEPTS or len(text) <= 50:
+            return []
+
+        try:
+            model = self._get_keybert_model()
+            keywords = model.extract_keywords(
+                text, keyphrase_ngram_range=(1, 2), stop_words=None, top_n=4
+            )
+            return [kw[0] for kw in keywords]
+        except Exception as exc:
+            logger.warning("Key-concept extraction failed for a chunk: %s", exc)
+            return []
+
+    # ---------------------------------------------------------------------------
     # Parent/child RAG structure
     # ---------------------------------------------------------------------------
     def build_rag_chunks(self, document: IngestedDocument) -> Dict[str, Any]:
         """Takes an already-ingested document and produces the parent/child
-        structure the retrieval layer expects."""
-        
-        # Inicializar KeyBERT para extraer conceptos gratis y rápido
-        try:
-            from keybert import KeyBERT
-            import logging
-            logging.getLogger().info("Cargando modelo KeyBERT ligero...")
-            kw_model = KeyBERT(model="all-MiniLM-L6-v2")
-        except ImportError:
-            kw_model = None
+        structure the retrieval layer expects. Each parent chunk (already
+        section-aware, from build_chunks_from_sections) is re-split into
+        smaller children only when it exceeds child_chunk_size, using the
+        same paragraph-aware chunk_text() — not a separate raw word-count
+        split, so parent and child chunks share the same splitting quality."""
         parent_chunks: List[Dict[str, Any]] = []
         child_chunks: List[Dict[str, Any]] = []
 
@@ -355,44 +413,48 @@ class IngesterService:
             parent_id = f"parent_{idx}"
             section_title = chunk.section_title or f"Sección {idx + 1}"
 
-            # Extracción de Conceptos Clave en Tiempo de Ingesta (Costo 0 de API)
-            key_concepts = []
-            if kw_model and len(chunk.text) > 50:
-                # Extraemos 4 frases/palabras clave en inglés o español
-                keywords = kw_model.extract_keywords(chunk.text, keyphrase_ngram_range=(1, 2), stop_words=None, top_n=4)
-                key_concepts = [kw[0] for kw in keywords]
-
-            parent_chunks.append({
-                "id": parent_id,
-                "title": section_title,
-                "breadcrumb": f"{document.title} > {section_title}",
-                "content": chunk.text,
-                "metadata": {
-                    "source_title": document.title,
-                    "section_index": idx,
-                    "page_number": chunk.page_number,
-                    "heading_level": chunk.heading_level,
-                    "key_concepts": key_concepts,
-                },
-            })
+            # Built through the Pydantic model so a malformed field is caught
+            # here, at the source, rather than surfacing later inside FAISS
+            # or the retrieval stage. Dumped back to a dict immediately since
+            # every downstream consumer (vector store, retrieval, reranker)
+            # already operates on plain dicts.
+            parent = ParentChunk(
+                id=parent_id,
+                title=section_title,
+                breadcrumb=f"{document.title} > {section_title}",
+                content=chunk.text,
+                metadata=ParentChunkMetadata(
+                    source_title=document.title,
+                    section_index=idx,
+                    page_number=chunk.page_number,
+                    heading_level=chunk.heading_level,
+                    key_concepts=self._extract_key_concepts(chunk.text),
+                ),
+            )
+            parent_chunks.append(parent.model_dump())
 
             child_pieces = (
                 [chunk.text]
                 if len(chunk.text) <= self.child_chunk_size
-                else self.chunk_text(chunk.text, chunk_size=self.child_chunk_size)
+                else self.chunk_text(
+                    chunk.text,
+                    chunk_size=self.child_chunk_size,
+                    overlap=self.child_overlap,
+                )
             )
 
             for child_idx, child_text in enumerate(child_pieces):
-                child_chunks.append({
-                    "id": f"{parent_id}_child_{child_idx}",
-                    "parent_id": parent_id,
-                    "breadcrumb": f"[{document.title} > {section_title}]",
-                    "content": child_text,
-                    "metadata": {
-                        "parent_id": parent_id,
-                        "source": document.title,
-                    },
-                })
+                child = ChildChunk(
+                    id=f"{parent_id}_child_{child_idx}",
+                    parent_id=parent_id,
+                    breadcrumb=f"[{document.title} > {section_title}]",
+                    content=child_text,
+                    metadata=ChildChunkMetadata(
+                        parent_id=parent_id,
+                        source=document.title,
+                    ),
+                )
+                child_chunks.append(child.model_dump())
 
         return {
             "title": document.title,
@@ -410,11 +472,18 @@ class IngesterService:
         filepath: Union[str, Path],
         title: Optional[str] = None,
         options: Optional[IngestionOptions] = None,
+        document_id: Optional[str] = None,
     ) -> IngestedDocument:
-        """Processes a file path into an IngestedDocument."""
+        """Processes a file path into an IngestedDocument.
+
+        document_id is optional and defaults to a freshly generated UUID —
+        but document_pipeline_service.py passes its own, so the same ID is
+        shared across the uploaded file's object_key, its row in the
+        `documents` table, and its FAISS index directory. Without this,
+        each of those three would end up with a different, unrelated ID."""
         path = Path(filepath)
         options = options or IngestionOptions()
-        document_id = str(uuid.uuid4())
+        document_id = document_id or str(uuid.uuid4())
 
         raw_text = self.load_file(path, options)
         sections = self.detect_sections(raw_text, path.suffix.lower())

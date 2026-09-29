@@ -5,7 +5,9 @@ Purpose:
     Typed data contracts for the document ingestion and chunking layer.
     Pure data shapes only — the parent/child RAG formatting logic that
     used to live here moved to IngesterService.build_rag_chunks(), since
-    a schema should describe data, not perform processing.
+    a schema should describe data, not perform processing. RAG-stage shapes
+    (Parent/Child chunks, embeddings) live in schemas/rag_chunks.py instead,
+    since those belong to a later pipeline stage, not to raw ingestion.
 """
 
 from typing import List, Optional
@@ -25,7 +27,6 @@ class DocumentChunk(BaseModel):
     section_title: Optional[str] = None
     heading_level: Optional[int] = None
     page_number: Optional[int] = None
-    embedding: Optional[List[float]] = None
 
 
 class IngestedDocument(BaseModel):
