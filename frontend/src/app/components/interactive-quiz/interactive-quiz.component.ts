@@ -1,8 +1,11 @@
 import { Component, Input } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { QuizItem } from '../../core/models/adaptation.model';
 
 @Component({
   selector: 'app-interactive-quiz',
+  standalone: true,
+  imports: [CommonModule],
   template: `
     <div class="quiz-section">
       <div class="section-header">

@@ -1,0 +1,11 @@
+CAPITULO 1: INTRODUCCION A ORACLE CLOUD
+Oracle Cloud Infrastructure ofrece servicios de computacion y almacenamiento seguros y escalables.
+Permite a las organizaciones migrar sus cargas de trabajo con alto rendimiento.
+
+SECCION 2: REDES VIRTUALES
+Una Virtual Cloud Network (VCN) es la base para conectar instancias de computo en la nube.
+Se compone de subredes publicas y privadas, puertas de enlace a internet y tablas de ruteo.
+
+SECCION 3: ALMACENAMIENTO DE OBJETOS
+OCI Object Storage es un servicio de almacenamiento en la nube altamente duradero y disponible.
+Permite almacenar datos no estructurados de cualquier tipo como imagenes, logs y copias de seguridad.

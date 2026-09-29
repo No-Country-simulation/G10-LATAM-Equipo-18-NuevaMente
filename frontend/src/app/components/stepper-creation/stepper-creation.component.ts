@@ -1,9 +1,24 @@
 import { Component, Input, Output, EventEmitter, OnInit } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { ApiService } from '../../core/services/api.service';
 import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptation.model';
+import { DocumentUploaderComponent } from '../document-uploader/document-uploader.component';
+import { ParameterConfigComponent } from '../parameter-config/parameter-config.component';
+import { PipelineProgressComponent } from '../pipeline-progress/pipeline-progress.component';
+import { ContentViewerComponent } from '../content-viewer/content-viewer.component';
 
 @Component({
   selector: 'app-stepper-creation',
+  standalone: true,
+  imports: [
+    CommonModule,
+    FormsModule,
+    DocumentUploaderComponent,
+    ParameterConfigComponent,
+    PipelineProgressComponent,
+    ContentViewerComponent
+  ],
   template: `
     <div class="stepper-wrapper">
       <!-- Breadcrumb Nav -->
@@ -121,18 +136,7 @@ import { AdaptationRequest, AdaptationResponse } from '../../core/models/adaptat
           </div>
         </div>
 
-        <!-- Document Details Form -->
-        <div class="doc-details-card">
-          <div class="form-group">
-            <label>Título del Documento</label>
-            <input type="text" class="form-control" [(ngModel)]="documentTitle" placeholder="Ej. Introducción a OCI.pdf" />
-          </div>
 
-          <div class="form-group">
-            <label>Contenido del Documento (Extraído / Textual)</label>
-            <textarea class="form-control textarea-content" [(ngModel)]="documentContent" rows="5" placeholder="Pega el contenido o el texto extraído aquí..."></textarea>
-          </div>
-        </div>
 
         <div class="step-actions right-align">
           <button class="btn btn-primary btn-lg" (click)="goToStep(2)">

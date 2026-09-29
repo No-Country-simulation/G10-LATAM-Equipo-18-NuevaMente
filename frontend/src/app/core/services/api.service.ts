@@ -103,7 +103,6 @@ export class ApiService {
     const isTldr = request.formato_salida.includes('TLDR') || request.formato_salida.includes('Resumen');
 
     const count = request.cantidad_generar || 5;
-    const addNote = request.instrucciones_adicionales ? ` [Instrucción adicional: ${request.instrucciones_adicionales}]` : '';
 
     // Calculate reading time & concepts guarantee
     const wordCount = contentText.split(/\s+/).filter(w => w.length > 0).length;
@@ -133,11 +132,11 @@ export class ApiService {
     if (isFlashcards) {
       items = [];
       for (let i = 1; i <= count; i++) {
-        const sentence = sentences[(i - 1) % sentences.length] || `Concepto clave #${i} extraído de ${formattedTitle}.`;
+        const sentence = sentences[(i - 1) % sentences.length] || `Concepto clave #${i} de ${formattedTitle}.`;
         items.push({
-          frente: `Card #${i}: ¿Qué define ${derivedConcepts[(i - 1) % derivedConcepts.length]} para ${request.perfil_destinatario}?`,
-          dorso: `${sentence}${addNote}`,
-          pista_didactica: `Considera cómo este punto aplica en la industria de ${request.nicho_sector}.`
+          frente: `¿Cómo se aplica ${derivedConcepts[(i - 1) % derivedConcepts.length]} según ${formattedTitle}?`,
+          dorso: `${sentence}`,
+          pista_didactica: `Enfoque pedagógico orientado al nivel ${request.perfil_destinatario} en la industria de ${request.nicho_sector}.`
         });
       }
     } else if (isQuiz) {
@@ -145,14 +144,14 @@ export class ApiService {
       for (let i = 1; i <= count; i++) {
         const sentence = sentences[(i - 1) % sentences.length] || `Premisa fundamental #${i} de ${formattedTitle}.`;
         quizzes.push({
-          pregunta: `Pregunta #${i}: ¿Cuál es la implicación central de ${derivedConcepts[(i - 1) % derivedConcepts.length]} en ${request.nicho_sector}?`,
+          pregunta: `¿Cuál es la implicación principal de ${derivedConcepts[(i - 1) % derivedConcepts.length]} en el contexto de ${request.nicho_sector}?`,
           opciones: [
-            `${sentence}${addNote}`,
+            `${sentence}`,
             `Desactivar los controles de validación en entornos de producción`,
             `Ignorar los requerimientos de la audiencia ${request.perfil_destinatario}`,
             `Reemplazar la arquitectura por métodos no estructurados`
           ],
-          respuesta_correcta: `${sentence}${addNote}`,
+          respuesta_correcta: `${sentence}`,
           justificacion_didactica: `Basado en el análisis de ${docTitle}, este aspecto garantiza la efectividad pedagógica.`
         });
       }
@@ -160,26 +159,35 @@ export class ApiService {
       const summaryPoints: string[] = [];
       for (let i = 1; i <= count; i++) {
         const sentence = sentences[(i - 1) % sentences.length] || `Punto de síntesis #${i}.`;
-        summaryPoints.push(`${i}. Visión ${derivedConcepts[(i - 1) % derivedConcepts.length]}: ${sentence}`);
+        summaryPoints.push(`${i}. ${derivedConcepts[(i - 1) % derivedConcepts.length]}: ${sentence}`);
       }
-      resumenEjecutivo = `RESUMEN EJECUTIVO (TL;DR) DE ${formattedTitle.toUpperCase()} (${count} PUNTOS CLAVE):\n\n` + summaryPoints.join('\n') + addNote;
+      resumenEjecutivo = `RESUMEN EJECUTIVO (TL;DR) DE ${formattedTitle.toUpperCase()} (${count} PUNTOS CLAVE):\n\n` + summaryPoints.join('\n');
 
       seccionesTutorial = [];
       for (let i = 1; i <= count; i++) {
         const sentence = sentences[(i - 1) % sentences.length] || `Síntesis estratégica #${i}.`;
         seccionesTutorial.push({
-          encabezado: `Sección ${i}: ${derivedConcepts[(i - 1) % derivedConcepts.length]}`,
+          encabezado: `Concepto ${i}: ${derivedConcepts[(i - 1) % derivedConcepts.length]}`,
           contenido: `${sentence} En el contexto de ${request.nicho_sector}, optimiza el proceso de aprendizaje para ${request.perfil_destinatario}.`
         });
       }
     } else {
       // Default: Tutorial / Guía Paso a Paso
       seccionesTutorial = [];
+      const userNote = (request.instrucciones_adicionales || '').toLowerCase();
+      const wantsDiagrams = ['diagrama', 'grafic', 'gráfic', 'imagen', 'esquema', 'flujo', 'dibujo', 'mapa', 'tabla'].some(kw => userNote.includes(kw));
+
       for (let i = 1; i <= count; i++) {
-        const sentence = sentences[(i - 1) % sentences.length] || `Explicación técnica detallada de la fase ${i}.`;
+        const sentence = sentences[(i - 1) % sentences.length] || `Análisis del componente ${i} de la arquitectura ${formattedTitle}.`;
+        
+        let extraVisualBlock = '';
+        if (wantsDiagrams && i === 1) {
+          extraVisualBlock = `\n\n\`\`\`mermaid\ngraph TD\n    A[📥 Ingestión: ${formattedTitle}] --> B[⚙️ Procesamiento: ${derivedConcepts[(i - 1) % derivedConcepts.length]}]\n    B --> C[🎯 Aplicación en ${request.nicho_sector}]\n    C --> D[✅ Verificación para ${request.perfil_destinatario}]\n\`\`\`\n\n| Fase Didáctica | Objetivo | Estado |\n| --- | --- | --- |\n| 1. Diagnóstico | Evaluar ${derivedConcepts[(i - 1) % derivedConcepts.length]} | Completado |\n| 2. Ejecución | Integrar en ${request.nicho_sector} | Validado |\n`;
+        }
+
         seccionesTutorial.push({
-          encabezado: `Paso ${i}: ${derivedConcepts[(i - 1) % derivedConcepts.length]}`,
-          contenido: `En el Paso ${i}, se aborda ${derivedConcepts[(i - 1) % derivedConcepts.length]}. ${sentence} Adaptado especialmente al nivel ${request.nivel_detalle} del perfil ${request.perfil_destinatario}.${addNote}`
+          encabezado: `${derivedConcepts[(i - 1) % derivedConcepts.length]}`,
+          contenido: `${sentence} Adaptado especialmente al nivel ${request.nivel_detalle} del perfil ${request.perfil_destinatario} en la industria de ${request.nicho_sector}.${extraVisualBlock}`
         });
       }
     }

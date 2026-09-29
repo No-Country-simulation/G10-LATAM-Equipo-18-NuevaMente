@@ -1,458 +1,213 @@
-import { Component, OnInit } from '@angular/core';
-import { StateService, RecentProject, UserMetrics, UserProfile } from './core/services/state.service';
-import { AdaptationRequest, AdaptationResponse } from './core/models/adaptation.model';
+import { Component, OnInit, signal, inject } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { LoginComponent } from './features/auth/login/login.component';
+import { WorkspaceComponent } from './features/workspace/workspace.component';
+import { ComparatorComponent } from './features/compare/comparator.component';
+import { LibraryComponent } from './features/library/library.component';
+import { ThemeService } from './core/services/theme.service';
+import { I18nService } from './core/services/i18n.service';
+import { AuthStore } from './core/store/auth.store';
 
-export type ActiveView = 'login' | 'dashboard' | 'create' | 'documents' | 'history' | 'settings';
+export type MainView = 'workspace' | 'compare' | 'library';
 
 @Component({
   selector: 'app-root',
+  standalone: true,
+  imports: [
+    CommonModule,
+    LoginComponent,
+    WorkspaceComponent,
+    ComparatorComponent,
+    LibraryComponent
+  ],
   template: `
-    <!-- VIEW 1: LANDING & LOGIN (Full Screen) -->
-    <app-landing-login 
-      *ngIf="activeView === 'login'"
-      (loginSuccess)="onLoginSuccess($event)"
-    ></app-landing-login>
+    <!-- UNAUTHENTICATED PLATFORM LOCK: Show Login / Register Split Screen -->
+    <app-login *ngIf="!authStore.isAuthenticated()"></app-login>
 
-    <!-- VIEW 2-6: DASHBOARD & APP SHELL (Sidebar + Top Bar + Main) -->
-    <div *ngIf="activeView !== 'login'" class="app-layout">
+    <!-- AUTHENTICATED WORKSPACE SHELL (Sidebar + Header + Content) -->
+    <div *ngIf="authStore.isAuthenticated()" class="app-shell-layout">
       <!-- Left Sidebar Navigation -->
-      <aside class="sidebar">
-        <div class="sidebar-brand" (click)="navigate('dashboard')">
-          <span class="brand-icon">🎓</span>
-          <span class="brand-text">NuevaMente</span>
+      <aside class="sidebar-shell" [class.collapsed]="isSidebarCollapsed()">
+        <div class="sidebar-brand" (click)="navigate('workspace')">
+          <svg class="brand-isotype" viewBox="0 0 40 40" fill="none">
+            <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="url(#brand-grad-1)"/>
+            <path d="M4 12V24L20 32V20L4 12Z" fill="url(#brand-grad-2)"/>
+            <path d="M36 12V24L20 32V20L36 12Z" fill="url(#brand-grad-3)"/>
+            <defs>
+              <linearGradient id="brand-grad-1" x1="4" y1="4" x2="36" y2="20"><stop stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
+              <linearGradient id="brand-grad-2" x1="4" y1="12" x2="20" y2="32"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
+              <linearGradient id="brand-grad-3" x1="36" y1="12" x2="20" y2="32"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#4F46E5"/></linearGradient>
+            </defs>
+          </svg>
+          <span class="brand-title" *ngIf="!isSidebarCollapsed()">NuevaMente</span>
         </div>
 
+        <!-- Nav Items -->
         <nav class="sidebar-nav">
           <button 
-            class="nav-item" 
-            [ngClass]="{'active': activeView === 'dashboard'}"
-            (click)="navigate('dashboard')"
+            class="nav-btn" 
+            [class.active]="currentView() === 'workspace'"
+            (click)="navigate('workspace')"
           >
-            <span class="nav-icon">🏠</span>
-            <span class="nav-label">Inicio</span>
+            <span class="nav-icon">⚡</span>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
           </button>
 
           <button 
-            class="nav-item" 
-            [ngClass]="{'active': activeView === 'create'}"
-            (click)="startCreate(1)"
+            class="nav-btn" 
+            [class.active]="currentView() === 'compare'"
+            (click)="navigate('compare')"
           >
-            <span class="nav-icon">📄</span>
-            <span class="nav-label">Nuevo contenido</span>
+            <span class="nav-icon">📊</span>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Comparador</span>
           </button>
 
           <button 
-            class="nav-item" 
-            [ngClass]="{'active': activeView === 'documents'}"
-            (click)="navigate('documents')"
+            class="nav-btn" 
+            [class.active]="currentView() === 'library'"
+            (click)="navigate('library')"
           >
-            <span class="nav-icon">📁</span>
-            <span class="nav-label">Mis documentos</span>
-          </button>
-
-          <button 
-            class="nav-item" 
-            [ngClass]="{'active': activeView === 'history'}"
-            (click)="navigate('history')"
-          >
-            <span class="nav-icon">🕒</span>
-            <span class="nav-label">Historial</span>
-          </button>
-
-          <button 
-            class="nav-item" 
-            [ngClass]="{'active': activeView === 'settings'}"
-            (click)="navigate('settings')"
-          >
-            <span class="nav-icon">⚙️</span>
-            <span class="nav-label">Configuración</span>
+            <span class="nav-icon">📚</span>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Biblioteca</span>
           </button>
         </nav>
 
+        <!-- Sidebar Footer (User Profile & Theme Toggle) -->
         <div class="sidebar-footer">
-          <button class="nav-item btn-logout" (click)="logout()">
+          <!-- Theme Toggle -->
+          <button class="nav-btn theme-toggle-btn" (click)="themeService.toggleTheme()">
+            <span class="nav-icon">{{ themeService.theme() === 'dark' ? '☀️' : '🌙' }}</span>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">
+              Modo {{ themeService.theme() === 'dark' ? 'Claro' : 'Oscuro' }}
+            </span>
+          </button>
+
+          <!-- User Badge & Logout -->
+          <div class="user-badge-row" *ngIf="!isSidebarCollapsed() && authStore.user()">
+            <div class="user-avatar">{{ authStore.user()?.avatarLetter || 'U' }}</div>
+            <div class="user-info">
+              <span class="u-name">{{ authStore.user()?.name }}</span>
+              <span class="u-role">{{ authStore.user()?.role || 'Instructor' }}</span>
+            </div>
+          </div>
+
+          <button class="nav-btn logout-btn" (click)="logout()">
             <span class="nav-icon">🚪</span>
-            <span class="nav-label">Cerrar sesión</span>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Cerrar Sesión</span>
           </button>
         </div>
       </aside>
 
-      <!-- Main Workspace Area -->
-      <div class="main-workspace">
-        <!-- Top Navigation Header -->
-        <header class="app-topbar">
-          <div class="search-box">
-            <span class="search-icon">🔍</span>
-            <input 
-              type="text" 
-              class="search-input" 
-              placeholder="Buscar documentos, contenidos..." 
-            />
-          </div>
+      <!-- Main Content Area -->
+      <main class="main-content-area">
+        <app-workspace *ngIf="currentView() === 'workspace'"></app-workspace>
+        <app-comparator *ngIf="currentView() === 'compare'"></app-comparator>
+        <app-library *ngIf="currentView() === 'library'"></app-library>
+      </main>
 
-          <div class="topbar-actions">
-            <button class="icon-btn notification-btn">
-              <span class="bell-icon">🔔</span>
-              <span class="notification-badge" *ngIf="metrics.documentos > 0"></span>
-            </button>
-
-            <div class="user-profile-badge">
-              <div class="avatar-circle">{{ userProfile.avatarLetter }}</div>
-              <span class="user-name">{{ userProfile.name }}</span>
-            </div>
-          </div>
-        </header>
-
-        <!-- Dynamic Main Content View -->
-        <main class="page-content">
-          <!-- DASHBOARD VIEW -->
-          <app-dashboard 
-            *ngIf="activeView === 'dashboard'"
-            [userName]="userProfile.name"
-            [metrics]="metrics"
-            [recentProjects]="recentProjects"
-            [showHeaderAndActions]="true"
-            (navigateToCreate)="startCreate($event)"
-            (navigateToHistory)="navigate('history')"
-            (selectProject)="onSelectProject($event)"
-            (deleteProject)="onDeleteProject($event)"
-          ></app-dashboard>
-
-          <!-- STEPPER CREATION FLOW -->
-          <app-stepper-creation
-            *ngIf="activeView === 'create'"
-            [initialStep]="creationStep"
-            (completed)="onDocumentCompleted($event)"
-          ></app-stepper-creation>
-
-          <!-- MIS DOCUMENTOS VIEW (Only Projects Table shown) -->
-          <div *ngIf="activeView === 'documents'" class="simple-page-view">
-            <div class="page-header">
-              <h1>Mis documentos</h1>
-              <p>Gestiona todos tus contenidos técnicos adaptados.</p>
-            </div>
-            <app-dashboard 
-              [userName]="userProfile.name"
-              [metrics]="metrics"
-              [recentProjects]="recentProjects"
-              [showHeaderAndActions]="false"
-              (navigateToCreate)="startCreate($event)"
-              (navigateToHistory)="navigate('history')"
-              (selectProject)="onSelectProject($event)"
-              (deleteProject)="onDeleteProject($event)"
-            ></app-dashboard>
-          </div>
-
-          <!-- HISTORIAL VIEW (Only Projects Table shown) -->
-          <div *ngIf="activeView === 'history'" class="simple-page-view">
-            <div class="page-header">
-              <h1>Historial de ejecuciones</h1>
-              <p>Registro completo de ejecuciones Graph RAG y búsquedas híbridas.</p>
-            </div>
-            <app-dashboard 
-              [userName]="userProfile.name"
-              [metrics]="metrics"
-              [recentProjects]="recentProjects"
-              [showHeaderAndActions]="false"
-              (navigateToCreate)="startCreate($event)"
-              (navigateToHistory)="navigate('history')"
-              (selectProject)="onSelectProject($event)"
-              (deleteProject)="onDeleteProject($event)"
-            ></app-dashboard>
-          </div>
-
-          <!-- CONFIGURACIÓN VIEW -->
-          <div *ngIf="activeView === 'settings'" class="simple-page-view card-box">
-            <h1 class="page-title">Configuración del sistema</h1>
-            <div class="form-group" style="margin-top: 1.5rem;">
-              <label>Usuario actual</label>
-              <input type="text" class="form-control" [value]="userProfile.name + ' (' + userProfile.email + ')'" readonly />
-            </div>
-
-            <div class="form-group">
-              <label>API Key de Google Gemini</label>
-              <input type="password" class="form-control" value="AIzaSyXXXXXXXXXXXXXXXXXX" />
-            </div>
-
-            <div class="form-group">
-              <label>Bucket OCI Object Storage (Documentos)</label>
-              <input type="text" class="form-control" value="nuevamente-documentos-fuente" />
-            </div>
-
-            <div class="form-group">
-              <label>Bucket OCI Object Storage (Artefactos JSON)</label>
-              <input type="text" class="form-control" value="nuevamente-contenidos-educativos" />
-            </div>
-
-            <button class="btn btn-primary" style="margin-top: 1rem;">Guardar cambios</button>
-          </div>
-        </main>
+      <!-- FLOATING SESSION EXPIRED MODAL -->
+      <div class="session-modal-overlay" *ngIf="authStore.showSessionExpiredModal()">
+        <div class="session-modal-card">
+          <h3>⚠️ Tu sesión ha expirado</h3>
+          <p>Para proteger tus cambios en edición, reingresa a tu cuenta sin perder el avance de tu trabajo.</p>
+          <button class="btn-primary-modal" (click)="authStore.logout()">Re-iniciar sesión</button>
+        </div>
       </div>
     </div>
   `,
   styles: [`
-    .app-layout {
+    .app-shell-layout {
       display: flex;
       min-height: 100vh;
-      background: #f8fafc;
+      background: var(--bg-app);
+      color: var(--text-primary);
     }
 
-    /* Sidebar Styling */
-    .sidebar {
-      width: 260px;
-      background: #ffffff;
-      border-right: 1px solid #e2e8f0;
-      display: flex;
-      flex-direction: column;
+    .sidebar-shell {
+      width: 250px;
+      background: var(--bg-surface);
+      border-right: 1px solid var(--border-subtle);
       padding: 1.5rem 1rem;
+      display: flex;
+      flex-direction: column;
       position: fixed;
-      top: 0;
-      bottom: 0;
-      left: 0;
+      top: 0; bottom: 0; left: 0;
       z-index: 100;
+      transition: width 0.3s;
     }
+
     .sidebar-brand {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      padding: 0.5rem 0.75rem;
-      margin-bottom: 2rem;
-      cursor: pointer;
-    }
-    .brand-icon {
-      font-size: 1.75rem;
-    }
-    .brand-text {
-      font-size: 1.35rem;
-      font-weight: 800;
-      color: #0f172a;
+      display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; margin-bottom: 2rem; cursor: pointer;
     }
 
-    .sidebar-nav {
-      display: flex;
-      flex-direction: column;
-      gap: 0.35rem;
-      flex: 1;
-    }
-    .nav-item {
-      display: flex;
-      align-items: center;
-      gap: 0.85rem;
-      padding: 0.75rem 1rem;
-      border-radius: 12px;
-      background: transparent;
-      border: none;
-      color: #64748b;
-      font-size: 0.95rem;
-      font-weight: 600;
-      cursor: pointer;
-      width: 100%;
-      text-align: left;
-      transition: all 0.2s;
-    }
-    .nav-item:hover {
-      background: #f1f5f9;
-      color: #0f172a;
-    }
-    .nav-item.active {
-      background: #eff6ff;
-      color: #2563eb;
-      font-weight: 700;
-    }
-    .nav-icon {
-      font-size: 1.15rem;
-    }
+    .brand-isotype { width: 32px; height: 32px; flex-shrink: 0; }
+    .brand-title { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); font-family: var(--font-heading); }
 
-    .sidebar-footer {
-      border-top: 1px solid #e2e8f0;
-      padding-top: 1rem;
-    }
-    .btn-logout {
-      color: #ef4444;
-    }
-    .btn-logout:hover {
-      background: #fee2e2;
-      color: #dc2626;
-    }
+    .sidebar-nav { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
 
-    /* Main Workspace */
-    .main-workspace {
-      flex: 1;
-      margin-left: 260px;
-      display: flex;
-      flex-direction: column;
-      min-height: 100vh;
+    .nav-btn {
+      display: flex; align-items: center; gap: 0.85rem; padding: 0.75rem 1rem;
+      border-radius: 12px; background: transparent; border: none; color: var(--text-secondary);
+      font-size: 0.92rem; font-weight: 600; cursor: pointer; width: 100%; text-align: left; transition: all 0.2s;
     }
+    .nav-btn:hover { background: var(--bg-app); color: var(--text-primary); }
+    .nav-btn.active { background: rgba(79, 70, 229, 0.1); color: #4F46E5; font-weight: 700; }
 
-    /* Top Bar */
-    .app-topbar {
-      height: 70px;
-      background: #ffffff;
-      border-bottom: 1px solid #e2e8f0;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      padding: 0 2.5rem;
-      position: sticky;
-      top: 0;
-      z-index: 90;
-    }
-    .search-box {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: #f1f5f9;
-      border-radius: 12px;
-      padding: 0.5rem 1rem;
-      width: 380px;
-    }
-    .search-icon {
-      font-size: 0.9rem;
-      color: #94a3b8;
-    }
-    .search-input {
-      background: transparent;
-      border: none;
-      width: 100%;
-      font-size: 0.88rem;
-      color: #0f172a;
-    }
+    .sidebar-footer { border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
-    .topbar-actions {
-      display: flex;
-      align-items: center;
-      gap: 1.5rem;
+    .user-badge-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; }
+    .user-avatar {
+      width: 34px; height: 34px; border-radius: 50%; background: #4F46E5; color: #FFFFFF;
+      font-weight: 800; display: flex; align-items: center; justify-content: center; font-size: 0.88rem;
     }
-    .icon-btn {
-      background: #f1f5f9;
-      border: none;
-      width: 40px;
-      height: 40px;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      position: relative;
-      cursor: pointer;
-    }
-    .notification-badge {
-      position: absolute;
-      top: 8px;
-      right: 8px;
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #ef4444;
-    }
+    .user-info { display: flex; flex-direction: column; }
+    .u-name { font-size: 0.88rem; font-weight: 700; color: var(--text-primary); }
+    .u-role { font-size: 0.72rem; color: var(--text-muted); }
 
-    .user-profile-badge {
-      display: flex;
-      align-items: center;
-      gap: 0.75rem;
-      cursor: pointer;
-    }
-    .avatar-circle {
-      width: 38px;
-      height: 38px;
-      border-radius: 50%;
-      background: #eff6ff;
-      color: #2563eb;
-      font-weight: 800;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 0.95rem;
-      border: 1px solid #bfdbfe;
-    }
-    .user-name {
-      font-weight: 700;
-      font-size: 0.95rem;
-      color: #0f172a;
-    }
+    .logout-btn { color: var(--color-error); }
+    .logout-btn:hover { background: rgba(239, 68, 68, 0.1); }
 
-    .page-content {
-      padding: 2.5rem;
-      flex: 1;
-    }
+    .main-content-area { flex: 1; margin-left: 250px; padding: 2.5rem; min-height: 100vh; }
 
-    .simple-page-view {
-      max-width: 1100px;
-      margin: 0 auto;
+    .session-modal-overlay {
+      position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
+      z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.5rem;
     }
-    .page-header {
-      margin-bottom: 2rem;
+    .session-modal-card {
+      background: var(--bg-surface); border: 1px solid var(--border-subtle);
+      border-radius: 16px; padding: 2rem; max-width: 400px; width: 100%; text-align: center;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
     }
-    .page-header h1 {
-      font-size: 2rem;
-      font-weight: 800;
-    }
-    .page-header p {
-      color: #64748b;
+    .session-modal-card h3 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    .session-modal-card p { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 1.5rem; }
+    .btn-primary-modal {
+      width: 100%; padding: 0.75rem; background: #4F46E5; color: #FFF; border: none; border-radius: 10px; font-weight: 700; cursor: pointer;
     }
 
     @media (max-width: 900px) {
-      .sidebar { width: 80px; padding: 1rem 0.5rem; }
-      .brand-text, .nav-label { display: none; }
-      .main-workspace { margin-left: 80px; }
-      .search-box { width: 200px; }
+      .sidebar-shell { width: 70px; padding: 1rem 0.4rem; }
+      .main-content-area { margin-left: 70px; padding: 1.5rem; }
     }
   `]
 })
 export class AppComponent implements OnInit {
-  activeView: ActiveView = 'login';
-  creationStep: number = 1;
+  readonly themeService = inject(ThemeService);
+  readonly i18n = inject(I18nService);
+  readonly authStore = inject(AuthStore);
 
-  constructor(private stateService: StateService) {}
+  currentView = signal<MainView>('workspace');
+  isSidebarCollapsed = signal<boolean>(false);
 
   ngOnInit(): void {
-    if (this.userProfile.isLoggedIn) {
-      this.activeView = 'dashboard';
-    } else {
-      this.activeView = 'login';
-    }
-  }
-
-  get userProfile(): UserProfile {
-    return this.stateService.getUser();
-  }
-
-  get metrics(): UserMetrics {
-    return this.stateService.getMetrics();
-  }
-
-  get recentProjects(): RecentProject[] {
-    return this.stateService.getProjects();
-  }
-
-  onLoginSuccess(event: { email: string; name: string; token?: string }): void {
-    this.stateService.setUser(event.email, event.name, event.token);
-    this.activeView = 'dashboard';
+    // Attempt silent session refresh on startup
+    this.authStore.initSession();
   }
 
   logout(): void {
-    this.stateService.logoutUser();
-    this.activeView = 'login';
+    this.authStore.logout();
   }
 
-  navigate(view: ActiveView): void {
-    this.activeView = view;
-  }
-
-  startCreate(step: number = 1): void {
-    this.creationStep = step;
-    this.activeView = 'create';
-  }
-
-  onDocumentCompleted(event: { request: AdaptationRequest; response: AdaptationResponse }): void {
-    this.stateService.addProjectFromResponse(event.request, event.response);
-  }
-
-  onSelectProject(project: RecentProject): void {
-    this.creationStep = 4;
-    this.activeView = 'create';
-  }
-
-  onDeleteProject(id: string): void {
-    this.stateService.deleteProject(id);
+  navigate(view: MainView): void {
+    this.currentView.set(view);
   }
 }

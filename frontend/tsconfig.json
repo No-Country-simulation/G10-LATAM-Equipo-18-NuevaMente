@@ -19,6 +19,9 @@
     "useDefineForClassFields": false,
     "lib": ["ES2022", "dom"]
   },
+  "exclude": [
+    "src/**/*.spec.ts"
+  ],
   "angularCompilerOptions": {
     "enableI18nLegacyMessageIdFormat": false,
     "strictInjectionParameters": true,

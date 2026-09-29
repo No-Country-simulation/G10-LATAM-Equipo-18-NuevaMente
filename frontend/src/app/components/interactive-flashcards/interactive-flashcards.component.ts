@@ -1,9 +1,12 @@
 import { Component, Input } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { FlashcardItem } from '../../core/models/adaptation.model';
 import { ApiService } from '../../core/services/api.service';
 
 @Component({
   selector: 'app-interactive-flashcards',
+  standalone: true,
+  imports: [CommonModule],
   template: `
     <div class="flashcards-section">
       <div class="section-header">

@@ -1,8 +1,12 @@
 import { Component, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-document-uploader',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="uploader-card">
       <h3 class="title">📥 Carga de Documentación Técnica</h3>

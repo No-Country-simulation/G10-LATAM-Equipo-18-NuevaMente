@@ -1,8 +1,11 @@
 import { Component, Input } from '@angular/core';
+import { CommonModule } from '@angular/common';
 import { Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/models/adaptation.model';
 
 @Component({
   selector: 'app-metadata-dashboard',
+  standalone: true,
+  imports: [CommonModule],
   template: `
     <div class="metadata-wrapper">
       <h3 class="meta-section-title">📊 Metadatos del Procesamiento RAG & OCI</h3>

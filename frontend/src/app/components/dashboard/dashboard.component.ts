@@ -1,8 +1,12 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
 import { RecentProject, UserMetrics } from '../../core/services/state.service';
 
 @Component({
   selector: 'app-dashboard',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="dashboard-container">
       <!-- Welcome Banner (Shown only when showHeaderAndActions is true) -->

@@ -1,8 +1,13 @@
 import { Component, Input, Output, EventEmitter } from '@angular/core';
+import { CommonModule } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { DomSanitizer, SafeHtml } from '@angular/platform-browser';
 import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/models/adaptation.model';
 
 @Component({
   selector: 'app-content-viewer',
+  standalone: true,
+  imports: [CommonModule, FormsModule],
   template: `
     <div class="result-viewer-container">
       <!-- Top Action Bar -->
@@ -111,17 +116,17 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
             <!-- TL;DR / Resumen Ejecutivo Card -->
             <div class="tldr-card" *ngIf="(isTldrFormat || isTutorialFormat) && contenido?.resumen_ejecutivo">
               <h3>⚡ Resumen Ejecutivo (TL;DR)</h3>
-              <div class="tldr-text">{{ contenido?.resumen_ejecutivo }}</div>
+              <div class="tldr-text" [innerHTML]="renderRichMarkdown(contenido?.resumen_ejecutivo)"></div>
             </div>
 
             <!-- Section: Tutorial Steps -->
             <div *ngIf="(isTutorialFormat || isTldrFormat) && contenido?.secciones_tutorial && contenido!.secciones_tutorial!.length > 0" class="tutorial-sections">
-              <h3 class="section-title-large">Secciones de Aprendizaje</h3>
+              <h3 class="section-title-large">Secciones de Aprendizaje & Diagramas Visuales</h3>
               <div class="step-card" *ngFor="let sec of contenido?.secciones_tutorial; let i = index">
                 <div class="step-badge-number">{{ i + 1 }}</div>
                 <div class="step-card-content">
-                  <h4>{{ sec.encabezado }}</h4>
-                  <p>{{ sec.contenido }}</p>
+                  <h4>{{ getCleanHeading(sec.encabezado, i) }}</h4>
+                  <div class="step-rich-text" [innerHTML]="renderRichMarkdown(sec.contenido)"></div>
                 </div>
               </div>
             </div>
@@ -449,7 +454,6 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
     .tldr-text {
       font-size: 0.95rem;
       color: #713f12;
-      white-space: pre-line;
       line-height: 1.6;
     }
 
@@ -485,11 +489,6 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
       font-weight: 700;
       color: #0f172a;
       margin-bottom: 0.35rem;
-    }
-    .step-card-content p {
-      font-size: 0.9rem;
-      color: #475569;
-      line-height: 1.5;
     }
 
     .json-code-box {
@@ -621,6 +620,95 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
       color: #64748b;
     }
 
+    /* Visual Diagram & Table Styles */
+    .visual-diagram-card {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin: 1.25rem 0;
+      color: #f8fafc;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.15);
+    }
+    .v-diagram-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1rem;
+      border-bottom: 1px solid #334155;
+      padding-bottom: 0.5rem;
+    }
+    .v-badge {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #38bdf8;
+      letter-spacing: 0.05em;
+    }
+    .v-sub {
+      font-size: 0.72rem;
+      color: #94a3b8;
+    }
+    .v-diagram-flow {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+    }
+    .mermaid-node-box {
+      background: #1e293b;
+      border: 1px solid #475569;
+      border-left: 4px solid #38bdf8;
+      border-radius: 10px;
+      padding: 0.75rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+    .node-step {
+      font-size: 0.7rem;
+      font-weight: 800;
+      background: #0284c7;
+      color: #ffffff;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: uppercase;
+    }
+    .node-content {
+      font-size: 0.9rem;
+      color: #f1f5f9;
+      font-weight: 600;
+    }
+
+    .rendered-markdown-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 1.25rem 0;
+      font-size: 0.88rem;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+    }
+    .rendered-markdown-table th {
+      background: #f1f5f9;
+      color: #0f172a;
+      font-weight: 800;
+      padding: 0.75rem 1rem;
+      text-align: left;
+      border-bottom: 2px solid #cbd5e1;
+    }
+    .rendered-markdown-table td {
+      padding: 0.75rem 1rem;
+      border-bottom: 1px solid #e2e8f0;
+      color: #334155;
+    }
+    .rendered-markdown-table tr:hover {
+      background: #f8fafc;
+    }
+    .rich-paragraph {
+      margin-bottom: 0.85rem;
+      line-height: 1.6;
+      color: #334155;
+    }
+
     @media (max-width: 900px) {
       .viewer-grid { grid-template-columns: 1fr; }
     }
@@ -637,6 +725,91 @@ export class ContentViewerComponent {
   activeTab: 'preview' | 'json' | 'sources' | 'metadata' = 'preview';
   showMenu: boolean = false;
   Math = Math;
+
+  constructor(private sanitizer: DomSanitizer) {}
+
+  getCleanHeading(heading: string | undefined, index: number): string {
+    if (!heading) return `Paso ${index + 1}`;
+    let clean = heading.trim();
+    // Prevent duplicate "Paso 1: Paso 1:"
+    clean = clean.replace(/^(paso\s*\d+\s*:\s*)+/gi, '').trim();
+    clean = clean.replace(/^(secci[oó]n\s*\d+\s*:\s*)+/gi, '').trim();
+    return `Paso ${index + 1}: ${clean}`;
+  }
+
+  renderRichMarkdown(text: string | undefined): SafeHtml {
+    return this.sanitizer.bypassSecurityTrustHtml(this.formatContentToHtml(text));
+  }
+
+  formatContentToHtml(text: string | undefined): string {
+    if (!text) return '';
+
+    let raw = text;
+
+    // Clean up raw user instruction notes like [Instrucción adicional: ...]
+    raw = raw.replace(/\[\s*instrucci[oó]n\s+adicional\s*:[^\]]*\]/gi, '');
+
+    // 1. Convert Mermaid blocks ```mermaid ... ``` into styled diagram cards
+    raw = raw.replace(/```mermaid([\s\S]*?)```/gi, (match, mermaidCode) => {
+      const lines = mermaidCode.trim().split('\n').filter((l: string) => l.trim() && !l.includes('graph') && !l.includes('flowchart'));
+      let nodesHtml = '';
+      lines.forEach((line: string, idx: number) => {
+        let clean = line.replace(/-->/g, ' ➔ ').replace(/["'\[\]()]/g, '').trim();
+        if (clean) {
+          nodesHtml += `
+            <div class="mermaid-node-box" style="background:#1e293b; border:1px solid #475569; border-left:4px solid #38bdf8; border-radius:10px; padding:10px 14px; margin-bottom:8px; display:flex; align-items:center; gap:12px;">
+              <span class="node-step" style="font-size:0.7rem; font-weight:800; background:#0284c7; color:#ffffff; padding:2px 8px; border-radius:6px; text-transform:uppercase;">Fase ${idx + 1}</span>
+              <span class="node-content" style="font-size:0.9rem; color:#f1f5f9; font-weight:600;">${clean}</span>
+            </div>
+          `;
+        }
+      });
+      return `
+        <div class="visual-diagram-card" style="background:linear-gradient(135deg, #0f172a 0%, #1e293b 100%); border:1px solid #334155; border-radius:16px; padding:18px; margin:18px 0; color:#f8fafc;">
+          <div class="v-diagram-header" style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; border-bottom:1px solid #334155; padding-bottom:8px;">
+            <span class="v-badge" style="font-size:0.75rem; font-weight:800; color:#38bdf8; letter-spacing:0.05em;">📊 DIAGRAMA VISUAL & ESQUEMA DE FLUJO</span>
+            <span class="v-sub" style="font-size:0.72rem; color:#94a3b8;">Generado con Mermaid</span>
+          </div>
+          <div class="v-diagram-flow">
+            ${nodesHtml}
+          </div>
+        </div>
+      `;
+    });
+
+    // 2. Convert Markdown tables (| Col1 | Col2 |) into styled HTML tables
+    raw = raw.replace(/((?:\|[^\n]+\|\n)+)/g, (match, tableBlock) => {
+      const rows = tableBlock.trim().split('\n').filter((r: string) => r.trim() && !r.includes('---'));
+      if (rows.length === 0) return '';
+      let tableHtml = '<table class="rendered-markdown-table" style="width:100%; border-collapse:collapse; margin:16px 0; font-size:0.88rem; border-radius:10px; overflow:hidden; border:1px solid #cbd5e1;">';
+      rows.forEach((row: string, rowIndex: number) => {
+        const cells = row.split('|').map(c => c.trim()).filter((c, i, arr) => i > 0 && i < arr.length - 1);
+        const tag = rowIndex === 0 ? 'th' : 'td';
+        const bgStyle = rowIndex === 0 ? 'background:#f1f5f9; color:#0f172a; font-weight:800; border-bottom:2px solid #cbd5e1;' : 'border-bottom:1px solid #e2e8f0; color:#334155;';
+        tableHtml += '<tr>';
+        cells.forEach(cell => {
+          tableHtml += `<${tag} style="padding:10px 14px; ${bgStyle}">${cell}</${tag}>`;
+        });
+        tableHtml += '</tr>';
+      });
+      tableHtml += '</table>';
+      return tableHtml;
+    });
+
+    // 3. Convert **bold** text
+    raw = raw.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+    // 4. Convert line breaks into paragraphs
+    const paragraphs = raw.split(/\n\n+/);
+    const htmlOutput = paragraphs.map(p => {
+      if (p.includes('<div class="visual-diagram-card"') || p.includes('<table class="rendered-markdown-table"')) {
+        return p;
+      }
+      return `<p class="rich-paragraph" style="margin-bottom:12px; line-height:1.6; color:#334155;">${p.replace(/\n/g, '<br>')}</p>`;
+    }).join('');
+
+    return htmlOutput;
+  }
 
   get isFlashcardFormat(): boolean {
     const fmt = (this.metadatos?.formato_generado || '').toLowerCase();
@@ -735,7 +908,7 @@ export class ContentViewerComponent {
         <style>
           @page {
             size: A4 portrait;
-            margin: 0mm;
+            margin: 15mm 15mm;
           }
           @media print {
             html, body {
@@ -758,7 +931,7 @@ export class ContentViewerComponent {
             background: #ffffff;
           }
           .pdf-wrapper {
-            padding: 18mm 20mm;
+            padding: 5mm;
             max-width: 100%;
           }
           .brand-banner {
@@ -854,10 +1027,7 @@ export class ContentViewerComponent {
             font-size: 1.08rem;
             font-weight: 800;
             color: #1e3a8a;
-            margin: 0 0 8px 0;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+            margin: 0 0 10px 0;
           }
           .card-body {
             font-size: 0.92rem;
@@ -924,7 +1094,6 @@ export class ContentViewerComponent {
           .tldr-content {
             font-size: 0.94rem;
             color: #713f12;
-            white-space: pre-line;
             line-height: 1.65;
           }
           .pdf-footer-bar {
@@ -976,32 +1145,32 @@ export class ContentViewerComponent {
           </div>
 
           <!-- TL;DR / Resumen Ejecutivo -->
-          ${(this.isTldrFormat || this.isTutorialFormat) && this.contenido?.resumen_ejecutivo ? `
+          ${this.contenido?.resumen_ejecutivo ? `
             <div class="tldr-container">
               <h3 class="tldr-title">⚡ Resumen Ejecutivo (TL;DR)</h3>
-              <div class="tldr-content">${this.contenido.resumen_ejecutivo}</div>
+              <div class="tldr-content">${this.formatContentToHtml(this.contenido.resumen_ejecutivo)}</div>
             </div>
           ` : ''}
 
           <!-- Tutorial / Guía Paso a Paso -->
-          ${(this.isTutorialFormat || this.isTldrFormat) && this.contenido?.secciones_tutorial ? `
-            <h2 class="section-heading-pdf">Módulos de Aprendizaje</h2>
+          ${this.contenido?.secciones_tutorial && this.contenido.secciones_tutorial.length > 0 ? `
+            <h2 class="section-heading-pdf">Módulos de Aprendizaje & Diagramas</h2>
             ${this.contenido.secciones_tutorial.map((sec, idx) => `
               <div class="card-box">
-                <h3 class="card-title">Paso ${idx + 1}: ${sec.encabezado}</h3>
-                <p class="card-body">${sec.contenido}</p>
+                <h3 class="card-title">${this.getCleanHeading(sec.encabezado, idx)}</h3>
+                <div class="card-body">${this.formatContentToHtml(sec.contenido)}</div>
               </div>
             `).join('')}
           ` : ''}
 
           <!-- Flashcards -->
-          ${this.isFlashcardFormat && this.contenido?.items ? `
+          ${this.contenido?.items && this.contenido.items.length > 0 ? `
             <h2 class="section-heading-pdf">Flashcards de Memorización</h2>
-            ${this.contenido.items.map((item, idx) => `
+            ${this.contenido.items.map((item: any, idx: number) => `
               <div class="card-box">
-                <div class="flashcard-q">Card #${idx + 1}: ${item.frente}</div>
+                <div class="flashcard-q">Card #${idx + 1}: ${item.frente || item.titulo || ''}</div>
                 <div class="flashcard-a">
-                  <strong>Respuesta:</strong> ${item.dorso}
+                  <strong>Respuesta:</strong> ${item.dorso || item.instruccion || ''}
                   ${item.pista_didactica ? `<div style="font-size:0.82rem; color:#64748b; margin-top:6px;"><em>Pista didáctica: ${item.pista_didactica}</em></div>` : ''}
                 </div>
               </div>
@@ -1009,13 +1178,13 @@ export class ContentViewerComponent {
           ` : ''}
 
           <!-- Quiz Interactivo -->
-          ${this.isQuizFormat && this.contenido?.quizzes ? `
+          ${this.contenido?.quizzes && this.contenido.quizzes.length > 0 ? `
             <h2 class="section-heading-pdf">Quiz de Evaluación Interactiva</h2>
-            ${this.contenido.quizzes.map((q, idx) => `
+            ${this.contenido.quizzes.map((q: any, idx: number) => `
               <div class="card-box">
                 <h3 class="card-title">Pregunta #${idx + 1}: ${q.pregunta}</h3>
                 <div style="margin: 10px 0;">
-                  ${q.opciones.map(opt => `
+                  ${q.opciones.map((opt: string) => `
                     <div class="quiz-option-item ${opt === q.respuesta_correcta ? 'is-correct' : ''}">
                       <span>${opt === q.respuesta_correcta ? '✓' : '⚪'}</span>
                       <span>${opt}</span>
@@ -1023,7 +1192,7 @@ export class ContentViewerComponent {
                   `).join('')}
                 </div>
                 <div class="justification-callout">
-                  <strong>Justificación Pedagógica:</strong> ${q.justificacion_didactica}
+                  <strong>Justificación Pedagógica:</strong> ${q.justificacion || q.justificacion_didactica || ''}
                 </div>
               </div>
             `).join('')}
