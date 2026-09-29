@@ -30,7 +30,7 @@
     input[type="text"], select, textarea { padding: 0.75rem; border-radius: 6px; border: 1px solid #cbd5e1; font-size: 0.95rem; font-family: inherit; width: 100%; }
     textarea { resize: vertical; min-height: 120px; }
     
-    /* File Upload Drag & Drop Area */
+    /* File Upload Dropzone */
     .file-dropzone {
       border: 2px dashed #94a3b8;
       border-radius: 10px;
@@ -80,10 +80,29 @@
     .metric-val { font-size: 1.25rem; font-weight: 800; color: #0f172a; }
     .metric-val.success { color: #16a34a; }
     
-    .badge-tag { background: #e0f2fe; color: #0369a1; padding: 0.3rem 0.75rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; display: inline-block; margin-right: 0.4rem; margin-bottom: 0.4rem; }
+    .badge-tag { background: #e0f2fe; color: #0369a1; padding: 0.35rem 0.85rem; border-radius: 20px; font-size: 0.85rem; font-weight: 600; display: inline-block; margin-right: 0.4rem; margin-bottom: 0.4rem; }
     
     .viewer-box { background: white; padding: 1.75rem; border-radius: 12px; border: 1px solid var(--border-color); margin-bottom: 1.5rem; }
-    .intro-banner { background: #f0f9ff; border-left: 4px solid #0284c7; padding: 1rem; border-radius: 6px; margin: 1rem 0; font-style: italic; color: #0369a1; }
+    .intro-banner { background: #f0f9ff; border-left: 4px solid #0284c7; padding: 1.25rem; border-radius: 6px; margin: 1rem 0 1.5rem; font-style: italic; color: #0369a1; font-size: 1.05rem; line-height: 1.6; }
+    
+    /* Dynamic Formats Styles */
+    .tutorial-card { background: #f8fafc; border-left: 4px solid var(--primary); padding: 1.25rem; border-radius: 8px; margin-bottom: 1.25rem; border: 1px solid #cbd5e1; }
+    .tutorial-card h4 { font-size: 1.1rem; font-weight: 700; color: #1e293b; margin-bottom: 0.5rem; }
+    .tutorial-card p { font-size: 0.98rem; color: #334155; line-height: 1.6; }
+    
+    .tldr-card { background: #fefce8; border: 1px solid #fef08a; padding: 1.5rem; border-radius: 10px; margin-bottom: 1.5rem; }
+    .tldr-card h3 { font-size: 1.15rem; color: #854d0e; font-weight: 800; margin-bottom: 0.75rem; }
+    .tldr-content { font-size: 1rem; color: #713f12; white-space: pre-line; line-height: 1.6; }
+    
+    .quiz-card { background: #f8fafc; padding: 1.25rem; border-radius: 10px; margin-bottom: 1.25rem; border: 1px solid #cbd5e1; }
+    .quiz-question { font-weight: 700; font-size: 1.05rem; color: #0f172a; margin-bottom: 1rem; }
+    .quiz-option { width: 100%; text-align: left; padding: 0.85rem 1.2rem; border-radius: 6px; border: 1px solid #cbd5e1; background: white; margin-bottom: 0.5rem; font-size: 0.95rem; cursor: pointer; transition: all 0.2s; }
+    .quiz-option:hover { background: #eff6ff; border-color: var(--primary); }
+    .quiz-option.correct-option { background: #dcfce7 !important; border-color: #22c55e !important; color: #15803d; font-weight: bold; }
+    .quiz-option.incorrect-option { background: #fee2e2 !important; border-color: #ef4444 !important; color: #b91c1c; }
+    .quiz-feedback { margin-top: 1rem; padding: 1rem; background: white; border-radius: 6px; border-left: 4px solid #2563eb; display: none; }
+    .quiz-feedback.show { display: block; }
+    .justification { font-size: 0.9rem; color: #334155; margin-top: 0.4rem; }
     
     .flashcard { background: #ffffff; border: 1px solid var(--border-color); border-radius: 10px; padding: 1.25rem; margin-bottom: 1rem; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.03); }
     .flashcard:hover { border-color: var(--primary); }
@@ -109,7 +128,7 @@
     <div class="card">
       <h3>📥 Documento Técnico de Entrada</h3>
       
-      <!-- Zona de Carga de Archivo (PDF / Markdown / Texto) -->
+      <!-- File Dropzone -->
       <div 
         class="file-dropzone" 
         id="dropzone"
@@ -145,19 +164,19 @@
         <div class="form-group">
           <label for="perfilSelect">Perfil del Destinatario:</label>
           <select id="perfilSelect">
-            <option value="Principiante" selected>Principiante / Transición de Carrera</option>
+            <option value="Principiante">Principiante / Transición de Carrera</option>
             <option value="Desarrollador">Desarrollador Junior / Mid</option>
             <option value="Arquitecto">Líder Técnico / Arquitecto</option>
-            <option value="Ejecutivo">Gestor / Ejecutivo (No Técnico)</option>
+            <option value="Gestor / Ejecutivo (No Técnico)" selected>Gestor / Ejecutivo (No Técnico)</option>
           </select>
         </div>
 
         <div class="form-group">
           <label for="formatoSelect">Formato Pedagógico:</label>
           <select id="formatoSelect">
-            <option value="Flashcards" selected>Flashcards de Memorización</option>
+            <option value="Guía Práctica Paso a Paso" selected>Guía Práctica Paso a Paso (Tutorial)</option>
+            <option value="Flashcards">Flashcards de Memorización</option>
             <option value="Quiz">Quiz Interactivo con Justificaciones</option>
-            <option value="Tutorial">Guía Práctica Paso a Paso</option>
             <option value="TLDR">Resumen Ejecutivo (TL;DR)</option>
           </select>
         </div>
@@ -165,7 +184,7 @@
         <div class="form-group">
           <label for="nichoSelect">Nicho / Industria:</label>
           <select id="nichoSelect">
-            <option value="General" selected>General / Infraestructura Nube</option>
+            <option value="General / Infraestructura Nube" selected>General / Infraestructura Nube</option>
             <option value="Fintech">Fintech & Servicios Financieros</option>
             <option value="Salud">Salud & Biotecnología</option>
             <option value="E-commerce">E-commerce & Retail</option>
@@ -180,7 +199,7 @@
 
     <div class="loading-state" id="loadingState">
       <div class="spinner"></div>
-      <p><strong id="loadingStatusText">Ejecutando Pipeline Agéntico...</strong></p>
+      <p><strong id="loadingStatusText">Ejecutando Pipeline Agéntico Gemini...</strong></p>
       <p style="font-size:0.85rem; color:#64748b; margin-top:0.4rem;">Parsing AST $\rightarrow$ Graph RAG $\rightarrow$ Búsqueda Híbrida BM25+Embedding $\rightarrow$ Gemini 1.5 Pro</p>
     </div>
 
@@ -265,7 +284,6 @@
       badge.className = 'file-badge';
       badge.innerHTML = `📄 ${file.name} (${Math.round(file.size/1024)} KB) <span class="remove-btn" onclick="clearFile(event)">✕</span>`;
 
-      // Auto-completar título desde el nombre del archivo
       const cleanTitle = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]/g, " ");
       document.getElementById('docTitulo').value = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
 
@@ -278,7 +296,6 @@
         };
         reader.readAsText(file);
       } else if (ext === 'pdf') {
-        // Enviar archivo al backend FastAPI para extracción PDF
         const loading = document.getElementById('loadingState');
         const loadingText = document.getElementById('loadingStatusText');
         loadingText.innerText = "Extrayendo texto del archivo PDF...";
@@ -296,6 +313,9 @@
           loading.style.display = 'none';
           if (data.texto_extraido) {
             document.getElementById('docContenido').value = data.texto_extraido;
+            if (data.titulo_sugerido && (!document.getElementById('docTitulo').value || /^\d/.test(document.getElementById('docTitulo').value))) {
+              document.getElementById('docTitulo').value = data.titulo_sugerido;
+            }
           }
         } catch (err) {
           loading.style.display = 'none';
@@ -344,7 +364,7 @@
         document.getElementById('valAnclaje').innerText = `${Math.round(data.evaluacion_calidad.anclaje_fuente_score * 100)}%`;
         document.getElementById('valOCI').innerText = data.almacenamiento_oci.status_upload.toUpperCase();
 
-        // Render Conceptos
+        // Render Conceptos Clave
         const conceptBox = document.getElementById('conceptosContainer');
         conceptBox.innerHTML = '';
         data.metadatos.conceptos_clave.forEach(c => {
@@ -352,27 +372,101 @@
         });
 
         // Render Contenido Adaptado
-        document.getElementById('resTitulo').innerText = data.contenido_adaptado.titulo;
-        document.getElementById('resIntro').innerText = data.contenido_adaptado.introduccion_contextualizada;
+        const ca = data.contenido_adaptado;
+        document.getElementById('resTitulo').innerText = ca.titulo;
+        document.getElementById('resIntro').innerText = ca.introduccion_contextualizada;
 
         const itemsBox = document.getElementById('itemsContainer');
         itemsBox.innerHTML = '';
 
-        if (data.contenido_adaptado.items) {
-          data.contenido_adaptado.items.forEach((item, idx) => {
+        // 1. Renderizar TUTORIAL / GUÍA PASO A PASO
+        if (ca.secciones_tutorial && ca.secciones_tutorial.length > 0) {
+          ca.secciones_tutorial.forEach((sec, idx) => {
+            itemsBox.innerHTML += `
+              <div class="tutorial-card">
+                <h4>📌 ${sec.encabezado}</h4>
+                <p>${sec.contenido}</p>
+              </div>
+            `;
+          });
+        }
+
+        // 2. Renderizar RESUMEN EJECUTIVO (TL;DR)
+        if (ca.resumen_ejecutivo) {
+          itemsBox.innerHTML += `
+            <div class="tldr-card">
+              <h3>⚡ Resumen Ejecutivo (TL;DR)</h3>
+              <div class="tldr-content">${ca.resumen_ejecutivo}</div>
+            </div>
+          `;
+        }
+
+        // 3. Renderizar QUIZ INTERACTIVO
+        if (ca.quizzes && ca.quizzes.length > 0) {
+          ca.quizzes.forEach((q, qIdx) => {
+            let optionsHtml = '';
+            q.opciones.forEach((opt, oIdx) => {
+              optionsHtml += `
+                <button 
+                  class="quiz-option" 
+                  onclick="checkQuizAnswer(this, '${opt.replace(/'/g, "\\'")}', '${q.respuesta_correcta.replace(/'/g, "\\'")}', 'quizFeed_${qIdx}')"
+                >
+                  ${String.fromCharCode(65 + oIdx)}. ${opt}
+                </button>
+              `;
+            });
+
+            itemsBox.innerHTML += `
+              <div class="quiz-card">
+                <div class="quiz-question">❓ Pregunta ${qIdx+1}: ${q.pregunta}</div>
+                <div class="quiz-options">${optionsHtml}</div>
+                <div class="quiz-feedback" id="quizFeed_${qIdx}">
+                  <div class="justification">💡 <strong>Justificación Didáctica:</strong> ${q.justificacion_didactica}</div>
+                </div>
+              </div>
+            `;
+          });
+        }
+
+        // 4. Renderizar FLASHCARDS
+        if (ca.items && ca.items.length > 0) {
+          ca.items.forEach((item, idx) => {
             itemsBox.innerHTML += `
               <div class="flashcard" onclick="this.classList.toggle('flipped')">
-                <div class="front">❓ #${idx+1}: ${item.frente}</div>
+                <div class="front">❓ Flashcard #${idx+1}: ${item.frente}</div>
                 ${item.pista_didactica ? `<span class="hint">💡 Pista: ${item.pista_didactica}</span>` : ''}
                 <div class="back">✨ ${item.dorso}</div>
               </div>
             `;
           });
         }
+
       } catch (err) {
         loading.style.display = 'none';
         alert('Error al conectar con la API de FastAPI. Asegúrate de que el servidor en http://localhost:8000 esté corriendo.');
       }
+    }
+
+    function checkQuizAnswer(btn, selected, correct, feedbackId) {
+      const parent = btn.parentElement;
+      const buttons = parent.querySelectorAll('.quiz-option');
+      buttons.forEach(b => {
+        b.classList.remove('correct-option', 'incorrect-option');
+      });
+
+      if (selected === correct) {
+        btn.classList.add('correct-option');
+      } else {
+        btn.classList.add('incorrect-option');
+        buttons.forEach(b => {
+          if (b.innerText.includes(correct)) {
+            b.classList.add('correct-option');
+          }
+        });
+      }
+
+      const feed = document.getElementById(feedbackId);
+      if (feed) feed.classList.add('show');
     }
   </script>
 </body>

@@ -21,6 +21,7 @@ Output:
 import logging
 import re
 import uuid
+import logging
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
@@ -301,7 +302,7 @@ class IngesterService:
                 space_index = text.find(" ", next_start)
                 newline_index = text.find("\n", next_start)
                 candidates = [i for i in (space_index, newline_index) if i != -1]
-                next_start = min(candidates) + 1 if candidates else text_length
+                next_start = min(candidates) + 1 if candidates else next_start
 
             start = next_start
 

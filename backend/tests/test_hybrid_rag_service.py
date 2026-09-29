@@ -50,8 +50,8 @@ def test_hybrid_reranking_cohere(mock_cohere):
             with patch.object(service.embedding_service, 'embed_text', return_value=[0.1]*10):
                 final_docs = service.retrieve_top_passages(
                     query="Hola",
-                    child_chunks=[{"id": "c1", "content": "...", "parent_id": "p1"}],
-                    parent_chunks=[{"id": "p1", "content": "Texto1"}]
+                    child_chunks=[{"id": "c1", "content": "...", "parent_id": "p1"}, {"id": "c2", "content": "...", "parent_id": "p2"}],
+                    parent_chunks=[{"id": "p1", "content": "Texto1"}, {"id": "p2", "content": "Texto2"}]
                 )
             
                 assert len(final_docs) == 2

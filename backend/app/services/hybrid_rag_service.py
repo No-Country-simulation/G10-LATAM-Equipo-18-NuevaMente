@@ -28,6 +28,44 @@ class HybridRAGService:
         self.embedding_service = embedding_service
         self.co_client = CohereClient()
 
+    def _rrf(self, lexical: List[Dict[str, Any]], dense: List[Dict[str, Any]], k: int = 60) -> List[Dict[str, Any]]:
+        """Reciprocal Rank Fusion entre listas de resultados léxicos y densos."""
+        scores: Dict[str, float] = {}
+        items_by_id: Dict[str, Dict[str, Any]] = {}
+
+        for rank, item in enumerate(lexical):
+            item_id = item.get("id") or item.get("parent_id") or str(rank)
+            scores[item_id] = scores.get(item_id, 0.0) + (1.0 / (k + rank))
+            if item_id not in items_by_id:
+                items_by_id[item_id] = item.copy()
+
+        for rank, item in enumerate(dense):
+            item_id = item.get("id") or item.get("parent_id") or str(rank)
+            scores[item_id] = scores.get(item_id, 0.0) + (1.0 / (k + rank))
+            if item_id not in items_by_id:
+                items_by_id[item_id] = item.copy()
+
+        fused = []
+        for item_id, score in scores.items():
+            elem = items_by_id[item_id].copy()
+            elem["rrf_score"] = score
+            fused.append(elem)
+
+        fused.sort(key=lambda x: x["rrf_score"], reverse=True)
+        return fused
+
+    def _map_to_parents(self, children: List[Dict[str, Any]], parent_chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Mapea fragmentos hijos a sus correspondientes bloques padres."""
+        parent_dict = {p["id"]: p for p in parent_chunks}
+        selected_parent_ids = set()
+        candidates = []
+        for child in children:
+            pid = child.get("parent_id") or child.get("id")
+            if pid and pid in parent_dict and pid not in selected_parent_ids:
+                selected_parent_ids.add(pid)
+                candidates.append(parent_dict[pid].copy())
+        return candidates
+
     def retrieve_top_passages(
         self,
         query: str,

@@ -4,70 +4,185 @@ import { QuizItem } from '../../core/models/adaptation.model';
 @Component({
   selector: 'app-interactive-quiz',
   template: `
-    <div class="quiz-container" *ngIf="quizzes && quizzes.length > 0">
-      <h3 class="title">🧠 Quiz Interactivo con Retroalimentación Instantánea</h3>
-      <div *ngFor="let q of quizzes; let qIdx = index" class="quiz-card">
-        <h4 class="question">{{ qIdx + 1 }}. {{ q.pregunta }}</h4>
-        <div class="options-list">
-          <button 
-            *ngFor="let opt of q.opciones"
-            class="option-btn"
-            [class.selected]="selectedAnswers[qIdx] === opt"
-            [class.correct]="submitted[qIdx] && opt === q.respuesta_correcta"
-            [class.incorrect]="submitted[qIdx] && selectedAnswers[qIdx] === opt && opt !== q.respuesta_correcta"
-            (click)="selectOption(qIdx, opt)"
-          >
-            {{ opt }}
-          </button>
-        </div>
-        <button 
-          *ngIf="selectedAnswers[qIdx] && !submitted[qIdx]"
-          class="submit-btn"
-          (click)="submitAnswer(qIdx)"
-        >
-          Validar Respuesta 🚀
-        </button>
+    <div class="quiz-section">
+      <div class="section-header">
+        <h3>❓ Quiz Didáctico Interactivo ({{ quizzes.length }})</h3>
+        <span class="subtext">Responde a las preguntas para evaluar tu comprensión.</span>
+      </div>
 
-        <div *ngIf="submitted[qIdx]" class="feedback-box">
-          <p class="feedback-title" [class.success]="selectedAnswers[qIdx] === q.respuesta_correcta">
-            {{ selectedAnswers[qIdx] === q.respuesta_correcta ? '✅ ¡Correcto!' : '❌ Respuesta Incorrecta' }}
-          </p>
-          <p class="justification">💡 <strong>Justificación Didáctica:</strong> {{ q.justificacion_didactica }}</p>
+      <div class="quizzes-list">
+        <div *ngFor="let q of quizzes; let qIdx = index" class="quiz-card">
+          <div class="quiz-question-header">
+            <span class="question-number">Pregunta {{ qIdx + 1 }}</span>
+            <h4>{{ q.pregunta }}</h4>
+          </div>
+
+          <div class="options-grid">
+            <button 
+              *ngFor="let opt of q.opciones; let oIdx = index" 
+              class="option-button"
+              [ngClass]="{
+                'selected-correct': selectedAnswers[qIdx] === opt && opt === q.respuesta_correcta,
+                'selected-incorrect': selectedAnswers[qIdx] === opt && opt !== q.respuesta_correcta,
+                'highlight-correct': selectedAnswers[qIdx] && opt === q.respuesta_correcta
+              }"
+              (click)="selectAnswer(qIdx, opt)"
+            >
+              <span class="option-prefix">{{ getLetter(oIdx) }}.</span>
+              <span class="option-text">{{ opt }}</span>
+            </button>
+          </div>
+
+          <!-- Feedback Box -->
+          <div *ngIf="selectedAnswers[qIdx]" class="feedback-box">
+            <div class="feedback-result">
+              <span *ngIf="selectedAnswers[qIdx] === q.respuesta_correcta" class="feedback-badge correct">
+                ✓ ¡Correcto!
+              </span>
+              <span *ngIf="selectedAnswers[qIdx] !== q.respuesta_correcta" class="feedback-badge incorrect">
+                ✕ Respuesta incorrecta
+              </span>
+            </div>
+            <div class="justification-text">
+              💡 <strong>Justificación didáctica:</strong> {{ q.justificacion_didactica }}
+            </div>
+          </div>
         </div>
       </div>
     </div>
   `,
   styles: [`
-    .quiz-container { margin-top: 2rem; background: #ffffff; padding: 1.5rem; border-radius: 12px; border: 1px solid #e2e8f0; }
-    .title { font-size: 1.25rem; font-weight: bold; color: #0f172a; margin-bottom: 1.5rem; }
-    .quiz-card { background: #f8fafc; padding: 1.25rem; border-radius: 8px; margin-bottom: 1.5rem; border: 1px solid #cbd5e1; }
-    .question { font-size: 1.05rem; font-weight: 700; color: #1e293b; margin-bottom: 1rem; }
-    .options-list { display: flex; flex-direction: column; gap: 0.75rem; }
-    .option-btn { width: 100%; text-align: left; padding: 0.85rem 1.25rem; border-radius: 6px; border: 1px solid #cbd5e1; background: white; font-size: 0.95rem; cursor: pointer; transition: all 0.2s ease; }
-    .option-btn:hover { background: #f1f5f9; border-color: #94a3b8; }
-    .option-btn.selected { border-color: #3b82f6; background: #eff6ff; font-weight: 600; }
-    .option-btn.correct { background: #dcfce7 !important; border-color: #22c55e !important; color: #15803d; font-weight: bold; }
-    .option-btn.incorrect { background: #fee2e2 !important; border-color: #ef4444 !important; color: #b91c1c; }
-    .submit-btn { margin-top: 1rem; padding: 0.6rem 1.2rem; background: #2563eb; color: white; border: none; border-radius: 6px; font-weight: 600; cursor: pointer; }
-    .submit-btn:hover { background: #1d4ed8; }
-    .feedback-box { margin-top: 1rem; padding: 1rem; border-radius: 6px; background: white; border-left: 4px solid #3b82f6; }
-    .feedback-title { font-weight: bold; font-size: 1rem; margin-bottom: 0.5rem; color: #dc2626; }
-    .feedback-title.success { color: #16a34a; }
-    .justification { font-size: 0.9rem; color: #334155; line-height: 1.4; }
+    .quiz-section {
+      margin-top: 2rem;
+      margin-bottom: 2rem;
+    }
+    .section-header h3 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .subtext {
+      font-size: 0.85rem;
+      color: #64748b;
+    }
+
+    .quizzes-list {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+      margin-top: 1.25rem;
+    }
+
+    .quiz-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 1.5rem;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+
+    .quiz-question-header {
+      margin-bottom: 1.25rem;
+    }
+    .question-number {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #3b82f6;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .quiz-question-header h4 {
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #0f172a;
+      margin-top: 0.25rem;
+    }
+
+    .options-grid {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .option-button {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      padding: 0.85rem 1.25rem;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      text-align: left;
+      font-size: 0.92rem;
+      color: #334155;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .option-button:hover {
+      border-color: #3b82f6;
+      background: #eff6ff;
+    }
+    .option-prefix {
+      font-weight: 800;
+      color: #64748b;
+    }
+    .option-text {
+      flex: 1;
+    }
+
+    .option-button.selected-correct, .option-button.highlight-correct {
+      background: #dcfce7 !important;
+      border-color: #22c55e !important;
+      color: #15803d !important;
+      font-weight: 700;
+    }
+    .option-button.selected-incorrect {
+      background: #fee2e2 !important;
+      border-color: #ef4444 !important;
+      color: #b91c1c !important;
+    }
+
+    .feedback-box {
+      margin-top: 1.25rem;
+      padding: 1rem 1.25rem;
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 12px;
+      border-left: 4px solid #3b82f6;
+    }
+    .feedback-badge {
+      font-size: 0.85rem;
+      font-weight: 800;
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      display: inline-block;
+      margin-bottom: 0.5rem;
+    }
+    .feedback-badge.correct {
+      background: #dcfce7;
+      color: #15803d;
+    }
+    .feedback-badge.incorrect {
+      background: #fee2e2;
+      color: #b91c1c;
+    }
+    .justification-text {
+      font-size: 0.88rem;
+      color: #334155;
+      line-height: 1.5;
+    }
   `]
 })
 export class InteractiveQuizComponent {
   @Input() quizzes: QuizItem[] = [];
-  selectedAnswers: { [key: number]: string } = {};
-  submitted: { [key: number]: boolean } = {};
 
-  selectOption(qIdx: number, option: string): void {
-    if (!this.submitted[qIdx]) {
-      this.selectedAnswers[qIdx] = option;
-    }
+  selectedAnswers: { [key: number]: string } = {};
+
+  selectAnswer(quizIndex: number, option: string): void {
+    this.selectedAnswers[quizIndex] = option;
   }
 
-  submitAnswer(qIdx: number): void {
-    this.submitted[qIdx] = true;
+  getLetter(index: number): string {
+    return String.fromCharCode(65 + index);
   }
 }

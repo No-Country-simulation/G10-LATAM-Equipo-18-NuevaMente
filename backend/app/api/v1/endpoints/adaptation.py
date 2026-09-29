@@ -38,8 +38,10 @@ async def adapt_content(request: AdaptationRequest):
     structured educational package saved to OCI Object Storage Always Free.
     """
     try:
-        # 1. Document parsing and AST segmentation
-        doc_data = ingester_service.parse_and_chunk_document(
+        # 1. Document parsing and AST segmentation with dynamic chunk size
+        target_chunk_size = request.chunk_size or 500
+        custom_ingester = IngesterService(child_chunk_size=target_chunk_size)
+        doc_data = custom_ingester.parse_and_chunk_document(
             content=request.content,
             title=request.title,
         )
@@ -65,6 +67,8 @@ async def adapt_content(request: AdaptationRequest):
         return response
 
     except Exception as error:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error en la adaptación de contenido: {str(error)}",

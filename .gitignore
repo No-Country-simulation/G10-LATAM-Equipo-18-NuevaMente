@@ -21,7 +21,9 @@ venv/
 ENV/
 env/
 *.sqldb
+*.db
 storage_mock/
+
 
 # Temporary data, uploads, and local results
 backend/local_storage/
