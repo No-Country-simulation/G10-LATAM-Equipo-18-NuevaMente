@@ -8,39 +8,63 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
   imports: [CommonModule],
   template: `
     <div class="tutorial-container" *ngIf="items && items.length > 0">
-      <div class="tutorial-header">
-        <span class="step-count">Tutorial de {{ items.length }} Pasos</span>
-        <div class="progress-checklist">
-          <span>Completados: {{ completedCount() }} / {{ items.length }}</span>
+      <!-- TUTORIAL HEADER & INDEX NAV BAR -->
+      <div class="tutorial-header glass-card">
+        <div class="header-left">
+          <span class="step-count">Tutorial Paso a Paso ({{ items.length }} Módulos)</span>
+          <div class="progress-checklist">
+            <span>Completados: {{ completedCount() }} / {{ items.length }}</span>
+          </div>
+        </div>
+
+        <!-- QUICK STEP JUMP SELECTOR FOR HIGH VOLUMES -->
+        <div class="quick-jump-wrapper" *ngIf="items.length > 5">
+          <label for="step-jump-select" class="jump-label">Ir a módulo:</label>
+          <select 
+            id="step-jump-select" 
+            class="step-jump-select" 
+            (change)="scrollToStep($event)"
+          >
+            <option value="" disabled selected>Selecciona un paso...</option>
+            <option *ngFor="let item of items; let idx = index" [value]="'step-' + idx">
+              Paso {{ item.paso || (idx + 1) }}: {{ item.titulo || ('Módulo ' + (idx + 1)) }}
+            </option>
+          </select>
         </div>
       </div>
 
-      <!-- Step Timeline -->
+      <!-- STEP TIMELINE -->
       <div class="timeline-wrapper">
         <div 
           *ngFor="let step of items; let idx = index" 
+          [id]="'step-' + idx"
           class="timeline-step-card"
           [class.step-completed]="isStepCompleted(idx)"
         >
           <div class="step-indicator">
-            <button class="btn-check" (click)="toggleStepCompleted(idx)">
-              {{ isStepCompleted(idx) ? '✓' : step.paso }}
+            <button 
+              type="button" 
+              class="btn-check" 
+              (click)="toggleStepCompleted(idx)"
+              [attr.aria-label]="'Marcar paso ' + (step.paso || (idx + 1)) + ' como completado'"
+            >
+              {{ isStepCompleted(idx) ? '✓' : (step.paso || (idx + 1)) }}
             </button>
             <div class="step-line" *ngIf="idx < items.length - 1"></div>
           </div>
 
           <div class="step-content glass-card">
             <div class="step-title-row">
-              <h3>Paso {{ step.paso }}: {{ step.titulo }}</h3>
+              <h3>Paso {{ step.paso || (idx + 1) }}: {{ step.titulo || 'Instrucción Técnica' }}</h3>
             </div>
 
             <p class="step-instruccion">{{ step.instruccion }}</p>
 
-            <!-- Code Block with JetBrains Mono -->
+            <!-- Code Block -->
             <div class="code-block-wrapper" *ngIf="step.ejemplo">
               <div class="code-block-header">
-                <span>CÓDIGO / COMANDO CLI</span>
-                <button class="btn-copy" (click)="copyCode(step.ejemplo)">Copiar</button>
+                <span>COMANDO / CÓDIGO SUGERIDO</span>
+                <button type="button" class="btn-copy" (click)="copyCode(step.ejemplo)">Copiar</button>
               </div>
               <pre class="code-content"><code>{{ cleanCodeSnippet(step.ejemplo) }}</code></pre>
             </div>
@@ -49,9 +73,14 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
             <div class="warning-callout" *ngIf="step.advertencia">
               <span class="warning-icon">⚠️</span>
               <div class="warning-text">
-                <strong>Advertencia importante:</strong>
+                <strong>Nota de seguridad:</strong>
                 <p>{{ step.advertencia }}</p>
               </div>
+            </div>
+
+            <!-- Source Citation -->
+            <div class="source-link" *ngIf="step.fuentes && step.fuentes.length > 0">
+              <span>📄 Ver en tu documento · Pág. {{ step.fuentes[0].pagina || 1 }}</span>
             </div>
           </div>
         </div>
@@ -60,33 +89,77 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
   `,
   styles: [`
     .tutorial-container {
-      max-width: 800px;
-      margin: 0 auto;
+      width: 100%;
     }
 
     .tutorial-header {
+      padding: 1.25rem 1.5rem;
+      border-radius: 18px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      margin-bottom: 1.5rem;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-bottom: 2rem;
-      padding-bottom: 1rem;
-      border-bottom: 1px solid var(--border-subtle);
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
     }
 
     .step-count {
-      font-weight: 700;
+      font-weight: 800;
       font-size: 1.1rem;
+      color: var(--text-primary);
+    }
+
+    .progress-checklist {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #059669;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+    }
+
+    .quick-jump-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .jump-label {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-muted);
+    }
+
+    .step-jump-select {
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      font-size: 0.82rem;
+      font-weight: 600;
+      outline: none;
+      max-width: 240px;
     }
 
     .timeline-wrapper {
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
+      gap: 1.25rem;
     }
 
     .timeline-step-card {
       display: flex;
       gap: 1.25rem;
+      scroll-margin-top: 5rem;
     }
 
     .step-indicator {
@@ -98,18 +171,19 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
     }
 
     .btn-check {
-      width: 38px;
-      height: 38px;
+      width: 36px;
+      height: 36px;
       border-radius: 50%;
-      background: var(--primary-600);
+      background: #4F46E5;
       color: #FFFFFF;
       border: none;
       font-weight: 800;
-      font-size: 1rem;
+      font-size: 0.95rem;
       cursor: pointer;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: all 0.2s;
     }
 
     .step-completed .btn-check {
@@ -132,7 +206,8 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
     }
 
     .step-title-row h3 {
-      font-size: 1.2rem;
+      font-size: 1.15rem;
+      font-weight: 800;
       margin-bottom: 0.75rem;
       color: var(--text-primary);
     }
@@ -175,7 +250,7 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
 
     .code-content {
       padding: 1rem;
-      font-family: var(--font-code);
+      font-family: Consolas, Monaco, monospace;
       font-size: 0.88rem;
       color: #58A6FF;
       overflow-x: auto;
@@ -191,6 +266,13 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
       border: 1px solid rgba(245, 158, 11, 0.3);
       color: #D97706;
       font-size: 0.88rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .source-link {
+      font-size: 0.8rem;
+      color: #0284C7;
+      font-weight: 600;
     }
   `]
 })
@@ -217,6 +299,17 @@ export class TutorialRendererComponent {
       }
       return next;
     });
+  }
+
+  scrollToStep(event: Event): void {
+    const select = event.target as HTMLSelectElement;
+    const targetId = select.value;
+    if (targetId) {
+      const el = document.getElementById(targetId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   }
 
   cleanCodeSnippet(raw: string): string {

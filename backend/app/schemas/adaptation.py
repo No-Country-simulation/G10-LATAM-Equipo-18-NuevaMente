@@ -5,13 +5,6 @@ Purpose:
     Typed Pydantic data contracts for educational content adaptation requests
     and responses. Defined in English with field aliases to maintain full
     backward compatibility with Spanish keys used by frontend or tests.
-
-Input:
-    Used as type definitions across API, agents, and storage layers.
-
-Output:
-    Models: AdaptationRequest, AdaptationResponse, AdaptedContent,
-            FlashcardItem, QuizItem, ResponseMetadata, QualityEvaluation, OCIStorageResult.
 """
 
 from typing import List, Optional, Dict, Any
@@ -28,9 +21,21 @@ class AdaptationRequest(BaseModel):
     output_format: str = Field(..., alias="formato_salida")
     niche: str = Field(default="general", alias="nicho_sector")
     detail_level: str = Field(default="didactic", alias="nivel_detalle")
+    quantity_level: Optional[str] = Field(default="Estandar", alias="nivel_cantidad")
+    target_quantity: Optional[int] = Field(default=None, alias="cantidad_objetivo")
     quantity: Optional[int] = Field(default=5, alias="cantidad_generar")
     chunk_size: Optional[int] = Field(default=500, alias="tamano_chunk", description="Tamaño de fragmentación (chunks) para el procesamiento RAG (100 - 2000)")
     additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
+
+
+class RagFuente(BaseModel):
+    """Source passage citation for RAG grounding."""
+    model_config = ConfigDict(populate_by_name=True)
+
+    chunk_id: str
+    extracto: str
+    pagina: Optional[int] = 1
+    similitud_score: Optional[float] = 0.95
 
 
 class FlashcardItem(BaseModel):
@@ -40,6 +45,7 @@ class FlashcardItem(BaseModel):
     front: str = Field(..., alias="frente")
     back: str = Field(..., alias="dorso")
     hint: Optional[str] = Field(None, alias="pista_didactica")
+    sources: Optional[List[RagFuente]] = Field(None, alias="fuentes")
 
 
 class QuizItem(BaseModel):
@@ -49,7 +55,9 @@ class QuizItem(BaseModel):
     question: str = Field(..., alias="pregunta")
     options: List[str] = Field(..., alias="opciones")
     correct_answer: str = Field(..., alias="respuesta_correcta")
-    didactic_justification: str = Field(..., alias="justificacion_didactica")
+    justification: Optional[str] = Field(None, alias="justificacion")
+    didactic_justification: Optional[str] = Field(None, alias="justificacion_didactica")
+    sources: Optional[List[RagFuente]] = Field(None, alias="fuentes")
 
 
 class AdaptedContent(BaseModel):
@@ -59,9 +67,9 @@ class AdaptedContent(BaseModel):
     title: str = Field(..., alias="titulo")
     contextualized_introduction: str = Field(..., alias="introduccion_contextualizada")
     executive_summary: Optional[str] = Field(None, alias="resumen_ejecutivo")
-    items: Optional[List[FlashcardItem]] = None
+    items: Optional[List[Any]] = None
     quizzes: Optional[List[QuizItem]] = None
-    tutorial_sections: Optional[List[Dict[str, str]]] = Field(None, alias="secciones_tutorial")
+    tutorial_sections: Optional[List[Dict[str, Any]]] = Field(None, alias="secciones_tutorial")
 
 
 class ResponseMetadata(BaseModel):
@@ -70,6 +78,12 @@ class ResponseMetadata(BaseModel):
 
     profile_applied: str = Field(..., alias="perfil_aplicado")
     format_generated: str = Field(..., alias="formato_generado")
+    niche_sector: Optional[str] = Field(None, alias="nicho_sector")
+    detail_level: Optional[str] = Field(None, alias="nivel_detalle")
+    quantity_level: Optional[str] = Field(None, alias="nivel_cantidad")
+    requested_items: Optional[int] = Field(None, alias="items_solicitados")
+    generated_items: Optional[int] = Field(None, alias="items_generados")
+    quantity_warning: Optional[str] = Field(None, alias="aviso_cantidad")
     estimated_study_time_minutes: int = Field(..., alias="tiempo_estimado_estudio_minutos")
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")

@@ -83,6 +83,10 @@ class GeminiClient:
                 return response.text
             except Exception as exc:
                 logger.error("Gemini API call failed: %s. Switching to rich mock response.", exc)
+                exc_str = str(exc)
+                if "401" in exc_str or "UNAUTHENTICATED" in exc_str or "CERTIFICATE_VERIFY" in exc_str or "API_KEY" in exc_str:
+                    self.has_real_key = False
+                    logger.warning("Disabled real Gemini API calls for session due to authentication/network error.")
 
         return self._mock_response(prompt)
 

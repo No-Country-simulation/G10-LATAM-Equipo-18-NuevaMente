@@ -15,16 +15,20 @@ describe('WorkspaceComponent', () => {
     adaptContent: () => of({
       metadatos: {
         perfil_aplicado: 'Desarrollador',
-        formato_generado: 'Tutorial',
+        formato_generado: 'Flashcards',
         nicho_sector: 'Fintech',
         nivel_detalle: 'Tecnico',
-        tiempo_estimado_estudio_minutos: 4.5,
+        nivel_cantidad: 'Amplio',
+        items_solicitados: 40,
+        items_generados: 30,
+        aviso_cantidad: 'Tu documento dio para 30 tarjetas. Con un documento más extenso podrás generar más.',
+        tiempo_estimado_estudio_minutos: 15,
         conceptos_clave: ['A', 'B', 'C', 'D', 'E', 'F', 'G']
       },
       contenido_adaptado: {
         titulo: 'VCN en OCI',
         introduccion_contextualizada: 'Intro',
-        items: []
+        items: Array(30).fill({ frente: 'F', dorso: 'D' })
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.95,
@@ -69,22 +73,25 @@ describe('WorkspaceComponent', () => {
     expect(component).toBeTruthy();
   });
 
-  it('should format study time correctly', () => {
-    component.currentResponse.set({
-      metadatos: { tiempo_estimado_estudio_minutos: 4.5 }
-    } as any);
-    expect(component.formattedStudyTime()).toBe('⏱ 4 min 30 s');
+  it('should update dynamic quantity hint text when selecting level', () => {
+    component.selectNivelCantidad('Amplio');
+    fixture.detectChanges();
+
+    expect(component.currentQuantityHint()).toContain('≈ 40 tarjetas');
+    expect(component.effectiveTargetCount()).toBe(40);
   });
 
-  it('should toggle concept cloud expansion', () => {
+  it('should detect quantity cap notice when generated < requested', () => {
     component.currentResponse.set({
-      metadatos: { conceptos_clave: ['1', '2', '3', '4', '5', '6', '7', '8'] }
+      metadatos: {
+        items_solicitados: 40,
+        items_generados: 30,
+        aviso_cantidad: 'Tu documento dio para 30 tarjetas. Con un documento más extenso podrás generar más.'
+      }
     } as any);
-    expect(component.visibleConcepts().length).toBe(6);
-    expect(component.hiddenConceptsCount()).toBe(2);
 
-    component.isConceptsExpanded.set(true);
-    expect(component.visibleConcepts().length).toBe(8);
+    expect(component.hasQuantityCapNotice()).toBeTrue();
+    expect(component.quantityCapNoticeText()).toContain('30 tarjetas');
   });
 
   it('should reset form and return to input view', () => {

@@ -37,7 +37,7 @@ def test_embed_text_gemini_success():
     service = EmbeddingService(provider="gemini")
     dummy = _dummy_vector(service.dimensions, 1.0)
 
-    with patch.object(service, "_embed_gemini_in_batches", return_value=[dummy]) as mock_gemini:
+    with patch.object(service, "_embed_gemini_direct", return_value=[dummy]) as mock_gemini:
         res = service.embed_text("Sample query", is_query=False)
         assert len(res) == service.dimensions
         mock_gemini.assert_called_once()
@@ -47,8 +47,8 @@ def test_fallback_cascade_from_gemini_to_jina():
     service = EmbeddingService(provider="gemini")
     dummy = _dummy_vector(service.dimensions, 1.0)
 
-    with patch.object(service, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini 429")):
-        with patch.object(service, "_embed_jina_in_batches", return_value=[dummy]) as mock_jina:
+    with patch.object(service, "_embed_gemini_direct", side_effect=RuntimeError("Gemini 429")):
+        with patch.object(service, "_embed_jina_batch", return_value=[dummy]) as mock_jina:
             res = service.embed_batch(["Sample text"])
             assert len(res) == 1
             mock_jina.assert_called_once()
@@ -60,8 +60,8 @@ def test_fallback_cascade_to_local_when_remote_providers_fail():
     service = EmbeddingService(provider="gemini")
     dummy = _dummy_vector(service.dimensions, 1.0)
 
-    with patch.object(service, "_embed_gemini_in_batches", side_effect=RuntimeError("Gemini 429")):
-        with patch.object(service, "_embed_jina_in_batches", side_effect=RuntimeError("Jina down")):
+    with patch.object(service, "_embed_gemini_direct", side_effect=RuntimeError("Gemini 429")):
+        with patch.object(service, "_embed_jina_batch", side_effect=RuntimeError("Jina down")):
             with patch.object(service, "_embed_local", return_value=[dummy]) as mock_local:
                 res = service.embed_batch(["Sample text"])
                 assert len(res) == 1
@@ -77,8 +77,8 @@ def test_proactive_routing_when_tokens_exceed_gemini_safe_limit():
     texts = [large_text]
 
     dummy = _dummy_vector(service.dimensions, 1.0)
-    with patch.object(service, "_embed_gemini_in_batches") as mock_gemini:
-        with patch.object(service, "_embed_jina_in_batches", return_value=[dummy]) as mock_jina:
+    with patch.object(service, "_embed_gemini_direct") as mock_gemini:
+        with patch.object(service, "_embed_jina_batch", return_value=[dummy]) as mock_jina:
             res = service.embed_batch(texts)
             assert len(res) == 1
             # Gemini should have been bypassed pro-actively
