@@ -1,11 +1,12 @@
-import { Component, signal, inject, ViewChild } from '@angular/core';
+import { Component, signal, computed, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
+import { Router } from '@angular/router';
+import { Subscription } from 'rxjs';
 
 import { NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, RagFuente } from '../../core/models/adaptation.model';
 
-import { Subscription } from 'rxjs';
 import { PipelineProgressComponent } from './pipeline-progress.component';
 import { GenerationLoaderComponent } from './generation-loader.component';
 import { FlashcardsRendererComponent } from './renderers/flashcards-renderer.component';
@@ -13,10 +14,9 @@ import { QuizRendererComponent } from './renderers/quiz-renderer.component';
 import { TutorialRendererComponent } from './renderers/tutorial-renderer.component';
 import { SummaryRendererComponent } from './renderers/summary-renderer.component';
 import { ScriptRendererComponent } from './renderers/script-renderer.component';
-import { QualityPanelComponent } from './quality-panel.component';
+import { SelloConfianzaComponent } from './sello-confianza.component';
 import { SourcesDrawerComponent } from './sources-drawer.component';
-import { OciCardComponent } from './oci-card.component';
-import { JsonViewerComponent } from './json-viewer.component';
+import { JsonDrawerComponent } from './json-drawer.component';
 import { ExportService } from '../../core/services/export.service';
 import { StateService } from '../../core/services/state.service';
 
@@ -34,15 +34,14 @@ import { StateService } from '../../core/services/state.service';
     TutorialRendererComponent,
     SummaryRendererComponent,
     ScriptRendererComponent,
-    QualityPanelComponent,
+    SelloConfianzaComponent,
     SourcesDrawerComponent,
-    OciCardComponent,
-    JsonViewerComponent
+    JsonDrawerComponent
   ],
   template: `
     <div class="workspace-layout">
-      <!-- HEADER / TITLE BAR -->
-      <div class="workspace-header">
+      <!-- HERO & PRESETS (Only visible when no result is currently shown) -->
+      <div class="workspace-header" *ngIf="!currentResponse() && !isPipelineRunning()">
         <div>
           <span class="value-prop-tag">✨ PROCESAMIENTO RAG DE ALTA FIDELIDAD</span>
           <h2>Workspace de Adaptación Educativa</h2>
@@ -52,9 +51,9 @@ import { StateService } from '../../core/services/state.service';
         <!-- Quick Presets -->
         <div class="presets-row">
           <span class="presets-label">Presets Rápidos:</span>
-          <button class="preset-btn" (click)="applyPreset('beginner-flashcards')">⚡ Demo Principiante · Flashcards</button>
-          <button class="preset-btn" (click)="applyPreset('leader-summary')">📊 Demo Líder · Resumen Ejecutivo</button>
-          <button class="preset-btn" (click)="applyPreset('dev-quiz')">🎯 Demo Dev · Quiz Fintech</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('beginner-flashcards')">⚡ Demo Principiante · Flashcards</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('leader-summary')">📊 Demo Líder · Resumen Ejecutivo</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('dev-quiz')">🎯 Demo Dev · Quiz Fintech</button>
         </div>
       </div>
 
@@ -227,7 +226,7 @@ import { StateService } from '../../core/services/state.service';
         </form>
       </div>
 
-      <!-- ZONE 2: GENERATION LOADER (Replaces 7 step cards during creation) -->
+      <!-- ZONE 2: GENERATION LOADER -->
       <app-generation-loader 
         #loaderComp
         *ngIf="isPipelineRunning()" 
@@ -238,100 +237,192 @@ import { StateService } from '../../core/services/state.service';
 
       <!-- ZONE 3: RESULT VIEWER -->
       <div class="result-viewer-container" *ngIf="currentResponse() && !isPipelineRunning()">
-        <!-- Top Controls & Export Bar -->
-        <div class="result-action-bar glass-card">
-          <button class="btn-back" (click)="resetForm()">← Crear Nueva Adaptación</button>
-          
-          <div class="export-actions">
-            <button class="btn-exp" (click)="exportMarkdown()">📝 Exportar Markdown</button>
-            <button class="btn-exp" (click)="exportPdf()">📄 Exportar PDF Didáctico</button>
-            <button class="btn-exp" *ngIf="currentResponse()?.metadatos?.formato_generado === 'Flashcards'" (click)="exportAnki()">🎴 Exportar Anki (CSV)</button>
+        <!-- STICKY ACTION BAR -->
+        <div class="sticky-action-bar glass-card">
+          <div class="bar-left">
+            <button type="button" class="btn-back" (click)="resetForm()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
+              <span>Nueva adaptación</span>
+            </button>
+            
+            <a class="saved-badge" (click)="navigateToLibrary()" role="button" tabindex="0">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>Guardado en tu biblioteca</span>
+            </a>
+          </div>
+
+          <div class="bar-right">
+            <!-- EXPORT DROPDOWN -->
+            <div class="export-dropdown-wrapper">
+              <button 
+                type="button" 
+                class="btn-export-trigger"
+                (click)="toggleExportMenu()"
+                [attr.aria-expanded]="isExportMenuOpen()"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Exportar</span>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.rotated]="isExportMenuOpen()"><polyline points="6 9 12 15 18 9"/></svg>
+              </button>
+
+              <div class="export-menu glass-card" *ngIf="isExportMenuOpen()">
+                <button type="button" class="menu-item" (click)="exportMarkdown(); closeExportMenu()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <span>Markdown (.md)</span>
+                </button>
+                <button type="button" class="menu-item" (click)="exportPdf(); closeExportMenu()">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+                  <span>PDF Didáctico</span>
+                </button>
+                <button 
+                  type="button" 
+                  class="menu-item" 
+                  *ngIf="currentResponse()?.metadatos?.formato_generado === 'Flashcards'" 
+                  (click)="exportAnki(); closeExportMenu()"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3k-4 4-4-4"/></svg>
+                  <span>Anki (CSV)</span>
+                </button>
+              </div>
+            </div>
+
+            <!-- JSON DATA BUTTON -->
+            <button type="button" class="btn-json" (click)="isJsonDrawerOpen.set(true)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+              <span>Datos JSON</span>
+            </button>
           </div>
         </div>
 
-        <!-- Result Header -->
+        <!-- PROTAGONIST CONTENT HEADER CARD -->
         <div class="result-header glass-card">
-          <div class="header-tags">
-            <span class="tag-profile">{{ currentResponse()?.metadatos?.perfil_aplicado }}</span>
-            <span class="tag-format">{{ currentResponse()?.metadatos?.formato_generado }}</span>
-            <span class="tag-time">⏱️ {{ currentResponse()?.metadatos?.tiempo_estimado_estudio_minutos }} min estudio</span>
+          <div class="meta-chips-row">
+            <span class="meta-chip chip-profile">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              {{ currentResponse()?.metadatos?.perfil_aplicado }}
+            </span>
+            <span class="meta-chip chip-format">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+              {{ currentResponse()?.metadatos?.formato_generado }}
+            </span>
+            <span class="meta-chip chip-nicho">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+              {{ currentResponse()?.metadatos?.nicho_sector }}
+            </span>
+            <span class="meta-chip chip-time">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+              {{ formattedStudyTime() }}
+            </span>
           </div>
 
           <h2>{{ currentResponse()?.contenido_adaptado?.titulo }}</h2>
           <p class="introduccion">{{ currentResponse()?.contenido_adaptado?.introduccion_contextualizada }}</p>
 
-          <!-- Concept Tags Cloud -->
-          <div class="concepts-row">
-            <span class="c-label">Conceptos Clave:</span>
-            <span class="c-tag" *ngFor="let c of currentResponse()?.metadatos?.conceptos_clave">{{ c }}</span>
+          <!-- KEY CONCEPTS CLOUD ("Lo que aprenderás") -->
+          <div class="concepts-section" *ngIf="allConcepts().length > 0">
+            <span class="concepts-label">Lo que aprenderás:</span>
+            <div class="concepts-cloud">
+              <span class="c-chip" *ngFor="let c of visibleConcepts()">{{ c }}</span>
+              <button 
+                type="button" 
+                class="btn-expand-concepts" 
+                *ngIf="allConcepts().length > 6"
+                (click)="isConceptsExpanded.set(!isConceptsExpanded())"
+              >
+                {{ isConceptsExpanded() ? 'Ver menos' : '+' + hiddenConceptsCount() + ' más' }}
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- Renderers via Switch by Format -->
+        <!-- SELLO DE CONFIANZA -->
+        <app-sello-confianza [evaluacion]="currentResponse()?.evaluacion_calidad"></app-sello-confianza>
+
+        <!-- RENDERERS SWITCH BY FORMAT -->
         <div class="renderer-wrapper">
           <ng-container [ngSwitch]="currentResponse()?.metadatos?.formato_generado">
-            <!-- Flashcards -->
-            <app-flashcards-renderer 
-              *ngSwitchCase="'Flashcards'" 
-              [items]="getTypedItems()"
-            ></app-flashcards-renderer>
-
-            <!-- Quiz -->
-            <app-quiz-renderer 
-              *ngSwitchCase="'Quiz'" 
-              [items]="getTypedItems()"
-            ></app-quiz-renderer>
-
-            <!-- Tutorial -->
-            <app-tutorial-renderer 
-              *ngSwitchCase="'Tutorial'" 
-              [items]="getTypedItems()"
-            ></app-tutorial-renderer>
-
-            <!-- Resumen Ejecutivo -->
-            <app-summary-renderer 
-              *ngSwitchCase="'Resumen Ejecutivo'" 
-              [items]="getTypedItems()"
-            ></app-summary-renderer>
-
-            <!-- Guion de Clase -->
-            <app-script-renderer 
-              *ngSwitchCase="'Guion de Clase'" 
-              [items]="getTypedItems()"
-            ></app-script-renderer>
-
-            <!-- Fallback Default -->
-            <app-tutorial-renderer 
-              *ngSwitchDefault 
-              [items]="getTypedItems()"
-            ></app-tutorial-renderer>
+            <app-flashcards-renderer *ngSwitchCase="'Flashcards'" [items]="getTypedItems()"></app-flashcards-renderer>
+            <app-quiz-renderer *ngSwitchCase="'Quiz'" [items]="getTypedItems()"></app-quiz-renderer>
+            <app-tutorial-renderer *ngSwitchCase="'Tutorial'" [items]="getTypedItems()"></app-tutorial-renderer>
+            <app-summary-renderer *ngSwitchCase="'Resumen Ejecutivo'" [items]="getTypedItems()"></app-summary-renderer>
+            <app-script-renderer *ngSwitchCase="'Guion de Clase'" [items]="getTypedItems()"></app-script-renderer>
+            <app-tutorial-renderer *ngSwitchDefault [items]="getTypedItems()"></app-tutorial-renderer>
           </ng-container>
         </div>
 
-        <!-- Panels Row (Quality Panel + OCI Card) -->
-        <div class="panels-grid">
-          <app-quality-panel [evaluacion]="currentResponse()?.evaluacion_calidad"></app-quality-panel>
-          <app-oci-card [oci]="currentResponse()?.almacenamiento_oci"></app-oci-card>
-        </div>
+        <!-- FINAL ACTIONS BLOCK ("¿Qué quieres hacer ahora?") -->
+        <div class="next-actions-card glass-card">
+          <h3>¿Qué quieres hacer ahora?</h3>
+          <p class="next-actions-desc">Aprovecha este contenido para generar nuevos formatos o ajustar la adaptación.</p>
+          
+          <div class="quick-prefill-grid">
+            <button type="button" class="btn-prefill-action" (click)="quickPrefillFormat('Quiz')">
+              <span class="action-icon">🎯</span>
+              <div class="action-text">
+                <strong>Crear Quiz de evaluación</strong>
+                <span>Pon a prueba los conocimientos de este tema</span>
+              </div>
+            </button>
 
-        <!-- JSON Viewer Tab -->
-        <div class="json-section">
-          <app-json-viewer [data]="currentResponse()"></app-json-viewer>
+            <button type="button" class="btn-prefill-action" (click)="quickPrefillFormat('Flashcards')">
+              <span class="action-icon">🎴</span>
+              <div class="action-text">
+                <strong>Generar Flashcards</strong>
+                <span>Crea tarjetas de memoria para repasar</span>
+              </div>
+            </button>
+
+            <button type="button" class="btn-prefill-action" (click)="quickPrefillProfile('Principiante')">
+              <span class="action-icon">🌱</span>
+              <div class="action-text">
+                <strong>Explicar a Principiantes</strong>
+                <span>Adapta el tono con explicaciones sencillas</span>
+              </div>
+            </button>
+          </div>
+
+          <!-- FEEDBACK BAR -->
+          <div class="feedback-subcard">
+            <div class="feedback-row" *ngIf="!feedbackSubmitted()">
+              <span class="feedback-label">¿Te resultó útil esta adaptación?</span>
+              <div class="feedback-btns">
+                <button type="button" class="btn-vote" [class.active]="userVote() === 'up'" (click)="submitFeedback('up')">
+                  👍 Útil
+                </button>
+                <button type="button" class="btn-vote" [class.active]="userVote() === 'down'" (click)="submitFeedback('down')">
+                  👎 Mejorable
+                </button>
+              </div>
+            </div>
+
+            <div class="feedback-thanks" *ngIf="feedbackSubmitted()">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+              <span>¡Gracias por tus comentarios! Nos ayudan a mejorar la precisión.</span>
+            </div>
+          </div>
         </div>
       </div>
 
-      <!-- RAG Sources Drawer Modal -->
+      <!-- RAG SOURCES DRAWER MODAL -->
       <app-sources-drawer 
         [isOpen]="isSourcesDrawerOpen()" 
         [fuente]="selectedFuente()"
         (closeDrawer)="isSourcesDrawerOpen.set(false)"
       ></app-sources-drawer>
+
+      <!-- JSON DATA DRAWER OVERLAY -->
+      <app-json-drawer
+        [isOpen]="isJsonDrawerOpen()"
+        [data]="currentResponse()"
+        (closeDrawer)="isJsonDrawerOpen.set(false)"
+      ></app-json-drawer>
     </div>
   `,
   styles: [`
     .workspace-layout {
-      max-width: 1100px;
+      max-width: 1040px;
       margin: 0 auto;
+      padding: 0 1rem;
     }
 
     .workspace-header {
@@ -655,72 +746,194 @@ import { StateService } from '../../core/services/state.service';
       cursor: not-allowed;
     }
 
-    /* RESULT VIEWER */
-    .result-action-bar {
+    /* RESULT VIEWER CONTAINER & STICKY ACTION BAR */
+    .result-viewer-container {
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .sticky-action-bar {
+      position: sticky;
+      top: 1rem;
+      z-index: 50;
       display: flex;
       justify-content: space-between;
       align-items: center;
-      padding: 1rem 1.5rem;
-      border-radius: 14px;
-      background: var(--bg-surface);
+      padding: 0.75rem 1.25rem;
+      border-radius: 16px;
+      background: rgba(255, 255, 255, 0.85);
+      backdrop-filter: blur(12px);
       border: 1px solid var(--border-subtle);
-      margin-bottom: 1.5rem;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+    }
+
+    :host-context(.dark) .sticky-action-bar {
+      background: rgba(30, 41, 59, 0.85);
+    }
+
+    .bar-left {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
     }
 
     .btn-back {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
       background: transparent;
       border: 1px solid var(--border-subtle);
-      padding: 0.5rem 1rem;
-      border-radius: 8px;
-      font-size: 0.88rem;
-      font-weight: 600;
+      padding: 0.45rem 0.85rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
       cursor: pointer;
       color: var(--text-primary);
+      transition: all 0.2s;
     }
 
-    .export-actions {
+    .btn-back:hover {
+      background: var(--bg-app);
+      border-color: #6366F1;
+      color: #6366F1;
+    }
+
+    .saved-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: #059669;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 0.35rem 0.75rem;
+      border-radius: 20px;
+      text-decoration: none;
+      cursor: pointer;
+    }
+
+    .bar-right {
       display: flex;
-      gap: 0.6rem;
+      align-items: center;
+      gap: 0.75rem;
     }
 
-    .btn-exp {
-      padding: 0.5rem 0.85rem;
+    .export-dropdown-wrapper {
+      position: relative;
+    }
+
+    .btn-export-trigger {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 1rem;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #6366F1 0%, #4F46E5 100%);
+      border: none;
+      color: #FFFFFF;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+    }
+
+    .btn-export-trigger svg.rotated {
+      transform: rotate(180deg);
+    }
+
+    .export-menu {
+      position: absolute;
+      top: calc(100% + 0.5rem);
+      right: 0;
+      width: 200px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 0.5rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      z-index: 60;
+    }
+
+    .menu-item {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      width: 100%;
+      padding: 0.5rem 0.75rem;
       border-radius: 8px;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .menu-item:hover {
+      background: var(--bg-app);
+    }
+
+    .btn-json {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.5rem 0.85rem;
+      border-radius: 10px;
       background: var(--bg-app);
       border: 1px solid var(--border-subtle);
-      color: var(--text-primary);
-      font-size: 0.82rem;
+      color: var(--text-secondary);
+      font-size: 0.85rem;
       font-weight: 600;
       cursor: pointer;
     }
 
+    .btn-json:hover {
+      color: var(--text-primary);
+      border-color: #6366F1;
+    }
+
+    /* PROTAGONIST CONTENT HEADER CARD */
     .result-header {
       padding: 2rem;
       border-radius: 20px;
       background: var(--bg-surface);
       border: 1px solid var(--border-subtle);
-      margin-bottom: 2rem;
     }
 
-    .header-tags {
+    .meta-chips-row {
       display: flex;
+      align-items: center;
       gap: 0.6rem;
+      flex-wrap: wrap;
       margin-bottom: 1rem;
     }
 
-    .tag-profile, .tag-format, .tag-time {
+    .meta-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
       font-size: 0.78rem;
       font-weight: 800;
       padding: 0.25rem 0.65rem;
-      border-radius: 6px;
+      border-radius: 8px;
     }
-    .tag-profile { background: rgba(59, 130, 246, 0.12); color: #2563EB; }
-    .tag-format { background: rgba(139, 92, 246, 0.12); color: #7C3AED; }
-    .tag-time { background: var(--bg-app); color: var(--text-secondary); }
+
+    .chip-profile { background: rgba(99, 102, 241, 0.12); color: #6366F1; }
+    .chip-format { background: rgba(236, 72, 153, 0.12); color: #EC4899; }
+    .chip-nicho { background: rgba(16, 185, 129, 0.12); color: #10B981; }
+    .chip-time { background: var(--bg-app); color: var(--text-secondary); border: 1px solid var(--border-subtle); }
 
     .result-header h2 {
       font-size: 1.85rem;
+      font-weight: 800;
       margin-bottom: 0.75rem;
+      color: var(--text-primary);
+      line-height: 1.3;
     }
 
     .introduccion {
@@ -730,43 +943,164 @@ import { StateService } from '../../core/services/state.service';
       margin-bottom: 1.5rem;
     }
 
-    .concepts-row {
+    .concepts-section {
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-subtle);
+    }
+
+    .concepts-label {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: var(--text-muted);
+      display: block;
+      margin-bottom: 0.6rem;
+    }
+
+    .concepts-cloud {
       display: flex;
       align-items: center;
       gap: 0.5rem;
       flex-wrap: wrap;
     }
 
-    .c-label {
+    .c-chip {
+      font-size: 0.8rem;
+      padding: 0.25rem 0.65rem;
+      border-radius: 20px;
+      background: rgba(34, 211, 238, 0.1);
+      color: #0284C7;
+      font-weight: 700;
+    }
+
+    .btn-expand-concepts {
+      background: transparent;
+      border: none;
+      color: #6366F1;
       font-size: 0.8rem;
       font-weight: 700;
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+    }
+
+    /* NEXT ACTIONS & FEEDBACK CARD */
+    .next-actions-card {
+      padding: 2rem;
+      border-radius: 20px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .next-actions-card h3 {
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: 0.35rem;
+      color: var(--text-primary);
+    }
+
+    .next-actions-desc {
+      font-size: 0.9rem;
+      color: var(--text-secondary);
+      margin-bottom: 1.25rem;
+    }
+
+    .quick-prefill-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .btn-prefill-action {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      padding: 1rem;
+      border-radius: 14px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-subtle);
+      cursor: pointer;
+      text-align: left;
+      transition: all 0.2s;
+    }
+
+    .btn-prefill-action:hover {
+      border-color: #6366F1;
+      transform: translateY(-2px);
+      box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+    }
+
+    .action-icon {
+      font-size: 1.5rem;
+    }
+
+    .action-text strong {
+      font-size: 0.88rem;
+      display: block;
+      color: var(--text-primary);
+    }
+
+    .action-text span {
+      font-size: 0.75rem;
       color: var(--text-muted);
     }
 
-    .c-tag {
-      font-size: 0.78rem;
-      padding: 0.2rem 0.5rem;
-      border-radius: 6px;
-      background: rgba(34, 211, 238, 0.1);
-      color: #0284C7;
-      font-weight: 600;
+    .feedback-subcard {
+      padding: 1rem 1.25rem;
+      border-radius: 12px;
+      background: var(--bg-app);
+      border: 1px solid var(--border-subtle);
     }
 
-    .renderer-wrapper {
-      margin-bottom: 2rem;
+    .feedback-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
     }
 
-    .panels-grid {
-      display: grid;
-      grid-template-columns: 1.5fr 1fr;
-      gap: 1.5rem;
-      margin-bottom: 2rem;
+    .feedback-label {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: var(--text-secondary);
     }
 
-    @media (max-width: 900px) {
+    .feedback-btns {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .btn-vote {
+      padding: 0.4rem 0.85rem;
+      border-radius: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .btn-vote.active {
+      background: rgba(99, 102, 241, 0.15);
+      border-color: #6366F1;
+      color: #6366F1;
+    }
+
+    .feedback-thanks {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.85rem;
+      color: #059669;
+      font-weight: 700;
+    }
+
+    @media (max-width: 768px) {
       .cards-selector-grid, .formats-grid { grid-template-columns: 1fr 1fr; }
       .form-row-dual { flex-direction: column; }
-      .panels-grid { grid-template-columns: 1fr; }
+      .sticky-action-bar { flex-direction: column; gap: 0.75rem; align-items: stretch; }
+      .bar-left, .bar-right { justify-content: space-between; }
+      .saved-badge span { display: none; }
     }
   `]
 })
@@ -775,6 +1109,7 @@ export class WorkspaceComponent {
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
   private stateService = inject(StateService);
+  private router = inject(Router);
 
   activeTab = signal<'upload' | 'text'>('text');
   isDragging = signal<boolean>(false);
@@ -783,8 +1118,14 @@ export class WorkspaceComponent {
   isPipelineRunning = signal<boolean>(false);
   currentResponse = signal<AdaptationResponse | null>(null);
 
+  isExportMenuOpen = signal<boolean>(false);
+  isJsonDrawerOpen = signal<boolean>(false);
   isSourcesDrawerOpen = signal<boolean>(false);
   selectedFuente = signal<RagFuente | undefined>(undefined);
+
+  isConceptsExpanded = signal<boolean>(false);
+  userVote = signal<'up' | 'down' | null>(null);
+  feedbackSubmitted = signal<boolean>(false);
 
   perfiles = [
     { value: 'Principiante', label: 'Principiante', icon: '🌱', desc: 'Explicaciones didácticas y analogías sencillas' },
@@ -813,12 +1154,51 @@ export class WorkspaceComponent {
     nivel_detalle: ['Tecnico' as NivelDetalle, [Validators.required]]
   });
 
+  allConcepts = computed(() => {
+    return this.currentResponse()?.metadatos?.conceptos_clave || [];
+  });
+
+  visibleConcepts = computed(() => {
+    const list = this.allConcepts();
+    if (this.isConceptsExpanded() || list.length <= 6) {
+      return list;
+    }
+    return list.slice(0, 6);
+  });
+
+  hiddenConceptsCount = computed(() => {
+    return Math.max(0, this.allConcepts().length - 6);
+  });
+
+  formattedStudyTime = computed(() => {
+    const mins = this.currentResponse()?.metadatos?.tiempo_estimado_estudio_minutos || 4.5;
+    if (mins === Math.floor(mins)) {
+      return `≈ ${mins} min de estudio`;
+    }
+    const totalSecs = Math.round(mins * 60);
+    const m = Math.floor(totalSecs / 60);
+    const s = totalSecs % 60;
+    return `⏱ ${m} min ${s} s`;
+  });
+
   selectPerfil(val: string): void {
     this.adaptForm.patchValue({ perfil_destinatario: val as PerfilDestinatario });
   }
 
   selectFormato(val: string): void {
     this.adaptForm.patchValue({ formato_salida: val as FormatoSalida });
+  }
+
+  toggleExportMenu(): void {
+    this.isExportMenuOpen.set(!this.isExportMenuOpen());
+  }
+
+  closeExportMenu(): void {
+    this.isExportMenuOpen.set(false);
+  }
+
+  navigateToLibrary(): void {
+    this.router.navigate(['/biblioteca']);
   }
 
   applyPreset(preset: 'beginner-flashcards' | 'leader-summary' | 'dev-quiz'): void {
@@ -851,6 +1231,21 @@ export class WorkspaceComponent {
         nivel_detalle: 'Tecnico'
       });
     }
+  }
+
+  quickPrefillFormat(formato: FormatoSalida): void {
+    this.adaptForm.patchValue({ formato_salida: formato });
+    this.resetForm();
+  }
+
+  quickPrefillProfile(perfil: PerfilDestinatario): void {
+    this.adaptForm.patchValue({ perfil_destinatario: perfil });
+    this.resetForm();
+  }
+
+  submitFeedback(vote: 'up' | 'down'): void {
+    this.userVote.set(vote);
+    this.feedbackSubmitted.set(true);
   }
 
   onDragOver(e: DragEvent): void {
@@ -894,7 +1289,6 @@ export class WorkspaceComponent {
       };
       reader.readAsText(file);
     } else {
-      // PDF document parsing via API (PyMuPDF / PyPDF)
       this.api.parsePdf(file).subscribe({
         next: (res) => {
           if (res && res.texto_extraido) {
@@ -903,7 +1297,6 @@ export class WorkspaceComponent {
           }
         },
         error: () => {
-          // Fallback context based on file title if offline
           const fallbackText = `Documento Técnico: ${formattedTitle}\nCurso de Microservicios con Spring Boot 3 y 4. Arquitectura de Microservicios, APIs REST, Spring Data JPA, Spring Cloud Gateway, Resilience4j Circuit Breakers, Apache Kafka, Observabilidad y Kubernetes.`;
           this.adaptForm.patchValue({ documento_contenido: fallbackText });
         }
@@ -940,6 +1333,8 @@ export class WorkspaceComponent {
     if (this.adaptForm.invalid) return;
     this.isPipelineRunning.set(true);
     this.currentResponse.set(null);
+    this.feedbackSubmitted.set(false);
+    this.userVote.set(null);
 
     const startTime = Date.now();
     const req = this.adaptForm.value as AdaptationRequest;
@@ -951,7 +1346,7 @@ export class WorkspaceComponent {
     this.activeAdaptationSub = this.api.adaptContent(req).subscribe({
       next: (res) => {
         const elapsed = Date.now() - startTime;
-        const minDuration = 600; // Enforce minimum 600ms loader display to prevent flicker
+        const minDuration = 600;
         const delay = elapsed < minDuration ? minDuration - elapsed : 0;
 
         setTimeout(() => {
