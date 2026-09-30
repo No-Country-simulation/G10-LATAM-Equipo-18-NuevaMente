@@ -2,7 +2,22 @@ import { inject } from '@angular/core';
 import { Router, CanActivateFn, CanMatchFn } from '@angular/router';
 import { AuthStore } from '../store/auth.store';
 
-export const authGuard: CanActivateFn = async (route, state) => {
+/**
+ * Validates that a returnUrl is strictly a relative path to prevent open redirect vulnerabilities.
+ */
+
+export function sanitizeReturnUrl(url?: string): string {
+  if (!url || typeof url !== 'string') return '/workspace';
+  const trimmed = url.trim();
+
+  // Must start with '/' and must NOT start with '//' or contain '://'
+  if (!trimmed.startsWith('/') || trimmed.startsWith('//') || trimmed.includes('://')) {
+    return '/workspace';
+  }
+  return trimmed;
+}
+
+export const authGuard: CanActivateFn & CanMatchFn = async (route, state) => {
   const authStore = inject(AuthStore);
   const router = inject(Router);
 
@@ -13,26 +28,31 @@ export const authGuard: CanActivateFn = async (route, state) => {
   // Attempt silent refresh if state is idle
   if (authStore.status() === 'idle') {
     const isSuccess = await authStore.initSession();
-    if (isSuccess) return true;
+    if (isSuccess && authStore.isAuthenticated()) {
+      return true;
+    }
   }
 
-  router.navigate(['/login'], { queryParams: { returnUrl: state.url } });
+  const rawUrl = state?.url || (route as any)?.path || '/workspace';
+  const returnUrl = sanitizeReturnUrl(rawUrl);
+
+  router.navigate(['/auth/login'], { queryParams: { returnUrl } });
   return false;
 };
 
-export const guestGuard: CanActivateFn = async (route, state) => {
+export const guestGuard: CanActivateFn & CanMatchFn = async (route, state) => {
   const authStore = inject(AuthStore);
   const router = inject(Router);
 
   if (authStore.isAuthenticated()) {
-    router.navigate(['/workspace']);
+    router.navigate(['/workspace'], { replaceUrl: true });
     return false;
   }
 
   if (authStore.status() === 'idle') {
     const isSuccess = await authStore.initSession();
-    if (isSuccess) {
-      router.navigate(['/workspace']);
+    if (isSuccess && authStore.isAuthenticated()) {
+      router.navigate(['/workspace'], { replaceUrl: true });
       return false;
     }
   }

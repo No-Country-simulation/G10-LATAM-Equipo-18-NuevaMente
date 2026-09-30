@@ -122,6 +122,33 @@ npm start
 ```
 *La aplicación web estará disponible en `http://localhost:4200`.*
 
+### 4. Purga Automática y Manual de Papelera (15 Días)
+El sistema incluye aislamiento por usuario y borrado lógico con retención configurable (`TRASH_RETENTION_DAYS=15`).
+
+Para ejecutar manualmente la purga de retención de papelera:
+```bash
+cd backend
+python purge_trash.py --batch-size 50
+```
+
+**Programación con Crontab (Linux/Mac):**
+```cron
+0 * * * * cd /ruta/al/proyecto/backend && ./venv/bin/python purge_trash.py >> /var/log/purge_trash.log 2>&1
+```
+
+**Programación en Windows (Task Scheduler):**
+Configurar una tarea programada para ejecutar `venv\Scripts\python.exe purge_trash.py` cada 60 minutos.
+
+---
+
+### 🔑 Autenticación & Credenciales Demo
+
+Para probar la plataforma en modo desarrollo local:
+- **Correo Electrónico:** `ana.martinez@empresa.com`
+- **Contraseña:** `Password123!`
+
+*(Nota: En modo desarrollo `environment.enableDemoLogin = true`, puedes hacer clic en el banner **DEMO QUICK-LOGIN** en la pantalla de inicio de sesión para autocompletar estas credenciales).*
+
 ---
 
 ## 📬 Ejemplo de Invocación API REST (`POST /api/v1/adapt-content`)

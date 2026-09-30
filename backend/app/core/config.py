@@ -127,6 +127,7 @@ class Settings(BaseModel):
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
     OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
     OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
+    TRASH_RETENTION_DAYS: int = int(os.getenv("TRASH_RETENTION_DAYS", "15"))
 
     # ── RAG Configuration ─────────────────────────────────────────────────────
     MAX_TOP_K_CHUNKS: int = 5

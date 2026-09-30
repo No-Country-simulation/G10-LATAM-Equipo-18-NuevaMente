@@ -4,6 +4,7 @@ import { Observable, catchError, of } from 'rxjs';
 import { NuevaMenteApi } from './nuevamente-api';
 import { MockNuevaMenteApiService } from './mock-nuevamente-api.service';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
+import { RecentProject } from '../services/state.service';
 
 @Injectable({
   providedIn: 'root'
@@ -70,5 +71,33 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       .pipe(
         catchError(() => this.mockApi.exportAnkiDeck(deckName, flashcards))
       );
+  }
+
+  listLibrary(): Observable<RecentProject[]> {
+    return this.mockApi.listLibrary();
+  }
+
+  moveToTrash(id: string): Observable<void> {
+    return this.mockApi.moveToTrash(id);
+  }
+
+  listTrash(): Observable<RecentProject[]> {
+    return this.mockApi.listTrash();
+  }
+
+  restore(id: string): Observable<void> {
+    return this.mockApi.restore(id);
+  }
+
+  deletePermanently(id: string): Observable<void> {
+    return this.mockApi.deletePermanently(id);
+  }
+
+  emptyTrash(): Observable<void> {
+    return this.mockApi.emptyTrash();
+  }
+
+  getTrashCount(): Observable<number> {
+    return this.mockApi.getTrashCount();
   }
 }

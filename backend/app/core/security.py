@@ -106,6 +106,44 @@ def init_auth_tables():
         )
     """)
 
+    # Contenidos / Educational Packages table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS contenidos (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            content TEXT,
+            recipient_profile TEXT,
+            output_format TEXT,
+            niche TEXT,
+            detail_level TEXT,
+            status TEXT DEFAULT 'ready',
+            object_key_source TEXT,
+            object_key_json TEXT,
+            deleted_at TEXT,
+            purge_at TEXT,
+            deleted_by TEXT,
+            purge_failed INTEGER DEFAULT 0,
+            created_at REAL NOT NULL,
+            updated_at REAL,
+            FOREIGN KEY (user_id) REFERENCES users (id)
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_contenidos_purge_at ON contenidos (purge_at)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_contenidos_user_deleted ON contenidos (user_id, deleted_at)")
+
+    # Audit Log table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            resource_id TEXT,
+            details TEXT,
+            timestamp REAL NOT NULL
+        )
+    """)
+
     conn.commit()
 
     # Seed initial demo users if empty

@@ -1,11 +1,13 @@
-import { Component, signal, inject } from '@angular/core';
+import { Component, signal, inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 
 import { NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, RagFuente } from '../../core/models/adaptation.model';
 
+import { Subscription } from 'rxjs';
 import { PipelineProgressComponent } from './pipeline-progress.component';
+import { GenerationLoaderComponent } from './generation-loader.component';
 import { FlashcardsRendererComponent } from './renderers/flashcards-renderer.component';
 import { QuizRendererComponent } from './renderers/quiz-renderer.component';
 import { TutorialRendererComponent } from './renderers/tutorial-renderer.component';
@@ -26,6 +28,7 @@ import { StateService } from '../../core/services/state.service';
     FormsModule,
     ReactiveFormsModule,
     PipelineProgressComponent,
+    GenerationLoaderComponent,
     FlashcardsRendererComponent,
     QuizRendererComponent,
     TutorialRendererComponent,
@@ -224,12 +227,14 @@ import { StateService } from '../../core/services/state.service';
         </form>
       </div>
 
-      <!-- ZONE 2: PIPELINE PROGRESS STEPPER -->
-      <app-pipeline-progress 
+      <!-- ZONE 2: GENERATION LOADER (Replaces 7 step cards during creation) -->
+      <app-generation-loader 
+        #loaderComp
         *ngIf="isPipelineRunning()" 
-        (cancelPipeline)="cancelPipeline()"
-        (pipelineFinished)="onPipelineFinished()"
-      ></app-pipeline-progress>
+        [params]="getGenerationParams()"
+        (cancel)="cancelPipeline()"
+        (retry)="runPipeline()"
+      ></app-generation-loader>
 
       <!-- ZONE 3: RESULT VIEWER -->
       <div class="result-viewer-container" *ngIf="currentResponse() && !isPipelineRunning()">
@@ -914,28 +919,61 @@ export class WorkspaceComponent {
       .trim();
   }
 
+  @ViewChild(GenerationLoaderComponent) loaderComp?: GenerationLoaderComponent;
+  private activeAdaptationSub: Subscription | null = null;
+
   removeFile(): void {
     this.uploadedFile.set(null);
+  }
+
+  getGenerationParams(): { perfil?: string; formato?: string; nicho?: string; nivel?: string } {
+    const val = this.adaptForm.value;
+    return {
+      perfil: val.perfil_destinatario ?? undefined,
+      formato: val.formato_salida ?? undefined,
+      nicho: val.nicho_sector ?? undefined,
+      nivel: val.nivel_detalle ?? undefined
+    };
   }
 
   runPipeline(): void {
     if (this.adaptForm.invalid) return;
     this.isPipelineRunning.set(true);
     this.currentResponse.set(null);
+
+    const startTime = Date.now();
+    const req = this.adaptForm.value as AdaptationRequest;
+
+    if (this.activeAdaptationSub) {
+      this.activeAdaptationSub.unsubscribe();
+    }
+
+    this.activeAdaptationSub = this.api.adaptContent(req).subscribe({
+      next: (res) => {
+        const elapsed = Date.now() - startTime;
+        const minDuration = 600; // Enforce minimum 600ms loader display to prevent flicker
+        const delay = elapsed < minDuration ? minDuration - elapsed : 0;
+
+        setTimeout(() => {
+          this.currentResponse.set(res);
+          this.isPipelineRunning.set(false);
+          localStorage.setItem('nuevamente_library_initialized', 'true');
+          this.stateService.addProjectFromResponse(req, res);
+        }, delay);
+      },
+      error: (err) => {
+        const errorMsg = err?.error?.mensaje || err?.message || 'Error al comunicarse con el servidor RAG.';
+        this.loaderComp?.triggerError(errorMsg);
+      }
+    });
   }
 
   cancelPipeline(): void {
+    if (this.activeAdaptationSub) {
+      this.activeAdaptationSub.unsubscribe();
+      this.activeAdaptationSub = null;
+    }
     this.isPipelineRunning.set(false);
-  }
-
-  onPipelineFinished(): void {
-    const req = this.adaptForm.value as AdaptationRequest;
-    this.api.adaptContent(req).subscribe(res => {
-      this.currentResponse.set(res);
-      this.isPipelineRunning.set(false);
-      localStorage.setItem('nuevamente_library_initialized', 'true');
-      this.stateService.addProjectFromResponse(req, res);
-    });
   }
 
   resetForm(): void {

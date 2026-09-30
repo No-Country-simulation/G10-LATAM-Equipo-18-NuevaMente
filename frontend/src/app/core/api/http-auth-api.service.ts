@@ -18,6 +18,10 @@ export class HttpAuthApiService extends AuthApi {
     return this.http.post<AuthResponse>(`${this.baseUrl}/login`, { email, password, mfa_code: mfaCode }, { withCredentials: true });
   }
 
+  startOAuth(provider: string): Observable<AuthResponse> {
+    return this.http.get<AuthResponse>(`${this.baseUrl}/oauth/${provider.toLowerCase()}`);
+  }
+
   loginMfa(email: string, mfaCode: string, mfaToken?: string): Observable<AuthResponse> {
     return this.http.post<AuthResponse>(`${this.baseUrl}/login/mfa`, { email, mfa_code: mfaCode, mfa_token: mfaToken }, { withCredentials: true });
   }

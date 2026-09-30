@@ -41,6 +41,7 @@ export interface MfaSetupData {
 
 export abstract class AuthApi {
   abstract login(email: string, password: string, mfaCode?: string): Observable<AuthResponse>;
+  abstract startOAuth(provider: string): Observable<AuthResponse>;
   abstract loginMfa(email: string, mfaCode: string, mfaToken?: string): Observable<AuthResponse>;
   abstract register(name: string, email: string, password: string, role?: string, organization?: string): Observable<AuthResponse>;
   abstract verifyEmail(email: string, code: string): Observable<AuthResponse>;

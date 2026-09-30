@@ -1,7 +1,8 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { Observable, of, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { NuevaMenteApi } from './nuevamente-api';
+import { StateService, RecentProject } from '../services/state.service';
 import {
   AdaptationRequest,
   AdaptationResponse,
@@ -17,6 +18,39 @@ import {
   providedIn: 'root'
 })
 export class MockNuevaMenteApiService implements NuevaMenteApi {
+  private stateService = inject(StateService);
+
+  listLibrary(): Observable<RecentProject[]> {
+    return of(this.stateService.getLibraryProjects());
+  }
+
+  moveToTrash(id: string): Observable<void> {
+    this.stateService.moveToTrash(id);
+    return of(void 0);
+  }
+
+  listTrash(): Observable<RecentProject[]> {
+    return of(this.stateService.getTrashProjects());
+  }
+
+  restore(id: string): Observable<void> {
+    this.stateService.restoreFromTrash(id);
+    return of(void 0);
+  }
+
+  deletePermanently(id: string): Observable<void> {
+    this.stateService.deletePermanently(id);
+    return of(void 0);
+  }
+
+  emptyTrash(): Observable<void> {
+    this.stateService.emptyTrash();
+    return of(void 0);
+  }
+
+  getTrashCount(): Observable<number> {
+    return of(this.stateService.getTrashProjects().length);
+  }
 
   adaptContent(request: AdaptationRequest): Observable<AdaptationResponse> {
     const rawTitle = request.documento_titulo || 'Documento Técnico';
