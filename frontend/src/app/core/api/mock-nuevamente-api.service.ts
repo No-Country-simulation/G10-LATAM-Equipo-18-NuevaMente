@@ -3,6 +3,7 @@ import { Observable, of, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { NuevaMenteApi } from './nuevamente-api';
 import { StateService, RecentProject } from '../services/state.service';
+import { getTargetItemCount } from '../config/content-quantity.config';
 import {
   AdaptationRequest,
   AdaptationResponse,
@@ -59,7 +60,6 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
 
     const textContent = request.documento_contenido || '';
     
-    // Extract non-empty sentences or paragraphs from user text
     const sentences = textContent
       .split(/[\n.!?]/)
       .map(s => s.trim())
@@ -87,7 +87,7 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
         responsePayload = this.buildTutorialPayload(formattedTitle, sentences, request);
     }
 
-    return timer(800).pipe(map(() => responsePayload));
+    return timer(600).pipe(map(() => responsePayload));
   }
 
   parsePdf(file: File, _useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
@@ -141,12 +141,22 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
     return of(blob);
   }
 
-  // --- DYNAMIC PAYLOAD BUILDERS BASED ON USER DOCUMENT CONTENT ---
+  // --- DYNAMIC PAYLOAD BUILDERS WITH VARIETY FOR HIGH VOLUMES ---
+
+  private resolveRequestedCount(req: AdaptationRequest): number {
+    if (req.cantidad_objetivo && req.cantidad_objetivo > 0) {
+      return req.cantidad_objetivo;
+    }
+    if (req.nivel_cantidad) {
+      return getTargetItemCount(req.formato_salida, req.nivel_cantidad, req.cantidad_objetivo);
+    }
+    return req.cantidad_generar || 20;
+  }
 
   private extractKeyConcepts(title: string, sentences: string[]): string[] {
     const concepts = [title];
     sentences.forEach((s, idx) => {
-      if (idx < 5) {
+      if (idx < 15) {
         const words = s.split(/\s+/).filter(w => w.length > 5 && !['donde', 'desde', 'hasta', 'cuando', 'sobre', 'entre'].includes(w.toLowerCase()));
         if (words.length > 0) {
           const concept = words.slice(0, 2).join(' ').replace(/[^a-zA-Z0-9 áéíóúÁÉÍÓÚñÑ]/g, '');
@@ -157,53 +167,79 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       }
     });
 
-    if (concepts.length < 3) {
-      concepts.push('Arquitectura & Principios', 'Reglas de Negocio', 'Validación');
-    }
-    return concepts.slice(0, 5);
+    const fallbackTopics = [
+      'Arquitectura de Redes', 'Subredes VCN', 'Security Rules & NSG', 'Route Tables',
+      'Internet Gateways', 'NAT Gateways', 'Service Gateways', 'DRG & Peering',
+      'Load Balancers OCI', 'IAM Policies & Compartments', 'VPN IPSec', 'FastConnect',
+      'Observabilidad & Audit Logs', 'High Availability & Fault Domains', 'PCI-DSS Compliance'
+    ];
+    
+    fallbackTopics.forEach(t => {
+      if (!concepts.includes(t)) concepts.push(t);
+    });
+
+    return concepts;
   }
 
   private buildFlashcardsPayload(title: string, sentences: string[], req: AdaptationRequest): AdaptationResponse {
-    const count = req.cantidad_generar || 5;
+    const requested = this.resolveRequestedCount(req);
     const concepts = this.extractKeyConcepts(title, sentences);
+    
+    // Simulate document capacity limit if requested count > 60 and document is short
+    const effectiveCount = (requested > 60 && sentences.length < 5) ? 45 : requested;
     const items: FlashcardItem[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Premisa fundamental de ${title}.`;
-      const concept = concepts[i % concepts.length];
-      
+    const verbs = ['analizar', 'configurar', 'optimizar', 'validar', 'implementar', 'desplegar', 'auditar', 'aislar'];
+    const topics = concepts;
+
+    for (let i = 0; i < effectiveCount; i++) {
+      const topic = topics[i % topics.length];
+      const verb = verbs[i % verbs.length];
+      const pageNum = Math.floor(i / 5) + 1;
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Especificación técnica #${i + 1} sobre ${topic} en ${title}.`;
+
       const fuente: RagFuente = {
-        chunk_id: `chunk-rag-00${i + 1}`,
+        chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
         extracto: sentence,
-        pagina: Math.floor(i / 2) + 1,
-        similitud_score: 0.95 + (i % 4) * 0.01
+        pagina: pageNum,
+        similitud_score: Number((0.92 + (i % 8) * 0.01).toFixed(2))
       };
 
       items.push({
-        frente: `¿Qué establece '${title}' sobre ${concept}?`,
-        dorso: sentence,
-        pista_didactica: `Enfoque pedagógico orientado al nivel ${req.nivel_detalle} para ${req.perfil_destinatario} en ${req.nicho_sector}.`,
+        frente: `Tarjeta #${i + 1}: ¿Cómo se debe ${verb} ${topic} en ${title}?`,
+        dorso: `En el contexto de ${req.nicho_sector}, la recomendación técnica es: ${sentence} Esto garantiza alineación con el nivel ${req.nivel_detalle}.`,
+        pista_didactica: `Concepto clave #${(i % 5) + 1}: Enfócate en el impacto operativo para ${req.perfil_destinatario}.`,
         fuentes: [fuente]
       });
     }
+
+    const aviso = effectiveCount < requested
+      ? `Tu documento permitió generar ${effectiveCount} tarjetas verificadas. Con un texto fuente más extenso podrás alcanzar las ${requested} solicitadas.`
+      : undefined;
 
     return {
       status: 'exito',
       metadatos: {
         perfil_aplicado: req.perfil_destinatario,
         formato_generado: 'Flashcards',
-        tiempo_estimado_estudio_minutos: Math.max(5, count * 2),
-        conceptos_clave: concepts
+        nicho_sector: req.nicho_sector,
+        nivel_detalle: req.nivel_detalle,
+        nivel_cantidad: req.nivel_cantidad || 'Estandar',
+        items_solicitados: requested,
+        items_generados: effectiveCount,
+        aviso_cantidad: aviso,
+        tiempo_estimado_estudio_minutos: Math.max(5, Math.ceil(effectiveCount * 0.5)),
+        conceptos_clave: concepts.slice(0, 8)
       },
       contenido_adaptado: {
-        titulo: `Tarjetas de Repaso: ${title}`,
+        titulo: `Tarjetas de Repaso (${effectiveCount} Items): ${title}`,
         introduccion_contextualizada: `Flashcards dinámicas generadas a partir del contenido de '${title}', adaptadas para el perfil ${req.perfil_destinatario} en el sector ${req.nicho_sector}.`,
         items
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.98,
         claridad_pedagogica: 'Alta',
-        observaciones: `Adaptación generada y anclada 100% en los extractos de '${title}'.`
+        observaciones: `Adaptación de ${effectiveCount} tarjetas validada y anclada 100% en los extractos de '${title}'.`
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-educativo-oci',
@@ -214,31 +250,32 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
   }
 
   private buildQuizPayload(title: string, sentences: string[], req: AdaptationRequest): AdaptationResponse {
-    const count = req.cantidad_generar || 4;
+    const requested = this.resolveRequestedCount(req);
     const concepts = this.extractKeyConcepts(title, sentences);
     const items: QuizItem[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Especificación técnica relevante de ${title}.`;
-      const concept = concepts[i % concepts.length];
+    for (let i = 0; i < requested; i++) {
+      const topic = concepts[i % concepts.length];
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Requerimiento de seguridad #${i + 1} para ${topic}.`;
 
       const fuente: RagFuente = {
-        chunk_id: `chunk-rag-00${i + 1}`,
+        chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
         extracto: sentence,
-        pagina: Math.floor(i / 2) + 1,
+        pagina: Math.floor(i / 3) + 1,
         similitud_score: 0.96
       };
 
       items.push({
-        pregunta: `Según el documento '${title}', ¿cuál es la premisa correcta en relación a ${concept}?`,
+        pregunta: `Pregunta ${i + 1}: En relación a ${topic} en ${title}, ¿cuál afirmación es correcta para el perfil de ${req.perfil_destinatario}?`,
         opciones: [
-          sentence,
-          `Omite todas las validaciones especificadas en la arquitectura`,
-          `Desactiva la verificación de seguridad en producción`,
-          `Sustituye la estructura por un método no estandarizado`
+          `Opción A (Correcta): ${sentence}`,
+          `Opción B: Desactivar los controles de auditoría en ${req.nicho_sector}`,
+          `Opción C: Omitir la segmentación de red y usar valores por defecto`,
+          `Opción D: Sustituir la autenticación por un método no validado`
         ],
-        respuesta_correcta: sentence,
-        justificacion: `Basado directamente en el texto original: "${sentence}"`,
+        respuesta_correcta: `Opción A (Correcta): ${sentence}`,
+        justificacion: `Directamente respaldado en el fragmento fuente: "${sentence}".`,
+        justificacion_didactica: `Explicación pedagógica para ${req.perfil_destinatario}: ${topic} requiere mantener intactos los criterios de seguridad.`,
         fuentes: [fuente]
       });
     }
@@ -248,18 +285,23 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       metadatos: {
         perfil_aplicado: req.perfil_destinatario,
         formato_generado: 'Quiz',
-        tiempo_estimado_estudio_minutos: Math.max(6, count * 2),
-        conceptos_clave: concepts
+        nicho_sector: req.nicho_sector,
+        nivel_detalle: req.nivel_detalle,
+        nivel_cantidad: req.nivel_cantidad || 'Estandar',
+        items_solicitados: requested,
+        items_generados: requested,
+        tiempo_estimado_estudio_minutos: Math.max(5, Math.ceil(requested * 1.5)),
+        conceptos_clave: concepts.slice(0, 8)
       },
       contenido_adaptado: {
-        titulo: `Quiz Evaluativo: ${title}`,
-        introduccion_contextualizada: `Evaluación formativa construida sobre la documentación de '${title}', adaptada al nivel ${req.nivel_detalle} de ${req.perfil_destinatario}.`,
+        titulo: `Quiz Evaluativo (${requested} Preguntas): ${title}`,
+        introduccion_contextualizada: `Evaluación de ${requested} preguntas sobre '${title}', adaptada al nivel ${req.nivel_detalle} de ${req.perfil_destinatario}.`,
         items
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.97,
         claridad_pedagogica: 'Alta',
-        observaciones: `Preguntas y opciones generadas directamente del texto cargado.`
+        observaciones: `Cuestionario de ${requested} preguntas validado contra la fuente.`
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-educativo-oci',
@@ -270,32 +312,31 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
   }
 
   private buildTutorialPayload(title: string, sentences: string[], req: AdaptationRequest): AdaptationResponse {
-    const count = req.cantidad_generar || 4;
+    const requested = this.resolveRequestedCount(req);
     const concepts = this.extractKeyConcepts(title, sentences);
     const items: TutorialItem[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Paso técnico de implementación para ${title}.`;
-      const concept = concepts[i % concepts.length];
+    for (let i = 0; i < requested; i++) {
+      const topic = concepts[i % concepts.length];
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Paso instructivo #${i + 1} sobre ${topic}.`;
 
       const fuente: RagFuente = {
-        chunk_id: `chunk-rag-00${i + 1}`,
+        chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
         extracto: sentence,
-        pagina: Math.floor(i / 2) + 1,
-        similitud_score: 0.99
+        pagina: Math.floor(i / 3) + 1,
+        similitud_score: 0.98
       };
 
-      let codeExample = undefined;
-      if (sentence.includes('code') || sentence.includes('http') || sentence.includes('cli') || sentence.includes('oci') || sentence.includes('npm') || i === 0) {
-        codeExample = `\`\`\`bash\n# Ejecución para ${concept}\nrun-process --spec "${title}" --profile ${req.perfil_destinatario.toLowerCase()}\n\`\`\``;
-      }
+      const codeExample = (i % 2 === 0)
+        ? `\`\`\`bash\n# Paso ${i + 1}: ${topic}\noci network vcn create --display-name "${topic}" --cidr-block "10.${i}.0.0/16"\n\`\`\``
+        : undefined;
 
       items.push({
         paso: i + 1,
-        titulo: `${concept}: Fase ${i + 1}`,
-        instruccion: `${sentence} Esta etapa asegura la correcta aplicación del requerimiento en el entorno de ${req.nicho_sector}.`,
+        titulo: `Paso ${i + 1}: ${topic}`,
+        instruccion: `${sentence} Configuración ajustada al sector ${req.nicho_sector} para ${req.perfil_destinatario}.`,
         ejemplo: codeExample,
-        advertencia: i % 2 === 0 ? `Asegúrate de validar la compatibilidad con el nivel ${req.nivel_detalle} antes de proceder.` : undefined,
+        advertencia: (i % 4 === 0) ? `Verifica que las políticas IAM permitan la acción antes de ejecutar el Paso ${i + 1}.` : undefined,
         fuentes: [fuente]
       });
     }
@@ -305,18 +346,23 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       metadatos: {
         perfil_aplicado: req.perfil_destinatario,
         formato_generado: 'Tutorial',
-        tiempo_estimado_estudio_minutos: Math.max(10, count * 3),
-        conceptos_clave: concepts
+        nicho_sector: req.nicho_sector,
+        nivel_detalle: req.nivel_detalle,
+        nivel_cantidad: req.nivel_cantidad || 'Estandar',
+        items_solicitados: requested,
+        items_generados: requested,
+        tiempo_estimado_estudio_minutos: Math.max(8, Math.ceil(requested * 2)),
+        conceptos_clave: concepts.slice(0, 8)
       },
       contenido_adaptado: {
-        titulo: `Guía Paso a Paso: ${title}`,
-        introduccion_contextualizada: `Tutorial didáctico estructurado paso a paso a partir de '${title}', optimizado para ${req.perfil_destinatario} en el sector ${req.nicho_sector}.`,
+        titulo: `Guía Paso a Paso (${requested} Módulos): ${title}`,
+        introduccion_contextualizada: `Tutorial didáctico de ${requested} pasos elaborado desde '${title}', optimizado para ${req.perfil_destinatario}.`,
         items
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.99,
         claridad_pedagogica: 'Alta',
-        observaciones: `Pasos instructivos 100% verificados contra la fuente recibida.`
+        observaciones: `Pasos instructivos 100% verificados.`
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-educativo-oci',
@@ -327,24 +373,24 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
   }
 
   private buildSummaryPayload(title: string, sentences: string[], req: AdaptationRequest): AdaptationResponse {
-    const count = req.cantidad_generar || 3;
+    const requested = this.resolveRequestedCount(req);
     const concepts = this.extractKeyConcepts(title, sentences);
     const items: ResumenEjecutivoItem[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Punto clave estratégico de ${title}.`;
-      const concept = concepts[i % concepts.length];
+    for (let i = 0; i < requested; i++) {
+      const topic = concepts[i % concepts.length];
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Punto clave #${i + 1} de ${topic}.`;
 
       const fuente: RagFuente = {
-        chunk_id: `chunk-rag-00${i + 1}`,
+        chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
         extracto: sentence,
         pagina: Math.floor(i / 2) + 1,
         similitud_score: 0.96
       };
 
       items.push({
-        punto_clave: `${concept}: ${sentence.substring(0, 90)}...`,
-        impacto_negocio: `Optimiza los procesos en el sector ${req.nicho_sector}, reduciendo tiempos de aprendizaje para el perfil ${req.perfil_destinatario}.`,
+        punto_clave: `${topic}: ${sentence.substring(0, 80)}...`,
+        impacto_negocio: `Optimización operativa #${i + 1} en el sector ${req.nicho_sector}, acelerando la toma de decisiones para el perfil ${req.perfil_destinatario}.`,
         fuentes: [fuente]
       });
     }
@@ -354,18 +400,23 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       metadatos: {
         perfil_aplicado: req.perfil_destinatario,
         formato_generado: 'Resumen Ejecutivo',
-        tiempo_estimado_estudio_minutos: Math.max(3, count * 1.5),
-        conceptos_clave: concepts
+        nicho_sector: req.nicho_sector,
+        nivel_detalle: req.nivel_detalle,
+        nivel_cantidad: req.nivel_cantidad || 'Estandar',
+        items_solicitados: requested,
+        items_generados: requested,
+        tiempo_estimado_estudio_minutos: Math.max(3, Math.ceil(requested * 1.2)),
+        conceptos_clave: concepts.slice(0, 8)
       },
       contenido_adaptado: {
-        titulo: `Resumen Ejecutivo (TL;DR): ${title}`,
-        introduccion_contextualizada: `Informe estratégico sintetizado para tomadores de decisiones a partir del documento '${title}'.`,
+        titulo: `Resumen Ejecutivo (TL;DR - ${requested} Puntos): ${title}`,
+        introduccion_contextualizada: `Síntesis ejecutiva de ${requested} puntos estratégicos extraídos de '${title}'.`,
         items
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.96,
         claridad_pedagogica: 'Alta',
-        observaciones: `Resumen condensado con enfoque en impacto de negocio.`
+        observaciones: `Resumen condensado en ${requested} puntos clave.`
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-educativo-oci',
@@ -376,16 +427,16 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
   }
 
   private buildScriptPayload(title: string, sentences: string[], req: AdaptationRequest): AdaptationResponse {
-    const count = req.cantidad_generar || 3;
+    const requested = this.resolveRequestedCount(req);
     const concepts = this.extractKeyConcepts(title, sentences);
     const items: GuionClaseItem[] = [];
 
-    for (let i = 0; i < count; i++) {
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Explicación técnica de ${title}.`;
-      const concept = concepts[i % concepts.length];
+    for (let i = 0; i < requested; i++) {
+      const topic = concepts[i % concepts.length];
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Explicación audiovisual #${i + 1} de ${topic}.`;
 
       const fuente: RagFuente = {
-        chunk_id: `chunk-rag-00${i + 1}`,
+        chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
         extracto: sentence,
         pagina: Math.floor(i / 2) + 1,
         similitud_score: 0.97
@@ -393,9 +444,9 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
 
       items.push({
         escena: i + 1,
-        duracion_seg: 90 + i * 30,
-        narracion: `En este segmento sobre '${title}', abordaremos ${concept}. ${sentence}`,
-        apoyo_visual: `Esquema gráfico animado mostrando la estructura de ${concept} aplicada a ${req.nicho_sector}.`,
+        duracion_seg: 60 + i * 15,
+        narracion: `Escena ${i + 1}: En este segmento abordaremos ${topic}. ${sentence}`,
+        apoyo_visual: `Diapositiva o esquema animado #${i + 1} mostrando ${topic} aplicado al sector ${req.nicho_sector}.`,
         fuentes: [fuente]
       });
     }
@@ -405,18 +456,23 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       metadatos: {
         perfil_aplicado: req.perfil_destinatario,
         formato_generado: 'Guion de Clase',
-        tiempo_estimado_estudio_minutos: Math.max(5, count * 2),
-        conceptos_clave: concepts
+        nicho_sector: req.nicho_sector,
+        nivel_detalle: req.nivel_detalle,
+        nivel_cantidad: req.nivel_cantidad || 'Estandar',
+        items_solicitados: requested,
+        items_generados: requested,
+        tiempo_estimado_estudio_minutos: Math.max(5, Math.ceil(requested * 1.5)),
+        conceptos_clave: concepts.slice(0, 8)
       },
       contenido_adaptado: {
-        titulo: `Guion de Clase / Video: ${title}`,
-        introduccion_contextualizada: `Guion audiovisual estructurado en escenas cronometradas a partir de la documentación de '${title}'.`,
+        titulo: `Guion de Clase / Video (${requested} Escenas): ${title}`,
+        introduccion_contextualizada: `Guion de ${requested} escenas cronometradas para impartir la clase de '${title}'.`,
         items
       },
       evaluacion_calidad: {
         anclaje_fuente_score: 0.97,
         claridad_pedagogica: 'Alta',
-        observaciones: `Guion de clase con tiempos y recursos visuales alineados con el texto.`
+        observaciones: `Guion estructurado en ${requested} escenas.`
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-educativo-oci',

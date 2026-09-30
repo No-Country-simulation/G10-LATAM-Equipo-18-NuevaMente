@@ -2,6 +2,7 @@ export type PerfilDestinatario = 'Principiante' | 'Desarrollador' | 'Lider Tecni
 export type FormatoSalida = 'Flashcards' | 'Quiz' | 'Tutorial' | 'Resumen Ejecutivo' | 'Guion de Clase' | string;
 export type NichoSector = 'Fintech' | 'Salud' | 'E-commerce' | 'General' | string;
 export type NivelDetalle = 'Didactico' | 'Conciso' | 'Tecnico' | 'Exhaustivo' | string;
+export type NivelCantidad = 'Breve' | 'Estandar' | 'Amplio' | 'Exhaustivo' | 'Personalizado' | string;
 
 export interface AdaptationRequest {
   documento_titulo: string;
@@ -10,6 +11,8 @@ export interface AdaptationRequest {
   formato_salida: FormatoSalida;
   nicho_sector: NichoSector;
   nivel_detalle: NivelDetalle;
+  nivel_cantidad?: NivelCantidad;
+  cantidad_objetivo?: number;
   cantidad_generar?: number;
   tamano_chunk?: number;
   instrucciones_adicionales?: string;
@@ -75,6 +78,12 @@ export interface ContenidoAdaptado {
 export interface Metadatos {
   perfil_aplicado: PerfilDestinatario;
   formato_generado: FormatoSalida;
+  nicho_sector?: NichoSector;
+  nivel_detalle?: NivelDetalle;
+  nivel_cantidad?: NivelCantidad;
+  items_solicitados?: number;
+  items_generados?: number;
+  aviso_cantidad?: string;
   tiempo_estimado_estudio_minutos: number;
   conceptos_clave: string[];
   prerrequisitos?: string[];
