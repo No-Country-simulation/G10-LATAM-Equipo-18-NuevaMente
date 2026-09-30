@@ -56,6 +56,20 @@ describe('AuthGuard & GuestGuard & ReturnUrl Sanitizer', () => {
       });
     });
 
+    it('should redirect unauthenticated users accessing /papelera to /auth/login with returnUrl', async () => {
+      authStore.handleLocalLogoutState();
+
+      const route: any = {};
+      const state: any = { url: '/papelera' };
+
+      const result = await TestBed.runInInjectionContext(() => authGuard(route, state));
+
+      expect(result).toBeFalse();
+      expect(routerSpy.navigate).toHaveBeenCalledWith(['/auth/login'], {
+        queryParams: { returnUrl: '/papelera' }
+      });
+    });
+
     it('should allow authenticated users to access protected routes', async () => {
       authStore.setSession('test_token', { id: '1', email: 'test@empresa.com', name: 'Test User' });
 

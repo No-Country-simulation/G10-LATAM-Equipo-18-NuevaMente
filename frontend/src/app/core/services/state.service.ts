@@ -1,5 +1,7 @@
 import { Injectable } from '@angular/core';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
+import { environment } from '../../../environments/environment';
+import { isExpired } from '../utils/trash-utils';
 
 export interface RecentProject {
   id: string;
@@ -10,6 +12,8 @@ export interface RecentProject {
   estado: 'Completado' | 'En proceso' | 'Pendiente';
   fecha: string;
   typeIcon: string;
+  deletedAt?: string | null;
+  purgeAt?: string | null;
   request?: AdaptationRequest;
   response?: AdaptationResponse;
 }
@@ -74,10 +78,8 @@ export class StateService {
         const parsed = JSON.parse(savedProjects);
         if (Array.isArray(parsed) && parsed.length > 0) {
           this.projects = parsed;
-          this.metrics.documentos = this.projects.length;
-          this.metrics.contenidos = this.projects.length;
-          this.metrics.ejecucionesRag = this.projects.length;
-          this.metrics.fuentes = this.projects.length;
+          this.purgeExpiredProjects();
+          this.updateMetrics();
         }
       }
     } catch (e) {
@@ -85,11 +87,30 @@ export class StateService {
     }
   }
 
+  private updateMetrics(): void {
+    const active = this.getLibraryProjects();
+    this.metrics.documentos = active.length;
+    this.metrics.contenidos = active.length;
+    this.metrics.ejecucionesRag = active.length;
+    this.metrics.fuentes = active.length;
+  }
+
   private saveProjectsToStorage(): void {
     try {
       localStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
     } catch (e) {
       console.log('Error al guardar proyectos en localStorage', e);
+    }
+  }
+
+  purgeExpiredProjects(nowDate: Date = new Date()): void {
+    const beforeCount = this.projects.length;
+    this.projects = this.projects.filter(p => {
+      if (!p.deletedAt) return true;
+      return !isExpired(p.purgeAt, nowDate);
+    });
+    if (this.projects.length !== beforeCount) {
+      this.saveProjectsToStorage();
     }
   }
 
@@ -150,33 +171,69 @@ export class StateService {
   }
 
   getProjects(): RecentProject[] {
-    return this.projects;
+    return this.getLibraryProjects();
   }
 
-  deleteProject(projectId: string): void {
-    const index = this.projects.findIndex(p => p.id === projectId);
-    if (index !== -1) {
-      this.projects.splice(index, 1);
-      this.metrics.documentos = Math.max(0, this.metrics.documentos - 1);
-      this.metrics.contenidos = Math.max(0, this.metrics.contenidos - 1);
-      this.metrics.ejecucionesRag = Math.max(0, this.metrics.ejecucionesRag - 1);
-      this.metrics.fuentes = Math.max(0, this.metrics.fuentes - 1);
+  getLibraryProjects(): RecentProject[] {
+    this.purgeExpiredProjects();
+    return this.projects.filter(p => !p.deletedAt);
+  }
+
+  getTrashProjects(): RecentProject[] {
+    this.purgeExpiredProjects();
+    return this.projects.filter(p => !!p.deletedAt);
+  }
+
+  moveToTrash(projectId: string): void {
+    const proj = this.projects.find(p => p.id === projectId);
+    if (proj) {
+      const now = new Date();
+      const retentionDays = environment.trashRetentionDays ?? 15;
+      const purgeDate = new Date(now.getTime() + retentionDays * 24 * 60 * 60 * 1000);
+
+      proj.deletedAt = now.toISOString();
+      proj.purgeAt = purgeDate.toISOString();
+      
+      this.updateMetrics();
       this.saveProjectsToStorage();
     }
   }
 
-  addProjectFromResponse(request: AdaptationRequest, response: AdaptationResponse): RecentProject {
-    // 1. Update Metrics
-    this.metrics.documentos += 1;
-    this.metrics.contenidos += 1;
-    this.metrics.ejecucionesRag += 1;
-    this.metrics.fuentes += 1;
+  restoreFromTrash(projectId: string): void {
+    const proj = this.projects.find(p => p.id === projectId);
+    if (proj) {
+      proj.deletedAt = null;
+      proj.purgeAt = null;
+      this.updateMetrics();
+      this.saveProjectsToStorage();
+    }
+  }
 
-    // 2. Format Date
+  deletePermanently(projectId: string): void {
+    const index = this.projects.findIndex(p => p.id === projectId);
+    if (index !== -1) {
+      this.projects.splice(index, 1);
+      this.updateMetrics();
+      this.saveProjectsToStorage();
+    }
+  }
+
+  emptyTrash(): void {
+    this.projects = this.projects.filter(p => !p.deletedAt);
+    this.updateMetrics();
+    this.saveProjectsToStorage();
+  }
+
+  deleteProject(projectId: string): void {
+    this.moveToTrash(projectId);
+  }
+
+  addProjectFromResponse(request: AdaptationRequest, response: AdaptationResponse): RecentProject {
+    // 1. Format Date
     const now = new Date();
     const formattedDate = `${now.getDate()} ${now.toLocaleString('es-ES', { month: 'short' })}. ${now.getFullYear()} ${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}`;
 
-    // 3. Determine Format Icon
+    // 2. Determine Format Icon
     let formatCode = 'DOC';
     if (request.formato_salida.includes('Flashcard')) formatCode = 'FC';
     else if (request.formato_salida.includes('Quiz')) formatCode = 'QZ';
@@ -192,11 +249,14 @@ export class StateService {
       estado: 'Completado',
       fecha: formattedDate,
       typeIcon: formatCode,
+      deletedAt: null,
+      purgeAt: null,
       request: request,
       response: response
     };
 
     this.projects.unshift(newProject);
+    this.updateMetrics();
     this.saveProjectsToStorage();
     return newProject;
   }

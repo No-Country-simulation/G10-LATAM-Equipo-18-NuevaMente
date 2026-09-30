@@ -4,6 +4,7 @@ import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/rou
 import { ThemeService } from './core/services/theme.service';
 import { I18nService } from './core/services/i18n.service';
 import { AuthStore } from './core/store/auth.store';
+import { StateService } from './core/services/state.service';
 
 @Component({
   selector: 'app-root',
@@ -45,7 +46,7 @@ import { AuthStore } from './core/store/auth.store';
             routerLinkActive="active" 
             class="nav-btn"
           >
-            <span class="nav-icon">⚡</span>
+            <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
           </a>
 
@@ -54,8 +55,18 @@ import { AuthStore } from './core/store/auth.store';
             routerLinkActive="active" 
             class="nav-btn"
           >
-            <span class="nav-icon">📚</span>
+            <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Biblioteca</span>
+          </a>
+
+          <a 
+            routerLink="/papelera" 
+            routerLinkActive="active" 
+            class="nav-btn nav-btn-trash"
+          >
+            <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Papelera</span>
+            <span class="nav-trash-badge" *ngIf="getTrashCount() > 0">{{ getTrashCount() }}</span>
           </a>
         </nav>
 
@@ -134,10 +145,21 @@ import { AuthStore } from './core/store/auth.store';
       display: flex; align-items: center; gap: 0.85rem; padding: 0.75rem 1rem;
       border-radius: 12px; background: transparent; border: none; color: var(--text-secondary);
       font-size: 0.92rem; font-weight: 600; cursor: pointer; width: 100%; text-align: left; transition: all 0.2s;
-      text-decoration: none;
+      text-decoration: none; position: relative;
     }
     .nav-btn:hover { background: var(--bg-app); color: var(--text-primary); }
     .nav-btn.active { background: rgba(79, 70, 229, 0.1); color: #4F46E5; font-weight: 700; }
+    .nav-icon-svg { flex-shrink: 0; }
+
+    .nav-trash-badge {
+      margin-left: auto;
+      background: #EF4444;
+      color: #FFFFFF;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+    }
 
     .sidebar-footer { border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
@@ -180,12 +202,17 @@ export class AppComponent implements OnInit {
   readonly themeService = inject(ThemeService);
   readonly i18n = inject(I18nService);
   readonly authStore = inject(AuthStore);
+  private stateService = inject(StateService);
   private router = inject(Router);
 
   isSidebarCollapsed = signal<boolean>(false);
 
   ngOnInit(): void {
     this.authStore.initSession();
+  }
+
+  getTrashCount(): number {
+    return this.stateService.getTrashProjects().length;
   }
 
   logout(): void {

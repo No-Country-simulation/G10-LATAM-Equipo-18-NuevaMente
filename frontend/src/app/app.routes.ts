@@ -69,6 +69,12 @@ export const routes: Routes = [
     canActivate: [authGuard],
     canMatch: [authGuard]
   },
+  {
+    path: 'papelera',
+    loadComponent: () => import('./features/trash/trash.component').then(m => m.TrashComponent),
+    canActivate: [authGuard],
+    canMatch: [authGuard]
+  },
 
   // Redirects
   {
