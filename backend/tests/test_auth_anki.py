@@ -5,10 +5,12 @@ from main import app
 client = TestClient(app)
 
 def test_register_and_login_sqlite():
+    import uuid
+    unique_email = f"test.anki.{uuid.uuid4().hex[:8]}@empresa.com"
     # Register user
     reg_payload = {
         "name": "Usuario Test Anki",
-        "email": "test.anki@empresa.com",
+        "email": unique_email,
         "password": "mi_password_seguro_123"
     }
     response = client.post("/api/v1/auth/register", json=reg_payload)
@@ -16,11 +18,11 @@ def test_register_and_login_sqlite():
     data = response.json()
     assert data["status"] == "exito"
     assert "access_token" in data
-    assert data["user"]["email"] == "test.anki@empresa.com"
+    assert data["user"]["email"] == unique_email
 
     # Login user
     login_payload = {
-        "email": "test.anki@empresa.com",
+        "email": unique_email,
         "password": "mi_password_seguro_123"
     }
     login_res = client.post("/api/v1/auth/login", json=login_payload)
