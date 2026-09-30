@@ -1,11 +1,28 @@
 import { Component, EventEmitter, Output, signal, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormBuilder, ReactiveFormsModule, Validators, AbstractControl, ValidationErrors } from '@angular/forms';
+import { Router, ActivatedRoute } from '@angular/router';
 import { I18nService, Language } from '../../../core/services/i18n.service';
 import { AuthStore } from '../../../core/store/auth.store';
+import { sanitizeReturnUrl } from '../../../core/guards/auth.guard';
 import { environment } from '../../../../environments/environment';
 
 export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
+
+export function passwordComplexityValidator(control: AbstractControl): ValidationErrors | null {
+  const value = control.value || '';
+  if (!value) return null;
+
+  const hasMinLength = value.length >= 8;
+  const hasUpper = /[A-Z]/.test(value);
+  const hasNumber = /[0-9]/.test(value);
+  const hasSymbol = /[^A-Za-z0-9]/.test(value);
+
+  if (!hasMinLength || !hasUpper || !hasNumber || !hasSymbol) {
+    return { passwordComplexity: true };
+  }
+  return null;
+}
 
 @Component({
   selector: 'app-login',
@@ -55,19 +72,16 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
             </p>
           </div>
 
-          <!-- Floating Feature Badges (Lucide SVG Icons) -->
+          <!-- Floating Feature Badges -->
           <div class="floating-chips">
-            <!-- RAG Chip (quote / file-search SVG) -->
             <span class="chip-item">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><circle cx="11.5" cy="14.5" r="2.5"/><path d="M13.25 16.25L15 18"/></svg>
               RAG con fuentes citadas
             </span>
-            <!-- Perfiles Chip (users SVG) -->
             <span class="chip-item">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
               4 perfiles técnicos
             </span>
-            <!-- Formatos Chip (layout-grid SVG) -->
             <span class="chip-item">
               <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
               5 formatos pedagógicos
@@ -143,7 +157,7 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
           <div class="demo-banner" *ngIf="showDemoLoginBanner" (click)="fillDemoCredentials()">
             <div class="demo-badge">DEMO QUICK-LOGIN</div>
             <div class="demo-info">
-              <span><code>ana.martinez&#64;empresa.com</code> / <code>password123</code></span>
+              <span><code>ana.martinez&#64;empresa.com</code> / <code>Password123!</code></span>
               <span class="demo-click-hint">⚡ Clic para autocompletar</span>
             </div>
           </div>
@@ -155,19 +169,34 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
 
           <!-- MODE 1: LOGIN FORM -->
           <div *ngIf="mode() === 'login'">
-            <!-- SSO Providers -->
+            <!-- SSO Providers (Social Login) -->
             <div class="sso-buttons">
-              <button type="button" class="sso-btn" (click)="loginSso('Google')">
+              <button 
+                type="button" 
+                class="sso-btn" 
+                [disabled]="!enableSocialLogin" 
+                [title]="enableSocialLogin ? 'Iniciar con Google' : 'Requiere configuración del servidor'"
+                (click)="loginSso('Google')"
+              >
                 <svg width="18" height="18" viewBox="0 0 24 24"><path fill="#EA4335" d="M12 5c1.6 0 3 .6 4.1 1.6l3.1-3.1C17.3 1.7 14.8 1 12 1 7.4 1 3.5 3.6 1.6 7.4l3.7 2.9C6.2 7.3 8.9 5 12 5z"/><path fill="#4285F4" d="M23.5 12.3c0-.8-.1-1.6-.2-2.3H12v4.5h6.5c-.3 1.5-1.1 2.8-2.4 3.7l3.7 2.9c2.2-2 3.7-5 3.7-8.8z"/><path fill="#FBBC05" d="M5.3 14.8c-.2-.7-.4-1.5-.4-2.3s.2-1.6.4-2.3L1.6 7.4C.6 9.4 0 10.6 0 12s.6 2.6 1.6 4.6l3.7-2.8z"/><path fill="#34A853" d="M12 23c3.2 0 6-1.1 8-3l-3.7-2.9c-1.1.7-2.5 1.2-4.3 1.2-3.1 0-5.8-2.3-6.7-5.3L1.6 16C3.5 19.8 7.4 23 12 23z"/></svg>
                 Google
+                <span class="badge-coming-soon" *ngIf="!enableSocialLogin">Próximamente</span>
               </button>
-              <button type="button" class="sso-btn" (click)="loginSso('GitHub')">
+              
+              <button 
+                type="button" 
+                class="sso-btn" 
+                [disabled]="!enableSocialLogin"
+                [title]="enableSocialLogin ? 'Iniciar con GitHub' : 'Requiere configuración del servidor'"
+                (click)="loginSso('GitHub')"
+              >
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
                 GitHub
+                <span class="badge-coming-soon" *ngIf="!enableSocialLogin">Próximamente</span>
               </button>
             </div>
 
-            <div class="divider"><span>o continua con email</span></div>
+            <div class="divider"><span>o continúa con email</span></div>
 
             <form [formGroup]="loginForm" (ngSubmit)="onLoginSubmit()">
               <div class="form-group">
@@ -218,7 +247,7 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
               <div class="form-group">
                 <label for="reg-password">Contraseña</label>
                 <div class="password-input-wrapper">
-                  <input id="reg-password" [type]="showPassword() ? 'text' : 'password'" formControlName="password" (input)="evaluatePasswordStrength()" placeholder="Mínimo 6 caracteres"/>
+                  <input id="reg-password" [type]="showPassword() ? 'text' : 'password'" formControlName="password" (input)="evaluatePasswordStrength()" placeholder="Mínimo 8 caracteres (A-Z, 0-9, símbolo)"/>
                   <button type="button" class="btn-toggle-pw" (click)="togglePasswordVisibility()">
                     {{ showPassword() ? '👁️' : '🔒' }}
                   </button>
@@ -278,7 +307,7 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
             </div>
           </div>
 
-          <!-- MODE 4: FORGOT PASSWORD (USER ENUMERATION DEFENSE) -->
+          <!-- MODE 4: FORGOT PASSWORD -->
           <div *ngIf="mode() === 'forgot'">
             <div class="info-box">
               <p>Ingresa tu correo para recibir instrucciones de recuperación.</p>
@@ -348,7 +377,6 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
       background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.25), transparent 50%),
                   radial-gradient(circle at 70% 70%, rgba(34, 211, 238, 0.2), transparent 50%);
       filter: blur(60px);
-      pointer-events: none;
     }
 
     .grain-overlay {
@@ -357,146 +385,85 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
       pointer-events: none;
     }
 
-    .brand-content {
-      position: relative; z-index: 10; max-width: 580px; margin: 0 auto;
-    }
-
-    .brand-logo {
-      display: flex; align-items: center; gap: 0.85rem; margin-bottom: 2rem;
-    }
+    .brand-content { position: relative; z-index: 10; max-width: 520px; margin: 0 auto; }
+    .brand-logo { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 2.5rem; }
     .logo-icon { width: 44px; height: 44px; }
-    .logo-text { font-size: 1.85rem; font-weight: 800; color: #FFFFFF; }
+    .logo-text { font-size: 1.85rem; font-weight: 800; font-family: var(--font-heading); background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    
+    .text-block h1 { font-size: 2.4rem; font-weight: 800; line-height: 1.25; margin-bottom: 1rem; }
+    .subtitle { font-size: 1.05rem; color: #94A3B8; line-height: 1.65; margin-bottom: 2rem; }
 
-    /* ACCESSIBLE HIGH-CONTRAST TITLE FIX */
-    .accessible-title {
-      font-size: 2.5rem;
-      font-weight: 800;
-      color: #FFFFFF !important;
-      line-height: 1.2;
-      margin-bottom: 1rem;
-      text-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
-    }
+    .floating-chips { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
+    .chip-item { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; border-radius: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); font-size: 0.82rem; color: #E2E8F0; font-weight: 600; }
 
-    .subtitle {
-      font-size: 1.05rem; color: #CBD5E1; line-height: 1.6; margin-bottom: 2rem;
-    }
+    .pipeline-svg-container { position: relative; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 2.5rem; }
+    .btn-pause-anim { position: absolute; top: 12px; right: 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #FFF; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
+    .pipeline-svg { width: 100%; height: auto; display: block; }
+    
+    .brand-footer { font-size: 0.8rem; color: #64748B; }
 
-    .floating-chips {
-      display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2rem;
-    }
-    .chip-item {
-      display: inline-flex; align-items: center; gap: 0.5rem;
-      padding: 0.5rem 1rem; border-radius: 20px;
-      background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.15);
-      font-size: 0.88rem; color: #F1F5F9; backdrop-filter: blur(8px);
-    }
+    /* RIGHT FORM PANEL */
+    .form-panel { flex: 1; position: relative; padding: 3rem; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #090D16; }
+    .top-controls { position: absolute; top: 2rem; right: 3rem; }
+    .lang-selector { display: flex; gap: 0.25rem; background: rgba(255, 255, 255, 0.05); padding: 0.25rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
+    .lang-selector button { background: transparent; border: none; color: #94A3B8; font-size: 0.78rem; font-weight: 700; padding: 0.35rem 0.65rem; border-radius: 6px; cursor: pointer; }
+    .lang-selector button.active { background: #4F46E5; color: #FFF; }
 
-    .pipeline-svg-container {
-      position: relative; background: rgba(15, 23, 42, 0.6);
-      border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px;
-      padding: 1rem; margin-bottom: 2rem;
-    }
-    .btn-pause-anim {
-      position: absolute; top: 10px; right: 12px;
-      background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2);
-      color: #CBD5E1; font-size: 0.75rem; padding: 0.25rem 0.6rem; border-radius: 6px; cursor: pointer;
-    }
-    .pipeline-svg { width: 100%; height: auto; }
-    .animated-path { animation: dashOffset 3s linear infinite; }
-    .pipeline-svg-container.paused .animated-path { animation-play-state: paused; }
-    @keyframes dashOffset { to { stroke-dashoffset: -24; } }
+    .auth-card { width: 100%; max-width: 440px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 2.25rem; }
+    
+    .mode-tabs { display: flex; gap: 0.5rem; background: rgba(0, 0, 0, 0.3); padding: 0.3rem; border-radius: 12px; margin-bottom: 1.5rem; }
+    .tab-btn { flex: 1; padding: 0.6rem; border: none; background: transparent; color: #94A3B8; font-size: 0.85rem; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { background: #4F46E5; color: #FFFFFF; }
 
-    .brand-footer { border-top: 1px solid rgba(255, 255, 255, 0.1); padding-top: 1rem; }
-    .oracle-tag { font-size: 0.85rem; color: #94A3B8; font-weight: 600; }
+    .demo-banner { background: rgba(34, 211, 238, 0.1); border: 1px dashed rgba(34, 211, 238, 0.4); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; cursor: pointer; transition: background 0.2s; }
+    .demo-banner:hover { background: rgba(34, 211, 238, 0.18); }
+    .demo-badge { font-size: 0.7rem; font-weight: 800; color: #22D3EE; letter-spacing: 0.08em; margin-bottom: 0.25rem; }
+    .demo-info { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #E2E8F0; }
+    .demo-click-hint { font-size: 0.75rem; color: #67E8F9; font-weight: 600; }
 
-    .form-panel {
-      flex: 1; display: flex; flex-direction: column; justify-content: center;
-      align-items: center; padding: 3rem 2rem; background: #090D16; position: relative;
-    }
-    .top-controls { position: absolute; top: 2rem; right: 2rem; }
-    .lang-selector {
-      display: flex; gap: 0.25rem; background: rgba(255, 255, 255, 0.05); padding: 0.25rem;
-      border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1);
-    }
-    .lang-selector button {
-      background: transparent; border: none; color: #94A3B8; padding: 0.25rem 0.6rem;
-      border-radius: 6px; font-size: 0.8rem; font-weight: 600; cursor: pointer;
-    }
-    .lang-selector button.active { background: #6366F1; color: #FFFFFF; }
-
-    .auth-card {
-      width: 100%; max-width: 440px; padding: 2.25rem;
-      background: rgba(17, 24, 39, 0.9); border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 20px; box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-    }
-
-    .mode-tabs {
-      display: flex; gap: 0.5rem; border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-      margin-bottom: 1.5rem; padding-bottom: 0.5rem;
-    }
-    .tab-btn {
-      background: transparent; border: none; color: #94A3B8; font-size: 0.9rem;
-      font-weight: 600; padding: 0.5rem 0.75rem; cursor: pointer; border-radius: 6px;
-    }
-    .tab-btn.active { color: #FFFFFF; background: rgba(99, 102, 241, 0.2); }
-
-    .demo-banner {
-      background: linear-gradient(135deg, rgba(79, 70, 229, 0.2) 0%, rgba(34, 211, 238, 0.15) 100%);
-      border: 1px solid rgba(99, 102, 241, 0.4); border-radius: 10px;
-      padding: 0.75rem 1rem; margin-bottom: 1.25rem; cursor: pointer;
-    }
-    .demo-badge { font-size: 0.7rem; font-weight: 800; color: #22D3EE; margin-bottom: 0.2rem; }
-    .demo-info { display: flex; justify-content: space-between; font-size: 0.85rem; }
-    .demo-info code { background: rgba(0, 0, 0, 0.3); padding: 0.1rem 0.4rem; border-radius: 4px; color: #E0E7FF; }
+    .alert-banner { padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-bottom: 1.25rem; }
+    .error-banner { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #FCA5A5; }
+    .success-banner { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6EE7B7; padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-top: 1rem; }
 
     .sso-buttons { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
-    .sso-btn {
-      flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem;
-      padding: 0.65rem; background: rgba(255, 255, 255, 0.05); border: 1px solid rgba(255, 255, 255, 0.12);
-      border-radius: 10px; color: #F8FAFC; font-size: 0.88rem; font-weight: 600; cursor: pointer;
-    }
+    .sso-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #FFF; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s; position: relative; }
+    .sso-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
+    .sso-btn:disabled { opacity: 0.55; cursor: not-allowed; border-color: rgba(255, 255, 255, 0.06); }
+    .badge-coming-soon { font-size: 0.62rem; font-weight: 800; background: rgba(245, 158, 11, 0.2); color: #FBBF24; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.4); }
 
-    .divider { display: flex; align-items: center; margin: 1.25rem 0; color: #64748B; font-size: 0.8rem; }
-    .divider::before, .divider::after { content: ''; flex: 1; border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+    .divider { display: flex; align-items: center; margin: 1.25rem 0; color: #64748B; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.1); }
     .divider span { padding: 0 0.75rem; }
 
-    .form-group { margin-bottom: 1.25rem; }
-    .form-group label { display: block; font-size: 0.85rem; font-weight: 600; color: #CBD5E1; margin-bottom: 0.4rem; }
-    .label-row { display: flex; justify-content: space-between; align-items: center; }
-    .forgot-link { font-size: 0.8rem; color: #818CF8; text-decoration: none; }
+    .form-group { margin-bottom: 1.15rem; text-align: left; }
+    .form-group label { display: block; font-size: 0.82rem; font-weight: 600; color: #CBD5E1; margin-bottom: 0.4rem; }
+    .form-group input, .form-group select { width: 100%; padding: 0.75rem 1rem; border-radius: 10px; background: rgba(0, 0, 0, 0.4); border: 1px solid rgba(255, 255, 255, 0.15); color: #FFF; font-size: 0.92rem; outline: none; transition: border-color 0.2s; }
+    .form-group input:focus, .form-group select:focus { border-color: #6366F1; box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2); }
 
-    input[type="email"], input[type="password"], input[type="text"], select {
-      width: 100%; padding: 0.75rem 1rem; background: rgba(15, 23, 42, 0.8);
-      border: 1px solid rgba(255, 255, 255, 0.15); border-radius: 10px;
-      color: #FFFFFF; font-size: 0.95rem; outline: none;
-    }
-    .mfa-code-input { font-size: 1.5rem; letter-spacing: 0.3em; text-align: center; font-weight: 700; }
+    .label-row { display: flex; justify-content: space-between; align-items: center; }
+    .forgot-link { font-size: 0.78rem; color: #818CF8; text-decoration: none; }
 
     .password-input-wrapper { position: relative; }
-    .btn-toggle-pw { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: transparent; border: none; cursor: pointer; }
-    .caps-lock-warning { margin-top: 0.35rem; font-size: 0.8rem; color: #F59E0B; }
+    .password-input-wrapper input { padding-right: 2.75rem; }
+    .btn-toggle-pw { position: absolute; right: 10px; top: 50%; transform: translateY(-50%); background: transparent; border: none; color: #94A3B8; font-size: 1rem; cursor: pointer; }
+
+    .caps-lock-warning { font-size: 0.75rem; color: #FBBF24; margin-top: 0.35rem; }
 
     .strength-meter-box { margin-top: 0.5rem; }
-    .strength-bar-track { height: 6px; background: rgba(255, 255, 255, 0.1); border-radius: 3px; overflow: hidden; margin-bottom: 0.3rem; }
-    .strength-bar-fill { height: 100%; transition: width 0.3s; }
+    .strength-bar-track { height: 4px; background: rgba(255, 255, 255, 0.1); border-radius: 2px; overflow: hidden; margin-bottom: 0.35rem; }
+    .strength-bar-fill { height: 100%; transition: width 0.3s ease; }
     .strength-weak { background: #EF4444; }
     .strength-medium { background: #F59E0B; }
     .strength-strong { background: #10B981; }
-    .strength-awesome { background: #6366F1; }
-    .strength-label { font-size: 0.78rem; color: #94A3B8; }
+    .strength-awesome { background: #3B82F6; }
+    .strength-label { font-size: 0.75rem; color: #94A3B8; }
 
-    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #94A3B8; cursor: pointer; }
+    .form-options { margin-bottom: 1.25rem; }
+    .checkbox-label { display: flex; align-items: center; gap: 0.5rem; font-size: 0.8rem; color: #94A3B8; cursor: pointer; }
 
-    .btn-primary-submit {
-      width: 100%; padding: 0.85rem; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      border: none; border-radius: 10px; color: #FFFFFF; font-size: 1rem; font-weight: 700; cursor: pointer;
-    }
-    .btn-primary-submit:hover:not(:disabled) { box-shadow: 0 8px 20px rgba(79, 70, 229, 0.4); }
+    .btn-primary-submit { width: 100%; padding: 0.85rem; border-radius: 10px; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); border: none; color: #FFF; font-size: 0.95rem; font-weight: 700; cursor: pointer; transition: all 0.2s; box-shadow: 0 4px 14px rgba(79, 70, 229, 0.4); }
+    .btn-primary-submit:hover:not(:disabled) { opacity: 0.95; transform: translateY(-1px); }
     .btn-primary-submit:disabled { opacity: 0.5; cursor: not-allowed; }
-
-    .alert-banner { padding: 0.75rem 1rem; border-radius: 8px; font-size: 0.85rem; margin-bottom: 1.25rem; }
-    .error-banner { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.3); color: #FCA5A5; }
-    .success-banner { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.3); color: #6EE7B7; padding: 0.75rem; border-radius: 8px; margin-top: 1rem; font-size: 0.85rem; }
 
     .info-box { background: rgba(255, 255, 255, 0.05); padding: 0.75rem; border-radius: 8px; margin-bottom: 1.25rem; font-size: 0.88rem; color: #CBD5E1; }
     .back-link { display: block; margin-top: 1rem; text-align: center; color: #818CF8; font-size: 0.85rem; text-decoration: none; }
@@ -510,39 +477,38 @@ export type AuthMode = 'login' | 'register' | 'forgot' | 'magic_link' | 'mfa';
   `]
 })
 export class LoginComponent implements OnInit {
-  @Output() loginSuccess = new EventEmitter<{ email: string; name: string; token?: string }>();
-
   readonly i18n = inject(I18nService);
   readonly authStore = inject(AuthStore);
   private fb = inject(FormBuilder);
+  private router = inject(Router);
+  private route = inject(ActivatedRoute);
 
   showDemoLoginBanner = environment.enableDemoLogin;
+  enableSocialLogin = environment.enableSocialLogin ?? false;
 
   mode = signal<AuthMode>('login');
   showPassword = signal<boolean>(false);
   isCapsLockOn = signal<boolean>(false);
   isAnimationPaused = signal<boolean>(false);
 
-  // Magic Link & Forgot states
   isSendingMagicLink = signal<boolean>(false);
   magicLinkSent = signal<boolean>(false);
   isSubmittingForgot = signal<boolean>(false);
   forgotSubmitted = signal<boolean>(false);
 
-  // Password strength
   strengthScore = signal<number>(0);
   strengthClass = signal<string>('strength-weak');
   strengthText = signal<string>('Débil');
 
   loginForm = this.fb.group({
     email: ['ana.martinez@empresa.com', [Validators.required, Validators.email]],
-    password: ['password123', [Validators.required, Validators.minLength(6)]]
+    password: ['Password123!', [Validators.required, Validators.minLength(8)]]
   });
 
   registerForm = this.fb.group({
     name: ['', [Validators.required, Validators.minLength(2)]],
     email: ['', [Validators.required, Validators.email]],
-    password: ['', [Validators.required, Validators.minLength(6)]],
+    password: ['', [Validators.required, passwordComplexityValidator]],
     role: ['Instructor'],
     terms: [true, Validators.requiredTrue]
   });
@@ -589,16 +555,16 @@ export class LoginComponent implements OnInit {
   fillDemoCredentials(): void {
     this.loginForm.patchValue({
       email: 'ana.martinez@empresa.com',
-      password: 'password123'
+      password: 'Password123!'
     });
   }
 
   evaluatePasswordStrength(): void {
     const pw = this.registerForm.get('password')?.value || '';
     let score = 0;
-    if (pw.length >= 6) score++;
-    if (pw.length >= 10) score++;
-    if (/[A-Z]/.test(pw) && /[0-9]/.test(pw)) score++;
+    if (pw.length >= 8) score++;
+    if (/[A-Z]/.test(pw)) score++;
+    if (/[0-9]/.test(pw)) score++;
     if (/[^A-Za-z0-9]/.test(pw)) score++;
 
     this.strengthScore.set(score);
@@ -618,19 +584,49 @@ export class LoginComponent implements OnInit {
   }
 
   loginSso(provider: string): void {
-    this.authStore.login(`usuario.${provider.toLowerCase()}@empresa.com`, 'password123');
+    if (!this.enableSocialLogin) return;
+    this.authStore.getAuthApi().startOAuth(provider).subscribe({
+      next: () => {},
+      error: (err) => {
+        const errorDetail = err?.error?.detail || err?.error?.message || 'OAUTH_NOT_CONFIGURED';
+        this.authStore.error.set(`OAUTH_NOT_CONFIGURED: La autenticación con ${provider} no está configurada en el servidor.`);
+      }
+    });
   }
 
   onLoginSubmit(): void {
     if (this.loginForm.invalid) return;
     const { email, password } = this.loginForm.value;
     this.authStore.login(email!, password!);
+
+    // Redirect to returnUrl if login succeeds
+    const checkAuth = setInterval(() => {
+      if (this.authStore.isAuthenticated()) {
+        clearInterval(checkAuth);
+        const rawReturnUrl = this.route.snapshot.queryParams['returnUrl'];
+        const targetUrl = sanitizeReturnUrl(rawReturnUrl);
+        this.router.navigateByUrl(targetUrl, { replaceUrl: true });
+      } else if (this.authStore.status() === 'error' || this.authStore.status() === 'unauthenticated') {
+        clearInterval(checkAuth);
+      }
+    }, 100);
   }
 
   onRegisterSubmit(): void {
     if (this.registerForm.invalid) return;
     const { name, email, password, role } = this.registerForm.value;
     this.authStore.register(name!, email!, password!, role!);
+
+    const checkAuth = setInterval(() => {
+      if (this.authStore.isAuthenticated()) {
+        clearInterval(checkAuth);
+        const rawReturnUrl = this.route.snapshot.queryParams['returnUrl'];
+        const targetUrl = sanitizeReturnUrl(rawReturnUrl);
+        this.router.navigateByUrl(targetUrl, { replaceUrl: true });
+      } else if (this.authStore.status() === 'error' || this.authStore.status() === 'unauthenticated') {
+        clearInterval(checkAuth);
+      }
+    }, 100);
   }
 
   onMagicLinkSubmit(): void {

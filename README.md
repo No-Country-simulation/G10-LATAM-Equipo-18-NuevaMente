@@ -124,6 +124,16 @@ npm start
 
 ---
 
+### 🔑 Autenticación & Credenciales Demo
+
+Para probar la plataforma en modo desarrollo local:
+- **Correo Electrónico:** `ana.martinez@empresa.com`
+- **Contraseña:** `Password123!`
+
+*(Nota: En modo desarrollo `environment.enableDemoLogin = true`, puedes hacer clic en el banner **DEMO QUICK-LOGIN** en la pantalla de inicio de sesión para autocompletar estas credenciales).*
+
+---
+
 ## 📬 Ejemplo de Invocación API REST (`POST /api/v1/adapt-content`)
 
 ### Solicitud (Payload JSON):

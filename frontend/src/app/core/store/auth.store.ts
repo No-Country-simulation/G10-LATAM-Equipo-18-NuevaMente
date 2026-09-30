@@ -41,7 +41,7 @@ export class AuthStore {
       this.broadcastChannel.onmessage = (event) => {
         if (event.data?.type === 'LOGOUT') {
           this.handleLocalLogoutState();
-          this.router.navigate(['/login']);
+          this.router.navigate(['/auth/login'], { replaceUrl: true });
         }
       };
     }
@@ -160,7 +160,7 @@ export class AuthStore {
     if (this.broadcastChannel) {
       this.broadcastChannel.postMessage({ type: 'LOGOUT' });
     }
-    this.router.navigate(['/login']);
+    this.router.navigate(['/auth/login'], { replaceUrl: true });
   }
 
   handleLocalLogoutState() {

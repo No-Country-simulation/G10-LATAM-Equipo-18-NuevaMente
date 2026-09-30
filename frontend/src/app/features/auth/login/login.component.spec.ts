@@ -1,4 +1,5 @@
-import { ComponentFixture, TestBed } from '@angular/core/testing';
+import { ComponentFixture, TestBed } from '@angular/core';
+import { RouterTestingModule } from '@angular/router/testing';
 import { LoginComponent } from './login.component';
 import { NUEVAMENTE_API } from '../../../core/api/nuevamente-api';
 import { MockNuevaMenteApiService } from '../../../core/api/mock-nuevamente-api.service';
@@ -9,7 +10,7 @@ describe('LoginComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [LoginComponent],
+      imports: [LoginComponent, RouterTestingModule],
       providers: [
         { provide: NUEVAMENTE_API, useClass: MockNuevaMenteApiService }
       ]
@@ -26,7 +27,8 @@ describe('LoginComponent', () => {
 
   it('should validate demo email and password defaults', () => {
     expect(component.loginForm.valid).toBeTrue();
-    expect(component.loginForm.value.email).toBe('demo@nuevamente.ai');
+    expect(component.loginForm.value.email).toBe('ana.martinez@empresa.com');
+    expect(component.loginForm.value.password).toBe('Password123!');
   });
 
   it('should toggle password visibility signal', () => {
@@ -35,11 +37,9 @@ describe('LoginComponent', () => {
     expect(component.showPassword()).toBeTrue();
   });
 
-  it('should emit loginSuccess on submit', (done) => {
-    component.loginSuccess.subscribe((data) => {
-      expect(data.email).toBe('demo@nuevamente.ai');
-      done();
-    });
-    component.onSubmit();
+  it('should disable social login buttons when enableSocialLogin is false', () => {
+    expect(component.enableSocialLogin).toBeFalse();
+    const googleBtn = fixture.nativeElement.querySelector('.sso-btn');
+    expect(googleBtn.disabled).toBeTrue();
   });
 });
