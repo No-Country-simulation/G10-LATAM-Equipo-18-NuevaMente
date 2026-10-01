@@ -124,6 +124,7 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
+    OCI_ENABLED: bool = os.getenv("OCI_ENABLED", "false").lower() == "true"
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
     OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
     OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
