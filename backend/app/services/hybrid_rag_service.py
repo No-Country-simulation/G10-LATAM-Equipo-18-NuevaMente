@@ -87,17 +87,28 @@ class HybridRAGService:
         # Generamos el vector de la pregunta (purificamos antes de comparar)
         query_embedding = self.embedding_service.embed_text(query, is_query=True)
         
-        missing_indices = [i for i, child in enumerate(child_chunks) if not child.get("embedding")]
+        def _get_val(obj: Any, attr: str, default: Any = None) -> Any:
+            if isinstance(obj, dict):
+                return obj.get(attr, default)
+            return getattr(obj, attr, default)
+
+        def _set_val(obj: Any, attr: str, val: Any) -> None:
+            if isinstance(obj, dict):
+                obj[attr] = val
+            elif hasattr(obj, "__dict__"):
+                setattr(obj, attr, val)
+
+        missing_indices = [i for i, child in enumerate(child_chunks) if not _get_val(child, "embedding")]
         if missing_indices:
-            missing_texts = [child_chunks[i]["content"] for i in missing_indices]
+            missing_texts = [str(_get_val(child_chunks[i], "content", "")) for i in missing_indices]
             computed_vectors = self.embedding_service.embed_batch(missing_texts, is_query=False)
             for idx, vec in zip(missing_indices, computed_vectors):
-                child_chunks[idx]["embedding"] = vec
+                _set_val(child_chunks[idx], "embedding", vec)
 
         dense_results = []
         default_vec = [0.0] * (len(query_embedding) if query_embedding else 768)
         for i, child in enumerate(child_chunks):
-            child_vec = child.get("embedding") or default_vec
+            child_vec = _get_val(child, "embedding") or default_vec
             score = cosine_similarity(query_embedding, child_vec) if query_embedding else 0.0
             dense_results.append((i, score))
             
@@ -108,7 +119,7 @@ class HybridRAGService:
         # ---------------------------------------------------------
         # 2. Búsqueda Léxica (BM25 Real)
         # ---------------------------------------------------------
-        tokenized_corpus = [child["content"].lower().split() for child in child_chunks]
+        tokenized_corpus = [str(_get_val(child, "content", "")).lower().split() for child in child_chunks]
         bm25 = BM25Okapi(tokenized_corpus)
         query_tokens = query.lower().split()
         bm25_scores = bm25.get_scores(query_tokens)
