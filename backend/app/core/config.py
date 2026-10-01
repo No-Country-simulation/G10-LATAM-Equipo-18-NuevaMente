@@ -44,7 +44,7 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 
     DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
-    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
+    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-flash-latest"
     DEFAULT_GROQ_MODEL: str = "llama-3.1-8b-instant"
     DEFAULT_OPENROUTER_MODEL: str = "mistral-small-latest"
 

@@ -83,8 +83,23 @@ class GraphRAGService:
         Construye dinámicamente el Grafo Acíclico Dirigido (DAG) de conceptos y relaciones.
         Retorna (Grafo NetworkX/dict, Conceptos Clave por Centralidad, Prerrequisitos).
         """
+        # Prepare representative text across the ENTIRE document if large
+        if len(document_text) > 8000:
+            step = len(document_text) // 4
+            sample_text = (
+                document_text[:2000]
+                + "\n\n... [Sección Intermedia 1] ...\n\n"
+                + document_text[step : step + 2000]
+                + "\n\n... [Sección Intermedia 2] ...\n\n"
+                + document_text[step * 2 : step * 2 + 2000]
+                + "\n\n... [Sección Final] ...\n\n"
+                + document_text[-2000:]
+            )
+        else:
+            sample_text = document_text
+
         prompt = f"""
-        Analiza el siguiente texto y extrae un Knowledge Graph. 
+        Analiza el siguiente texto de un documento completo y extrae un Knowledge Graph. 
         Identifica los conceptos clave verdaderos del texto y las relaciones entre ellos, enfocándote en dependencias o prerrequisitos.
         Devuelve el resultado ÚNICAMENTE en formato JSON estricto con la siguiente estructura:
         {{
@@ -95,8 +110,8 @@ class GraphRAGService:
         }}
         Solo incluye un máximo de 10 conceptos más relevantes para ahorrar tokens.
         
-        Texto:
-        {document_text[:3500]}
+        Texto del documento:
+        {sample_text}
         """
         
         unique_concepts: List[str] = []

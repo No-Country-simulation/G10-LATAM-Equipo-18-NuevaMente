@@ -26,6 +26,16 @@ class AdaptationRequest(BaseModel):
     quantity: Optional[int] = Field(default=5, alias="cantidad_generar")
     chunk_size: Optional[int] = Field(default=500, alias="tamano_chunk", description="Tamaño de fragmentación (chunks) para el procesamiento RAG (100 - 2000)")
     additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
+    force_regenerate: Optional[bool] = Field(default=False, alias="forzar_regenerar")
+
+    from pydantic import field_validator
+
+    @field_validator("target_quantity", mode="before")
+    @classmethod
+    def check_max_quantity(cls, v):
+        if v is not None and isinstance(v, int) and v > 100:
+            raise ValueError("La cantidad solicitada supera el límite máximo permitido (100).")
+        return v
 
 
 class RagFuente(BaseModel):
@@ -88,13 +98,15 @@ class ResponseMetadata(BaseModel):
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
-    llm_model: Optional[str] = Field("gemini-2.5-flash", alias="modelo_llm")
+    llm_model: Optional[str] = Field("gemini-flash-latest", alias="modelo_llm")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
     degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
     retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")
     fallback_used: Optional[bool] = Field(False, alias="fallback_usado")
     degradations: Optional[List[str]] = Field(default_factory=list, alias="degradaciones")
     ingestion_summary: Optional[Dict[str, Any]] = Field(None, alias="resumen_ingesta")
+    prompt_hash: Optional[str] = Field(None, alias="prompt_hash")
+    origin: Optional[str] = Field("llm", alias="origen")
 
 
 class QualityEvaluation(BaseModel):

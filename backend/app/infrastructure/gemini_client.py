@@ -51,10 +51,11 @@ class GeminiClient:
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: Optional[str] = None,
         json_output: bool = True,
         image_path: Optional[str] = None,
     ) -> str:
+        model_name = model_name or os.getenv("GEMINI_LLM_MODEL", "gemini-flash-latest")
         """
         Generates content using Gemini. Supports multimodal input if image_path is provided.
         Falls back to mock on any error.

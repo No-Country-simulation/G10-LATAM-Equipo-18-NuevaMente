@@ -120,9 +120,15 @@ class HybridRAGService:
         # 2. Búsqueda Léxica (BM25 Real)
         # ---------------------------------------------------------
         tokenized_corpus = [str(_get_val(child, "content", "")).lower().split() for child in child_chunks]
-        bm25 = BM25Okapi(tokenized_corpus)
-        query_tokens = query.lower().split()
-        bm25_scores = bm25.get_scores(query_tokens)
+        if tokenized_corpus and any(tokenized_corpus) and sum(len(t) for t in tokenized_corpus) > 0:
+            try:
+                bm25 = BM25Okapi(tokenized_corpus)
+                query_tokens = query.lower().split()
+                bm25_scores = bm25.get_scores(query_tokens)
+            except ZeroDivisionError:
+                bm25_scores = [0.0] * len(child_chunks)
+        else:
+            bm25_scores = [0.0] * len(child_chunks)
         
         lexical_results = [(i, score) for i, score in enumerate(bm25_scores)]
         lexical_results.sort(key=lambda x: x[1], reverse=True)
