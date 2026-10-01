@@ -65,10 +65,8 @@ export class MockAuthApiService extends AuthApi {
           }
         }
 
-        const activeUserEmail = localStorage.getItem('nuevamente_mock_session_email');
-        if (activeUserEmail && this.usersMap.has(activeUserEmail.toLowerCase())) {
-          this.currentSessionUserId = this.usersMap.get(activeUserEmail.toLowerCase())!.user.id;
-        }
+        // Default to unauthenticated session so the Login screen is displayed on launch
+        this.currentSessionUserId = null;
       }
     } catch (e) {
       console.warn('Error loading mock users from storage', e);

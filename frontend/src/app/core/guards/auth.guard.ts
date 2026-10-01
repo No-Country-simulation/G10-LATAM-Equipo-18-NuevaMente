@@ -25,10 +25,21 @@ export const authGuard: CanActivateFn & CanMatchFn = async (route, state) => {
     return true;
   }
 
-  // Attempt silent refresh if state is idle
   if (authStore.status() === 'idle') {
     const isSuccess = await authStore.initSession();
     if (isSuccess && authStore.isAuthenticated()) {
+      return true;
+    }
+  } else if (authStore.status() === 'loading') {
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (authStore.status() !== 'loading') {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+    });
+    if (authStore.isAuthenticated()) {
       return true;
     }
   }
@@ -52,6 +63,19 @@ export const guestGuard: CanActivateFn & CanMatchFn = async (route, state) => {
   if (authStore.status() === 'idle') {
     const isSuccess = await authStore.initSession();
     if (isSuccess && authStore.isAuthenticated()) {
+      router.navigate(['/workspace'], { replaceUrl: true });
+      return false;
+    }
+  } else if (authStore.status() === 'loading') {
+    await new Promise<void>((resolve) => {
+      const check = setInterval(() => {
+        if (authStore.status() !== 'loading') {
+          clearInterval(check);
+          resolve();
+        }
+      }, 20);
+    });
+    if (authStore.isAuthenticated()) {
       router.navigate(['/workspace'], { replaceUrl: true });
       return false;
     }

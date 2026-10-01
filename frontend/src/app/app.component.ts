@@ -16,13 +16,13 @@ import { StateService } from './core/services/state.service';
     RouterLinkActive
   ],
   template: `
-    <!-- UNAUTHENTICATED PUBLIC ROUTER OUTLET (Login / Register / Recover Pages) -->
-    <div *ngIf="!authStore.isAuthenticated()">
+    <!-- UNAUTHENTICATED OR PUBLIC AUTH ROUTE (Login / Register / Recover Pages) -->
+    <div *ngIf="!authStore.isAuthenticated() || isAuthRoute()">
       <router-outlet></router-outlet>
     </div>
 
     <!-- AUTHENTICATED WORKSPACE SHELL (Sidebar + Header + Protected Content Router Outlet) -->
-    <div *ngIf="authStore.isAuthenticated()" class="app-shell-layout">
+    <div *ngIf="authStore.isAuthenticated() && !isAuthRoute()" class="app-shell-layout">
       <!-- Left Sidebar Navigation -->
       <aside class="sidebar-shell" [class.collapsed]="isSidebarCollapsed()">
         <div class="sidebar-brand" routerLink="/workspace">
@@ -213,6 +213,11 @@ export class AppComponent implements OnInit {
 
   getTrashCount(): number {
     return this.stateService.getTrashProjects().length;
+  }
+
+  isAuthRoute(): boolean {
+    const url = this.router.url;
+    return url.includes('/auth') || url.includes('/login') || url === '/terms' || url === '/privacy';
   }
 
   logout(): void {

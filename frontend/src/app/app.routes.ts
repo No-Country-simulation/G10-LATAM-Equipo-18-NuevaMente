@@ -79,7 +79,7 @@ export const routes: Routes = [
   // Redirects
   {
     path: '',
-    redirectTo: 'workspace',
+    redirectTo: 'auth/login',
     pathMatch: 'full'
   },
   {
