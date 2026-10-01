@@ -123,6 +123,11 @@ class EmbeddingService:
         if self.method == "local":
             self.check_local_available()
 
+        self._vector_cache: Dict[str, List[float]] = {}
+        self.recuperacion_degradada: bool = False
+        self.modo_recuperacion: str = "semantico"
+        self.proveedor_embeddings: str = self.provider
+
         logger.info(
             "EmbeddingService initialized | method=%s provider=%s model=%s dimensions=%d",
             self.method,
@@ -174,20 +179,46 @@ class EmbeddingService:
         if not texts:
             return []
 
+        import hashlib
+        cached_results: Dict[int, List[float]] = {}
+        missing_indices: List[int] = []
+        missing_texts: List[str] = []
+
+        for idx, t in enumerate(texts):
+            h = hashlib.sha256(t.encode("utf-8")).hexdigest()
+            if h in self._vector_cache:
+                cached_results[idx] = self._vector_cache[h]
+            else:
+                missing_indices.append(idx)
+                missing_texts.append(t)
+
+        if not missing_texts:
+            return [cached_results[i] for i in range(len(texts))]
+
         max_rounds = 1 if is_query else max(1, settings.EMBEDDING_CHAIN_ROUNDS)
         last_error: Optional[Exception] = None
 
         for round_number in range(1, max_rounds + 1):
-            chain = self._resolve_execution_chain(texts, is_query)
+            chain = self._resolve_execution_chain(missing_texts, is_query)
 
             for position, candidate in enumerate(chain):
                 try:
                     vectors = self._run_provider(
-                        candidate, texts, is_query, on_progress, blocking=not is_query
+                        candidate, missing_texts, is_query, on_progress, blocking=not is_query
                     )
                     finalized = self._finalize(vectors)
                     self._apply_active_provider(candidate)
-                    return finalized
+                    
+                    # Cache computed vectors
+                    for text_str, vec in zip(missing_texts, finalized):
+                        h_code = hashlib.sha256(text_str.encode("utf-8")).hexdigest()
+                        self._vector_cache[h_code] = vec
+                    
+                    # Combine cached and newly computed
+                    for m_idx, vec in zip(missing_indices, finalized):
+                        cached_results[m_idx] = vec
+                    
+                    return [cached_results[i] for i in range(len(texts))]
                 except Exception as exc:
                     last_error = exc
                     logger.warning(

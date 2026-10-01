@@ -87,6 +87,14 @@ class ResponseMetadata(BaseModel):
     estimated_study_time_minutes: int = Field(..., alias="tiempo_estimado_estudio_minutos")
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")
+    llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
+    llm_model: Optional[str] = Field("gemini-2.5-flash", alias="modelo_llm")
+    embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
+    degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
+    retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")
+    fallback_used: Optional[bool] = Field(False, alias="fallback_usado")
+    degradations: Optional[List[str]] = Field(default_factory=list, alias="degradaciones")
+    ingestion_summary: Optional[Dict[str, Any]] = Field(None, alias="resumen_ingesta")
 
 
 class QualityEvaluation(BaseModel):

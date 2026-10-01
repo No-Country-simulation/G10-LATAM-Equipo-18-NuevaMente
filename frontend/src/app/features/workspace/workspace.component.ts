@@ -887,6 +887,10 @@ export class WorkspaceComponent {
     const req = this.adaptForm.value as AdaptationRequest;
     req.cantidad_generar = this.effectiveTargetCount();
 
+    if (typeof console !== 'undefined' && console.log) {
+      console.log('[NUEVAMENTE DEV] Payload de Generación enviado al Backend:', req);
+    }
+
     if (this.activeAdaptationSub) {
       this.activeAdaptationSub.unsubscribe();
     }

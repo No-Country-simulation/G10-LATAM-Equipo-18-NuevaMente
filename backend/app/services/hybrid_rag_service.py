@@ -95,8 +95,10 @@ class HybridRAGService:
                 child_chunks[idx]["embedding"] = vec
 
         dense_results = []
+        default_vec = [0.0] * (len(query_embedding) if query_embedding else 768)
         for i, child in enumerate(child_chunks):
-            score = cosine_similarity(query_embedding, child["embedding"])
+            child_vec = child.get("embedding") or default_vec
+            score = cosine_similarity(query_embedding, child_vec) if query_embedding else 0.0
             dense_results.append((i, score))
             
         # Ordenamos y sacamos los rankings (mayor score = mejor rank, rank empieza en 0)

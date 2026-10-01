@@ -205,7 +205,7 @@ class AgentOrchestrator:
             page_num = chunk.get("metadata", {}).get("page_number") or (i + 1)
             
             topics.append({
-                "topic": f"{concept} (Módulo {i+1})",
+                "topic": concept,
                 "allocated": items_per_topic,
                 "chunk_id": chunk_id,
                 "page": page_num,
@@ -437,15 +437,15 @@ class AgentOrchestrator:
             return {
                 "paso": item_idx,
                 "titulo": f"Paso {item_idx}: {topic_name}",
-                "instruccion": f"En la Fase {item_idx}, aplica {topic_name}. {context[:180]}.",
-                "ejemplo": f"```bash\n# Paso {item_idx}: {topic_name}\noci-tool deploy --module \"{topic_name}\" --profile \"{request.recipient_profile}\"\n```",
-                "advertencia": f"Verifica los permisos IAM antes de ejecutar el Paso {item_idx}.",
+                "instruccion": f"En el Paso {item_idx}, comprende {topic_name}. {context[:180]}.",
+                "ejemplo": f"```text\n# Paso {item_idx}: {topic_name}\n{context[:120]}\n```",
+                "advertencia": f"Verifica los prerrequisitos técnicos antes de ejecutar el Paso {item_idx}.",
                 "fuentes": [fuente]
             }
         elif "resumen" in fmt or "tldr" in fmt:
             return {
-                "punto_clave": f"Punto Clave #{item_idx} - {topic_name}",
-                "impacto_negocio": f"Aumenta la eficiencia en {request.niche} para {request.recipient_profile}: {context[:120]}.",
+                "punto_clave": topic_name,
+                "impacto_negocio": f"Relevancia de {topic_name} para {request.recipient_profile} en {request.niche}: {context[:140]}.",
                 "fuentes": [fuente]
             }
         else:
