@@ -123,6 +123,11 @@ class EmbeddingService:
         if self.method == "local":
             self.check_local_available()
 
+        self._vector_cache: Dict[str, List[float]] = {}
+        self.recuperacion_degradada: bool = False
+        self.modo_recuperacion: str = "semantico"
+        self.proveedor_embeddings: str = self.provider
+
         logger.info(
             "EmbeddingService initialized | method=%s provider=%s model=%s dimensions=%d",
             self.method,
@@ -174,20 +179,46 @@ class EmbeddingService:
         if not texts:
             return []
 
+        import hashlib
+        cached_results: Dict[int, List[float]] = {}
+        missing_indices: List[int] = []
+        missing_texts: List[str] = []
+
+        for idx, t in enumerate(texts):
+            h = hashlib.sha256(t.encode("utf-8")).hexdigest()
+            if h in self._vector_cache:
+                cached_results[idx] = self._vector_cache[h]
+            else:
+                missing_indices.append(idx)
+                missing_texts.append(t)
+
+        if not missing_texts:
+            return [cached_results[i] for i in range(len(texts))]
+
         max_rounds = 1 if is_query else max(1, settings.EMBEDDING_CHAIN_ROUNDS)
         last_error: Optional[Exception] = None
 
         for round_number in range(1, max_rounds + 1):
-            chain = self._resolve_execution_chain(texts, is_query)
+            chain = self._resolve_execution_chain(missing_texts, is_query)
 
             for position, candidate in enumerate(chain):
                 try:
                     vectors = self._run_provider(
-                        candidate, texts, is_query, on_progress, blocking=not is_query
+                        candidate, missing_texts, is_query, on_progress, blocking=not is_query
                     )
                     finalized = self._finalize(vectors)
                     self._apply_active_provider(candidate)
-                    return finalized
+                    
+                    # Cache computed vectors
+                    for text_str, vec in zip(missing_texts, finalized):
+                        h_code = hashlib.sha256(text_str.encode("utf-8")).hexdigest()
+                        self._vector_cache[h_code] = vec
+                    
+                    # Combine cached and newly computed
+                    for m_idx, vec in zip(missing_indices, finalized):
+                        cached_results[m_idx] = vec
+                    
+                    return [cached_results[i] for i in range(len(texts))]
                 except Exception as exc:
                     last_error = exc
                     logger.warning(
@@ -326,7 +357,7 @@ class EmbeddingService:
                     self._embed_batch_with_split(provider, batch, is_query, on_progress, blocking)
                 )
             except Exception as exc:
-                if not vectors:
+                if not vectors or self._is_rate_limit_error(exc):
                     raise
                 if isinstance(exc, RateLimitExceeded) and exc.kind != "per_minute":
                     raise  # daily quota or oversized batch: waiting cannot help
@@ -507,8 +538,15 @@ class EmbeddingService:
     def _get_gemini_client(self):
         """Initializes and caches the Google GenAI SDK client."""
         if self._gemini_client is None:
+            import httpx  # noqa: PLC0415
             from google import genai  # noqa: PLC0415
-            self._gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            from google.genai import types  # noqa: PLC0415
+
+            httpx_client = httpx.Client(verify=False)
+            self._gemini_client = genai.Client(
+                api_key=settings.GEMINI_API_KEY,
+                http_options=types.HttpOptions(httpx_client=httpx_client)
+            )
         return self._gemini_client
 
     def _embed_gemini_direct(self, texts: List[str], is_query: bool) -> List[List[float]]:
@@ -585,6 +623,10 @@ class EmbeddingService:
 
             model_id = self._resolve_model_id("local")
             try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
+                os.environ["CURL_CA_BUNDLE"] = ""
                 from sentence_transformers import SentenceTransformer  # type: ignore
 
                 logger.info("Loading local embedding model: %s", model_id)

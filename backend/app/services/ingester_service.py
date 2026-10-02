@@ -115,10 +115,16 @@ class IngesterService:
         pdf_parser = self._get_pdf_parser()
         if pdf_parser.is_available:
             try:
-                return pdf_parser.parse_pdf_to_markdown(str(filepath))
+                result = pdf_parser.parse_pdf_to_markdown(str(filepath))
+                if isinstance(result, tuple):
+                    return result[0]
+                return result
+            except ValueError as exc:
+                # Detección de PDF escaneado o sin texto
+                raise exc
             except Exception as exc:
                 logger.warning(
-                    "Extracción Markdown falló para %s (%s). Usando extracción plain-text.",
+                    "WARNING: Extracción pymupdf4llm falló para %s (%s). Usando extractor_respaldo (pypdf).",
                     filepath.name, exc,
                 )
 

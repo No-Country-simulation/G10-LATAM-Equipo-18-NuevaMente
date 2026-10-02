@@ -95,7 +95,29 @@ cd G10-LATAM-equipo-18-NuevaMente-Sistema-Inteligente-de-Adaptaci-n-y-Generaci-n
 git checkout devbackend
 ```
 
-### 2. Levantar Backend FastAPI (Python)
+### 2. Configuración Inicial y Diagnóstico de Entorno
+
+1. **Obtener Clave API:** Obtén una clave API de Google Gemini en [Google AI Studio](https://aistudio.google.com/). Opcionalmente, puedes configurar claves de Groq y Jina.
+2. **Crear Variables de Entorno:** Copia el archivo de ejemplo `backend/.env.example` como `backend/.env` y define tu clave:
+   ```env
+   GEMINI_API_KEY=AIza... (o AQ...)
+   GEMINI_LLM_MODEL=gemini-2.5-flash
+   GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+   EMBEDDING_PROVIDER_ORDER=gemini,jina,local
+   ALLOW_DEMO_CONTENT=false
+   OCI_ENABLED=false
+   ```
+3. **Ejecutar Script de Diagnóstico de Salud de Servicios:**
+   ```bash
+   cd backend
+   python scripts/check_services.py
+   ```
+4. **Interpretar Resultados:**
+   - Si el **LLM de Gemini** devuelve `SUCCESS` y los **Embeddings principales** devuelven `SUCCESS` (`models/gemini-embedding-001@768`), el entorno está 100% operativo sin degradaciones.
+   - Si los embeddings principales fallan, el sistema entrará en degradación léxica usando BM25 o embeddings locales sentence-transformers.
+   - Si el LLM de Gemini falla (401/403/429/conectividad), el diagnóstico marcará `FAIL` y devolverá código de salida 1 indicando qué acción tomar.
+
+### 3. Levantar Backend FastAPI (Python)
 ```bash
 cd backend
 python -m venv venv
@@ -105,9 +127,6 @@ python -m venv venv
 source venv/bin/activate
 
 pip install -r requirements.txt
-
-# Configurar API Key de Gemini
-set GEMINI_API_KEY=tu_api_key_de_gemini
 
 # Iniciar servidor FastAPI
 python main.py

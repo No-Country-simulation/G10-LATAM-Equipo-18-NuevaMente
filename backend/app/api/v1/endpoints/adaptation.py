@@ -21,6 +21,9 @@ from app.services.graph_rag_service import GraphRAGService
 from app.services.agent_orchestrator import AgentOrchestrator
 from app.services.embedding_service import EmbeddingService
 
+from app.core.timer import PipelineTracer
+from app.services.document_index_cache import DocumentIndexCache
+
 router = APIRouter()
 
 ingester_service = IngesterService()
@@ -28,6 +31,7 @@ embedding_service = EmbeddingService()
 hybrid_rag_service = HybridRAGService(embedding_service=embedding_service)
 graph_rag_service = GraphRAGService()
 agent_orchestrator = AgentOrchestrator()
+index_cache = DocumentIndexCache()
 
 
 @router.post("/adapt-content", response_model=AdaptationResponse, status_code=status.HTTP_200_OK)
@@ -37,24 +41,64 @@ async def adapt_content(request: AdaptationRequest):
     runs Graph RAG + Hybrid RAG + Gemini Agent Orchestration, and returns
     structured educational package saved to OCI Object Storage Always Free.
     """
+    tracer = PipelineTracer()
     try:
-        # 1. Document parsing and AST segmentation with dynamic chunk size
-        target_chunk_size = request.chunk_size or 500
-        custom_ingester = IngesterService(child_chunk_size=target_chunk_size)
-        doc_data = custom_ingester.parse_and_chunk_document(
-            content=request.content,
-            title=request.title,
-        )
+        doc_hash = index_cache.compute_doc_hash(request.title or request.documento_titulo, request.content or request.documento_contenido)
+        cached_index = index_cache.get_indexed_document(doc_hash)
 
-        # 2. Graph RAG (Extract Key Concepts & Prerequisites via DAG)
-        _, key_concepts, prerequisites = graph_rag_service.build_concept_dag(request.content)
+        if cached_index:
+            doc_data = cached_index["doc_data"]
+            key_concepts = cached_index["key_concepts"]
+            prerequisites = cached_index["prerequisites"]
+            tracer.timings["ingesta_extraccion"] = 0.0
+            tracer.timings["chunking"] = 0.0
+            tracer.timings["graph_rag"] = 0.0
+            tracer.record_embedding_call(len(doc_data["child_chunks"]), len(doc_data["child_chunks"]))
+        else:
+            doc_lock = index_cache.get_doc_lock(doc_hash)
+            with doc_lock:
+                # Double check after acquiring lock
+                cached_index = index_cache.get_indexed_document(doc_hash)
+                if cached_index:
+                    doc_data = cached_index["doc_data"]
+                    key_concepts = cached_index["key_concepts"]
+                    prerequisites = cached_index["prerequisites"]
+                    tracer.timings["ingesta_extraccion"] = 0.0
+                    tracer.timings["chunking"] = 0.0
+                    tracer.timings["graph_rag"] = 0.0
+                    tracer.record_embedding_call(len(doc_data["child_chunks"]), len(doc_data["child_chunks"]))
+                else:
+                    # 1. Document parsing and AST segmentation with dynamic chunk size
+                    tracer.start_stage("ingesta_extraccion")
+                    target_chunk_size = request.chunk_size or 500
+                    custom_ingester = IngesterService(child_chunk_size=target_chunk_size)
+                    doc_data = custom_ingester.parse_and_chunk_document(
+                        content=request.content,
+                        title=request.title,
+                    )
+                    tracer.end_stage("ingesta_extraccion")
+                    tracer.timings["chunking"] = 0.0  # Included in ingesta_extraccion
+
+                    # 2. Graph RAG (Extract Key Concepts & Prerequisites via DAG)
+                    tracer.start_stage("graph_rag")
+                    _, key_concepts, prerequisites = graph_rag_service.build_concept_dag(request.content)
+                    tracer.end_stage("graph_rag")
+
+                    index_cache.set_indexed_document(doc_hash, {
+                        "doc_data": doc_data,
+                        "key_concepts": key_concepts,
+                        "prerequisites": prerequisites
+                    })
+                    tracer.record_embedding_call(len(doc_data["child_chunks"]), 0)
 
         # 3. Hybrid RAG (BM25 + Dense Embeddings + Cross-Encoder Re-ranker)
+        tracer.start_stage("recuperacion_hybrid")
         top_passages = hybrid_rag_service.retrieve_top_passages(
             query=f"{request.recipient_profile} {request.output_format} {request.niche}",
             child_chunks=doc_data["child_chunks"],
             parent_chunks=doc_data["parent_chunks"],
         )
+        tracer.end_stage("recuperacion_hybrid")
 
         # 4. Agentic Orchestration with Gemini
         response = agent_orchestrator.run_pipeline(
@@ -62,6 +106,7 @@ async def adapt_content(request: AdaptationRequest):
             top_passages=top_passages,
             key_concepts=key_concepts,
             prerequisites=prerequisites,
+            tracer=tracer,
         )
 
         return response

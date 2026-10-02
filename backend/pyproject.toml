@@ -50,3 +50,4 @@ package = false
 [tool.pytest.ini_options]
 # Tests live in backend/tests/ — no src/ layout.
 pythonpath = ["."]
+addopts = "--ignore=tests/manual"

@@ -51,10 +51,11 @@ class GeminiClient:
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: Optional[str] = None,
         json_output: bool = True,
         image_path: Optional[str] = None,
     ) -> str:
+        model_name = model_name or os.getenv("GEMINI_LLM_MODEL", "gemini-flash-latest")
         """
         Generates content using Gemini. Supports multimodal input if image_path is provided.
         Falls back to mock on any error.
@@ -82,13 +83,14 @@ class GeminiClient:
                 )
                 return response.text
             except Exception as exc:
-                logger.error("Gemini API call failed: %s. Switching to rich mock response.", exc)
-                exc_str = str(exc)
-                if "401" in exc_str or "UNAUTHENTICATED" in exc_str or "CERTIFICATE_VERIFY" in exc_str or "API_KEY" in exc_str:
-                    self.has_real_key = False
-                    logger.warning("Disabled real Gemini API calls for session due to authentication/network error.")
+                logger.warning("Gemini API call failed: %s.", exc)
+                raise RuntimeError(f"Fallo en llamada a la API de Gemini: {exc}") from exc
 
-        return self._mock_response(prompt)
+        allow_demo = os.getenv("ALLOW_DEMO_CONTENT", "false").lower() == "true"
+        if allow_demo:
+            return self._mock_response(prompt)
+            
+        raise RuntimeError("GEMINI_API_KEY no configurada o inválida. Configura tu API key en backend/.env.")
 
     def _mock_response(self, prompt: str) -> str:
         """Returns a rich, structured JSON string for development / no-key / fallback environments."""

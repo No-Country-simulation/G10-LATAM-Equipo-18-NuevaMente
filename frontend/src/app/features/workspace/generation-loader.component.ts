@@ -139,17 +139,33 @@ export interface GenerationParams {
 
         <!-- CONTEXT PARAMETER CHIPS -->
         <div class="context-chips-row" *ngIf="params">
-          <span class="ctx-chip" *ngIf="params.perfil">👤 {{ params.perfil }}</span>
-          <span class="ctx-chip" *ngIf="params.formato">🎯 {{ params.formato }}</span>
-          <span class="ctx-chip" *ngIf="params.nicho">🏢 {{ params.nicho }}</span>
-          <span class="ctx-chip" *ngIf="params.nivel">📐 {{ params.nivel }}</span>
+          <span class="ctx-chip" *ngIf="params.perfil">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            {{ params.perfil }}
+          </span>
+          <span class="ctx-chip" *ngIf="params.formato">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="6"/><circle cx="12" cy="12" r="2"/></svg>
+            {{ params.formato }}
+          </span>
+          <span class="ctx-chip" *ngIf="params.nicho">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><rect x="4" y="2" width="16" height="20" rx="2"/><line x1="9" y1="6" x2="9.01" y2="6"/><line x1="15" y1="6" x2="15.01" y2="6"/><line x1="9" y1="10" x2="9.01" y2="10"/><line x1="15" y1="10" x2="15.01" y2="10"/><line x1="9" y1="14" x2="9.01" y2="14"/><line x1="15" y1="14" x2="15.01" y2="14"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+            {{ params.nicho }}
+          </span>
+          <span class="ctx-chip" *ngIf="params.nivel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><path d="M2 20h20"/><path d="M5 20V14"/><path d="M12 20V9"/><path d="M19 20V4"/></svg>
+            {{ params.nivel }}
+          </span>
         </div>
 
         <!-- ELAPSED TIMER & REASSURING HINT -->
         <div class="timer-reassure-block">
-          <span class="timer-text">⏱️ Llevas {{ formattedTime() }}</span>
+          <span class="timer-text">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            Llevas {{ formattedTime() }}
+          </span>
           <span class="reassure-hint" *ngIf="elapsedSeconds() >= 20">
-            ℹ️ Los documentos extensos o análisis profundos tardan un poco más.
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="display:inline;vertical-align:-2px;margin-right:4px;"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>
+            Los documentos extensos o análisis profundos tardan un poco más.
           </span>
         </div>
 

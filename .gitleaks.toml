@@ -1,0 +1,14 @@
+title = "NuevaMente Gitleaks Config"
+
+[allowlist]
+description = "Permitir archivos de ejemplo y placeholders"
+files = [
+    '''backend/\.env\.example$''',
+    '''\.env\.example$''',
+    '''docs/.*'''
+]
+regexes = [
+    '''MOCK_GEMINI_KEY''',
+    '''MOCK_GROQ_KEY''',
+    '''MOCK_JINA_KEY'''
+]

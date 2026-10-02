@@ -4,12 +4,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.core.config import settings
 from app.api.v1.api import api_router
 
+import logging
+
+logger = logging.getLogger("uvicorn")
+
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     description="API REST del proyecto NuevaMente para el Hackathon ONE G10 (Oracle Next Education & Alura). Módulo de Adaptación de Contenido Técnico con Graph RAG, RAG Híbrido, Gemini y OCI Object Storage Always Free."
 )
+
+@app.on_event("startup")
+async def startup_event():
+    if not settings.OCI_ENABLED:
+        logger.warning("WARNING: OCI desactivado: almacenamiento local de desarrollo")
 
 # Configurar CORS para permitir peticiones desde el Frontend Angular
 app.add_middleware(
