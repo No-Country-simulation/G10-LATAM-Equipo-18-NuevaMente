@@ -5,8 +5,8 @@ Purpose:
     Converts a PDF into structured Markdown (headings, lists, tables) with
     pymupdf4llm, so IngesterService can split it by section headings into
     parent and child chunks. Running headers and footers that repeat across
-    pages are removed before returning, matching the cleanup the ingester
-    applies to its plain-text extraction.
+    pages are removed before returning, using the same remove_repeated_lines()
+    from text_cleaner that the ingester applies to its plain-text extraction.
 
     This service is an optional first choice, not the only path: when
     pymupdf4llm is not installed (is_available is False), or a specific file
@@ -27,21 +27,11 @@ Output:
 """
 
 import logging
-import re
-from collections import Counter
 from pathlib import Path
-from typing import List
+
+from app.services.text_cleaner import remove_repeated_lines
 
 logger = logging.getLogger(__name__)
-
-# A page line is treated as a running header/footer when it repeats on at
-# least this share of the pages (same rule as IngesterService.remove_repeated_lines).
-_MIN_REPETITION_RATIO = 0.4
-_MIN_PAGES_FOR_NOISE_REMOVAL = 3
-
-# Markdown structure that is never removed even when it repeats across pages:
-# headings, table rows, list items, block quotes, code fences and numbered items.
-_MARKDOWN_STRUCTURE = re.compile(r"^(#{1,6}\s|\||[-*+]\s|>|```|\d+[.)]\s)")
 
 
 class PdfParserService:
@@ -81,7 +71,8 @@ class PdfParserService:
         # One Markdown string per page, which repeated header/footer detection needs.
         page_chunks = self._pymupdf4llm.to_markdown(str(path), page_chunks=True)
         pages = [chunk.get("text", "") for chunk in page_chunks]
-        pages = self._remove_repeated_page_lines(pages)
+        # Markdown structure (headings, tables, lists) is kept even when it repeats.
+        pages = remove_repeated_lines(pages, protect_markdown_structure=True)
 
         markdown = "\n\n".join(page.strip() for page in pages if page.strip())
         if not markdown:
@@ -90,28 +81,3 @@ class PdfParserService:
             )
 
         return markdown
-
-    @staticmethod
-    def _remove_repeated_page_lines(pages: List[str]) -> List[str]:
-        """
-        Strips plain-text lines that repeat across pages (running headers and
-        footers). Markdown structure lines are kept even when they repeat, so
-        recurring headings and table separators are not damaged.
-        """
-        if len(pages) < _MIN_PAGES_FOR_NOISE_REMOVAL:
-            return pages
-
-        line_counts: Counter = Counter()
-        for page in pages:
-            line_counts.update({line.strip() for line in page.split("\n") if line.strip()})
-
-        threshold = max(2, int(len(pages) * _MIN_REPETITION_RATIO))
-        noisy_lines = {
-            line for line, count in line_counts.items()
-            if count >= threshold and not _MARKDOWN_STRUCTURE.match(line)
-        }
-
-        return [
-            "\n".join(line for line in page.split("\n") if line.strip() not in noisy_lines)
-            for page in pages
-        ]

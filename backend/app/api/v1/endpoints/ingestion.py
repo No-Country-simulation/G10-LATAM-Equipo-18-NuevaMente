@@ -2,41 +2,74 @@
 ingestion.py
 
 Purpose:
-    FastAPI router handling document upload, validation, parsing,
-    and structured layout-aware chunking for PDF, Markdown, and TXT files,
-    including AI LLM Vision Parsing for complex PDFs.
+    FastAPI router providing asynchronous document ingestion endpoints:
+    document upload with background processing, status polling, and document listing.
 
 Input:
-    Uploaded file (multipart/form-data) via HTTP POST.
+    - POST /upload: Multipart file upload (PDF, Markdown, or TXT) and optional document title.
+    - GET /status/{document_id}: Document ID path parameter.
+    - GET /documents: Optional user_id query parameter.
 
 Output:
-    JSON response containing cleaned text, suggested title, chunks, and metadata.
+    JSON responses containing document metadata, status, chunk counts, or lists of document records.
 """
 
 import tempfile
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query
+from typing import List, Optional
+
+from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, Query, UploadFile, status
+from pydantic import BaseModel
 
 from app.core.config import settings
-from app.services.ingester_service import IngesterService
-from app.services.pdf_parser_service import PdfParserService
-from app.services.oci_storage_service import OCIStorageService
+from app.schemas.document_record import DocumentRecord
+from app.services.document_pipeline_service import (
+    process_registered_document,
+    register_document,
+)
+from app.services.document_repository import get_document_repository
 
 router = APIRouter()
-ingester_service = IngesterService()
-pdf_parser_service = PdfParserService()
-oci_storage_service = OCIStorageService()
 
 
+class DocumentUploadResponse(BaseModel):
+    """Response payload returned immediately upon document upload."""
+    document_id: str
+    status: str
+    title: str
+    source_filename: str
+    message: str
 
-@router.post("/parse-document", status_code=status.HTTP_200_OK)
-@router.post("/parse-pdf", status_code=status.HTTP_200_OK)
-async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(False)):
+
+class DocumentStatusResponse(BaseModel):
+    """Response payload detailing the processing status of a document."""
+    document_id: str
+    status: str
+    title: str
+    source_filename: str
+    total_parents: Optional[int] = None
+    total_children: Optional[int] = None
+    error_message: Optional[str] = None
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+
+
+@router.post(
+    "/upload",
+    response_model=DocumentUploadResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Upload document for background ingestion",
+)
+async def upload_document(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    user_id: Optional[str] = Form(None),
+) -> DocumentUploadResponse:
     """
-    Receives a technical document (PDF, Markdown, or TXT), validates size
-    and format, extracts clean content, and returns structured metadata
-    with Spanish keys for UI presentation. Supports optional use_llm=true for
-    AI LLM Gemini Vision parsing.
+    Receives a document, stores it, creates an initial database record,
+    and schedules text extraction, chunking, embedding generation, and vector indexing
+    as a background task.
     """
     filename = file.filename or "document.txt"
     extension = Path(filename).suffix.lower()
@@ -44,112 +77,105 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
     if extension not in settings.SUPPORTED_EXTENSIONS:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Formato no compatible: {extension}. Formatos soportados: {settings.SUPPORTED_EXTENSIONS}",
+            detail=f"Unsupported format: {extension}. Supported formats: {settings.SUPPORTED_EXTENSIONS}",
         )
 
-    try:
-        content_bytes = await file.read()
-
-        size_mb = len(content_bytes) / (1024 * 1024)
-        if size_mb > settings.MAX_FILE_SIZE_MB:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Archivo demasiado pesado: {size_mb:.1f}MB. El límite permitido es de {settings.MAX_FILE_SIZE_MB}MB.",
-            )
-
-        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
-            temp_file.write(content_bytes)
-            temp_path = Path(temp_file.name)
-
-        try:
-            suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
-
-            if use_llm and extension == ".pdf":
-                parsed_llm = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
-                extracted_text = parsed_llm.get("markdown_text", "")
-                engine_used = parsed_llm.get("engine", "Gemini 1.5 LLM Vision Parser")
-                ingested_doc = ingester_service.process_text(extracted_text, title=suggested_title)
-            else:
-                ingested_doc = ingester_service.process_document(temp_path, title=suggested_title)
-                engine_used = "PyMuPDF / Text Ingest Engine"
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
-        # Upload original document to OCI Object Storage Always Free bucket
-        oci_doc_info = oci_storage_service.upload_document_source(
-            bucket_name=settings.OCI_BUCKET_DOCS,
-            object_name=filename,
-            file_bytes=content_bytes,
-            content_type="application/pdf" if extension == ".pdf" else "text/plain"
-        )
-
-        return {
-            "status": "exito",
-            "filename": filename,
-            "titulo_sugerido": ingested_doc.title,
-            "engine": engine_used,
-            "total_chunks": len(ingested_doc.chunks),
-            "texto_extraido": ingested_doc.raw_text,
-            "chunks": [chunk.model_dump() for chunk in ingested_doc.chunks],
-            "almacenamiento_oci": oci_doc_info
-        }
-
-
-    except HTTPException:
-        raise
-    except Exception as error:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error durante el procesamiento del documento: {str(error)}",
-        )
-
-
-@router.post("/parse-pdf-llm", status_code=status.HTTP_200_OK)
-async def parse_pdf_llm(file: UploadFile = File(...)):
-    """
-    Endpoint especializado de Parsing PDF con IA LLM Gemini Vision:
-    Convierte PDFs complejos (con tablas, diagramas y bloques de código)
-    en Markdown estructurado preservando la jerarquía pedagógica.
-    """
-    filename = file.filename or "document.pdf"
-    extension = Path(filename).suffix.lower()
-
-    if extension != ".pdf":
+    content_bytes = await file.read()
+    size_mb = len(content_bytes) / (1024 * 1024)
+    if size_mb > settings.MAX_FILE_SIZE_MB:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Este endpoint requiere un archivo PDF (.pdf). Recibido: {extension}"
+            detail=f"File exceeds maximum size of {settings.MAX_FILE_SIZE_MB}MB (received {size_mb:.1f}MB).",
         )
+
+    resolved_title = title or Path(filename).stem.replace("_", " ").replace("-", " ").title()
+
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
+    try:
+        temp_file.write(content_bytes)
+        temp_file.flush()
+        temp_path = Path(temp_file.name)
+    finally:
+        temp_file.close()
 
     try:
-        content_bytes = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(content_bytes)
-            temp_path = Path(temp_file.name)
-
-        try:
-            suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
-            parsed_result = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
-
-        return {
-            "status": "exito",
-            "filename": filename,
-            "titulo_sugerido": suggested_title,
-            "engine": parsed_result.get("engine", "Gemini 1.5 LLM Vision Parser"),
-            "texto_extraido": parsed_result.get("markdown_text", ""),
-            "total_paginas": parsed_result.get("page_count", 1),
-            "metadatos_ia": {
-                "tablas_detectadas": parsed_result.get("detected_tables", 0),
-                "conceptos_clave": parsed_result.get("key_concepts", []),
-                "resumen": parsed_result.get("summary", "")
-            }
-        }
-
-    except Exception as error:
+        record = register_document(
+            local_path=str(temp_path),
+            title=resolved_title,
+            user_id=user_id,
+        )
+    except Exception as exc:
+        if temp_path.exists():
+            temp_path.unlink()
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Error durante el parsing IA LLM del PDF: {str(error)}"
+            detail=f"Failed to register document: {exc}",
         )
+
+    background_tasks.add_task(
+        process_registered_document,
+        document_id=record.document_id,
+        local_path=str(temp_path),
+        title=resolved_title,
+        cleanup_local=True,
+    )
+
+    return DocumentUploadResponse(
+        document_id=record.document_id,
+        status=record.status,
+        title=record.title,
+        source_filename=record.source_filename,
+        message="Document uploaded and accepted for processing.",
+    )
+
+
+@router.get(
+    "/status/{document_id}",
+    response_model=DocumentStatusResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Check document processing status",
+)
+def get_document_status(document_id: str) -> DocumentStatusResponse:
+    """
+    Retrieves the current indexing status and chunk counts for a given document.
+    """
+    repo = get_document_repository()
+    try:
+        record = repo.get_document(document_id)
+    except ValueError as val_err:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(val_err),
+        )
+
+    if record is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Document with ID '{document_id}' not found.",
+        )
+
+    return DocumentStatusResponse(
+        document_id=record.document_id,
+        status=record.status,
+        title=record.title,
+        source_filename=record.source_filename,
+        total_parents=record.total_parents,
+        total_children=record.total_children,
+        error_message=record.error_message,
+        created_at=record.created_at,
+        updated_at=record.updated_at,
+    )
+
+
+@router.get(
+    "/documents",
+    response_model=List[DocumentRecord],
+    status_code=status.HTTP_200_OK,
+    summary="List all indexed documents",
+)
+def list_documents(user_id: Optional[str] = Query(None)) -> List[DocumentRecord]:
+    """
+    Returns the list of documents registered in the system, newest first.
+    """
+    repo = get_document_repository()
+    return repo.list_documents(user_id=user_id)

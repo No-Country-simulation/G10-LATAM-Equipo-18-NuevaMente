@@ -4,33 +4,40 @@ ingester_service.py
 Purpose:
     Robust document ingestion and layout-aware chunking service.
     Loads and processes technical documents (PDF, Markdown, Plain Text),
-    removes header/footer noise, extracts section structure, and produces
-    both flat document chunks and Parent-Child hierarchical data for the
-    RAG pipeline. Also accepts raw text directly (no file), for requests
-    that send document content inline instead of uploading a file.
+    extracts section structure, and produces both flat document chunks and
+    Parent-Child hierarchical data for the RAG pipeline. Also accepts raw
+    text directly (no file), for requests that send document content inline
+    instead of uploading a file.
+
+    Between section detection and chunking, each section goes through two
+    optional steps (on by default, see settings and IngestionOptions):
+    text cleaning (text_cleaner) and noise filtering (noise_filter_service),
+    which drops legal pages, revision history, indexes, near-empty pages and
+    normative appendices.
 
 Input:
     A file path (process_document) or raw text (process_text), plus
     optional IngestionOptions.
 
 Output:
-    An IngestedDocument. Call build_rag_chunks() on that result to get
-    the parent/child structure the RAG retrieval layer expects.
+    An IngestedDocument, with a noise_report when the noise filter ran.
+    Call build_rag_chunks() on that result to get the parent/child
+    structure the RAG retrieval layer expects.
 """
 
 import logging
 import re
 import uuid
-import logging
-from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Tuple, Union
 
 from pypdf import PdfReader
 from app.core.config import settings
-from app.schemas.ingestion import IngestedDocument, DocumentChunk, IngestionOptions
+from app.schemas.ingestion import IngestedDocument, DocumentChunk, IngestionOptions, NoiseReport
 from app.schemas.rag_chunks import ParentChunk, ParentChunkMetadata, ChildChunk, ChildChunkMetadata
+from app.services.noise_filter_service import NoiseFilter
+from app.services.text_cleaner import CleaningStats, clean_text, clean_title, remove_repeated_lines
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +71,7 @@ class IngesterService:
         # or never needs key-concept extraction doesn't pay their import cost.
         self._pdf_parser = None
         self._keybert_model = None
+        self._noise_filter = None
 
     # ---------------------------------------------------------------------------
     # File validation
@@ -85,30 +93,6 @@ class IngesterService:
             )
 
     # ---------------------------------------------------------------------------
-    # Noise removal (repeated headers/footers in PDFs)
-    # ---------------------------------------------------------------------------
-    @staticmethod
-    def remove_repeated_lines(pages_text: List[str], min_repetition_ratio: float = 0.4) -> List[str]:
-        """Detects and strips boilerplate lines repeating across multiple pages."""
-        if len(pages_text) < 3:
-            return pages_text
-
-        line_counts = Counter()
-        for page in pages_text:
-            unique_lines_in_page = {line.strip() for line in page.split("\n") if line.strip()}
-            line_counts.update(unique_lines_in_page)
-
-        threshold = max(2, int(len(pages_text) * min_repetition_ratio))
-        noisy_lines = {line for line, count in line_counts.items() if count >= threshold}
-
-        cleaned_pages = []
-        for page in pages_text:
-            kept_lines = [line for line in page.split("\n") if line.strip() not in noisy_lines]
-            cleaned_pages.append("\n".join(kept_lines))
-
-        return cleaned_pages
-
-    # ---------------------------------------------------------------------------
     # Text extractors
     # ---------------------------------------------------------------------------
     def _get_pdf_parser(self):
@@ -128,7 +112,7 @@ class IngesterService:
         unavailable or fails on this specific file."""
         reader = PdfReader(str(filepath))
         pages_text = [page.extract_text() or "" for page in reader.pages]
-        cleaned_pages = self.remove_repeated_lines(pages_text)
+        cleaned_pages = remove_repeated_lines(pages_text)
 
         pages_with_metadata = [
             f"\n[PÁGINA {i + 1}]\n{page_str}"
@@ -194,55 +178,77 @@ class IngesterService:
     # ---------------------------------------------------------------------------
     # Section detection
     # ---------------------------------------------------------------------------
-    @staticmethod
-    def clean_inline_markdown(text: str) -> str:
-        return re.sub(r"[*_`>]", "", text)
-
     def parse_markdown_sections(self, text: str) -> List[Section]:
         heading_pattern = re.compile(r"^(#{1,6})\s+(.+)$", re.MULTILINE)
         matches = list(heading_pattern.finditer(text))
 
         if not matches:
-            return [Section(title=None, level=0, content=self.clean_inline_markdown(text))]
+            return [Section(title=None, level=0, content=text)]
 
         sections: List[Section] = []
         if matches[0].start() > 0:
             preamble = text[: matches[0].start()].strip()
             if preamble:
-                sections.append(Section(title=None, level=0, content=self.clean_inline_markdown(preamble)))
+                sections.append(Section(title=None, level=0, content=preamble))
+
+        active_headings: Dict[int, str] = {}
 
         for index, match in enumerate(matches):
             level = len(match.group(1))
-            title = match.group(2).strip()
+            raw_title = match.group(2).strip()
+
+            active_headings = {lvl: h_title for lvl, h_title in active_headings.items() if lvl < level}
+            active_headings[level] = raw_title
+
+            hierarchical_title = " > ".join(active_headings[lvl] for lvl in sorted(active_headings.keys()))
+
             start = match.end()
             end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-            content = self.clean_inline_markdown(text[start:end].strip())
-            sections.append(Section(title=title, level=level, content=content))
+            content = text[start:end].strip()
+            sections.append(Section(title=hierarchical_title, level=level, content=content))
 
         return sections
 
     def parse_txt_sections_heuristic(self, text: str) -> List[Section]:
         heading_label = re.compile(r"^(cap[ií]tulo|secci[oó]n|chapter|section)\s+\w+", re.IGNORECASE)
-        heading_numbering = re.compile(r"^\d+(\.\d+)*[.)]?\s+\S")
+        heading_numbering = re.compile(r"^(\d+(?:\.\d+)*)[.)]?\s+\S")
 
         sections: List[Section] = []
         current_title: Optional[str] = None
+        current_level: int = 0
         current_lines: List[str] = []
+        active_headings: Dict[int, str] = {}
 
         def flush():
             content = "\n".join(current_lines).strip()
             if content:
-                sections.append(Section(title=current_title, level=1 if current_title else 0, content=content))
+                sections.append(Section(title=current_title, level=current_level, content=content))
 
         for line in text.split("\n"):
             stripped = line.strip()
-            looks_like_heading = bool(stripped) and len(stripped) < 80 and (
-                stripped.isupper() or heading_label.match(stripped) or heading_numbering.match(stripped)
-            )
 
-            if looks_like_heading:
+            level = None
+            raw_title = None
+
+            if stripped and len(stripped) < 80:
+                num_match = heading_numbering.match(stripped)
+                if num_match:
+                    parts = num_match.group(1).split(".")
+                    level = len(parts)
+                    raw_title = stripped
+                elif heading_label.match(stripped):
+                    level = 1
+                    raw_title = stripped
+                elif stripped.isupper() and len(stripped) > 3:
+                    level = 1
+                    raw_title = stripped
+
+            if level is not None and raw_title:
                 flush()
-                current_title = stripped
+                active_headings = {lvl: h for lvl, h in active_headings.items() if lvl < level}
+                active_headings[level] = raw_title
+                current_title = " > ".join(active_headings[lvl] for lvl in sorted(active_headings.keys()))
+                current_level = level
                 current_lines = []
             else:
                 current_lines.append(line)
@@ -269,18 +275,71 @@ class IngesterService:
 
         return sections
 
+    @staticmethod
+    def is_markdown_source(text: str, extension: str) -> bool:
+        """True when the text is Markdown: a .md file, or a PDF converted by
+        pymupdf4llm. A PDF extracted with pypdf carries [PÁGINA N] markers
+        instead and is plain text."""
+        if extension in (".md", ".markdown"):
+            return True
+        return extension == ".pdf" and "[PÁGINA" not in text
+
     def detect_sections(self, text: str, extension: str) -> List[Section]:
-        if extension == ".pdf":
-            if "[PÁGINA" in text:
-                return self.parse_pdf_pages(text)
-            else:
-                # Extracted via pymupdf4llm (Markdown)
-                return self.parse_markdown_sections(text)
-        elif extension in (".md", ".markdown"):
+        if self.is_markdown_source(text, extension):
             return self.parse_markdown_sections(text)
-        elif extension == ".txt":
+        if extension == ".pdf":
+            return self.parse_pdf_pages(text)
+        if extension == ".txt":
             return self.parse_txt_sections_heuristic(text)
         return [Section(title=None, level=0, content=text)]
+
+    # ---------------------------------------------------------------------------
+    # Text cleaning and noise filtering
+    # ---------------------------------------------------------------------------
+    def _get_noise_filter(self) -> NoiseFilter:
+        """Creates the noise filter once (loading its patterns) and reuses it."""
+        if self._noise_filter is None:
+            self._noise_filter = NoiseFilter()
+        return self._noise_filter
+
+    def prepare_sections(
+        self,
+        sections: List[Section],
+        markdown_source: bool,
+        options: Optional[IngestionOptions] = None,
+    ) -> Tuple[List[Section], Optional[NoiseReport]]:
+        """
+        Cleans the text of every section and then filters out noise sections.
+        Each step runs when enabled in IngestionOptions, falling back to
+        settings.CLEAN_TEXT and settings.FILTER_NOISE_SECTIONS when the option
+        is None. A dry run always runs the filter, so it can report. Markdown
+        markers are removed only for Markdown sources, where they are syntax.
+        Returns the sections to chunk and the noise report (None if the
+        filter did not run).
+        """
+        options = options or IngestionOptions()
+        clean_enabled = settings.CLEAN_TEXT if options.clean_text is None else options.clean_text
+        filter_enabled = settings.FILTER_NOISE_SECTIONS if options.filter_noise is None else options.filter_noise
+
+        if clean_enabled:
+            stats = CleaningStats()
+            cleaned_sections = []
+            for section in sections:
+                title = clean_title(section.title, stats, strip_markdown=markdown_source) if section.title else None
+                content = clean_text(section.content, strip_markdown=markdown_source, stats=stats)
+                cleaned_sections.append(replace(section, title=title or None, content=content))
+            sections = cleaned_sections
+            logger.info("Text cleaning: %s", stats.summary())
+
+        noise_report: Optional[NoiseReport] = None
+        if filter_enabled or options.noise_dry_run:
+            sections, noise_report = self._get_noise_filter().filter_sections(
+                sections,
+                categories=options.noise_categories,
+                dry_run=options.noise_dry_run,
+            )
+
+        return sections, noise_report
 
     # ---------------------------------------------------------------------------
     # Paragraph-aware chunking
@@ -502,7 +561,11 @@ class IngesterService:
         document_id = document_id or str(uuid.uuid4())
 
         raw_text = self.load_file(path, options)
-        sections = self.detect_sections(raw_text, path.suffix.lower())
+        extension = path.suffix.lower()
+        sections = self.detect_sections(raw_text, extension)
+        sections, noise_report = self.prepare_sections(
+            sections, self.is_markdown_source(raw_text, extension), options
+        )
         chunks = self.build_chunks_from_sections(sections, document_id)
 
         return IngestedDocument(
@@ -511,15 +574,22 @@ class IngesterService:
             source_filename=path.name,
             raw_text=raw_text,
             chunks=chunks,
+            noise_report=noise_report,
         )
 
-    def process_text(self, content: str, title: str) -> IngestedDocument:
+    def process_text(
+        self,
+        content: str,
+        title: str,
+        options: Optional[IngestionOptions] = None,
+    ) -> IngestedDocument:
         """Processes raw text sent inline (e.g. a JSON request body with
         content, no file upload) the same way process_document()
         handles a file. No file extension is available, so section
-        detection uses the TXT heuristic."""
+        detection uses the TXT heuristic and the text is treated as plain text."""
         document_id = str(uuid.uuid4())
         sections = self.detect_sections(content, ".txt")
+        sections, noise_report = self.prepare_sections(sections, False, options)
         chunks = self.build_chunks_from_sections(sections, document_id)
 
         return IngestedDocument(
@@ -528,6 +598,7 @@ class IngesterService:
             source_filename="inline_text",
             raw_text=content,
             chunks=chunks,
+            noise_report=noise_report,
         )
 
     def parse_and_chunk_document(self, content: str, title: str) -> Dict[str, Any]:
