@@ -1,17 +1,17 @@
 # Reporte de Diagnóstico y Validación de Adaptación Educativa V2
 
-**Archivo:** `msJava.pdf` | **Páginas:** 64 | **Caracteres Total:** 21488 | **Fecha:** 2026-10-02 10:55:43
+**Archivo:** `msJava.pdf` | **Páginas:** 64 | **Caracteres Total:** 21488 | **Fecha:** 2026-10-02 12:37:03
 
 ## 📊 Tabla Comparativa por Combinación
 
 | Comb | Perfil | Formato | Origen | Proveedor & Modelo LLM | Fallback | Embeddings | Modo Rec. | Items (Sol/Gen) | Score Anclaje | Prompt Hash | Latencia |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **A** | Principiante | Flashcards | `cache` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 10/10 | `0.923` | `b22b890099...` | 9.2s |
-| **B** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 80/40 | `0.943` | `3395dc5854...` | 1.5s |
-| **C** | Líder Técnico | Tutorial | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.896` | `2b70e2be69...` | 0.27s |
-| **D** | Ejecutivo | Resumen Ejecutivo | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 5/5 | `0.905` | `aa4c90be94...` | 0.26s |
-| **E** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 25/25 | `0.897` | `90f2badcf4...` | 0.56s |
-| **F** | Líder Técnico | Quiz | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.929` | `41d07455f1...` | 0.32s |
+| **A** | Principiante | Flashcards | `cache` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 10/10 | `0.923` | `b22b890099...` | 0.47s |
+| **B** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 80/40 | `0.943` | `3395dc5854...` | 0.71s |
+| **C** | Líder Técnico | Tutorial | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.896` | `2b70e2be69...` | 0.15s |
+| **D** | Ejecutivo | Resumen Ejecutivo | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 5/5 | `0.905` | `aa4c90be94...` | 0.12s |
+| **E** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 25/25 | `0.897` | `90f2badcf4...` | 0.41s |
+| **F** | Líder Técnico | Quiz | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.929` | `41d07455f1...` | 0.24s |
 
 ## 🔄 Verificación de Caché
 - **Origen devuelto:** `cache`
@@ -19,21 +19,21 @@
 - **Latencia en caché:** `0.0001s`
 
 ## 🔍 Análisis de Comparación de Contenido Real
-- **Similitud Media entre Salidas:** `4.93%`
-- **Similitud Máxima entre Salidas:** `19.39%`
+- **Similitud Media entre Salidas:** `2.70%`
+- **Similitud Máxima entre Salidas:** `6.70%`
 
 ### Primer Ítem Completo por Combinación:
 
 #### Combinación (A): Principiante · Flashcards · Salud · Didáctico · Breve
 ```json
 {
-  "frente": "Concepto #5 (cada sesión 34h teoría/práctica retos Retos #5): ¿Qué relevancia tiene en Estructura del Proyecto Generado?",
-  "dorso": "En Salud, el concepto 'cada sesión 34h teoría/práctica retos Retos #5' establece las bases operativas para Principiante (nivel Didactico).",
-  "pista_didactica": "Pista #5: Analiza la relación entre cada sesión 34h teoría/práctica retos Retos #5 y Estructura del Proyecto Generado.",
+  "frente": "¿En qué consiste el principio de 'Generado proporciona bases' en Estructura del Proyecto Generado?",
+  "dorso": "Para un perfil de nivel principiante (Generado proporciona bases), Estructura del Proyecto Generado proporciona las bases operativas de msJava. Garantiza el cumplimiento regulatorio (HIPAA/HL7) y la privacidad de datos clínicos en el sector de la salud.",
+  "pista_didactica": "Pista: Enfócate en el impacto de Generado proporciona bases sobre la operatividad del sistema.",
   "fuentes": [
     {
-      "chunk_id": "parent_7",
-      "extracto": "40h\nDuración Total\n- 3 horas cada sesión\n34h teoría/práctica + 6h retos\n2 Retos teóricos\nEvaluación de conocimientos adq",
+      "chunk_id": "parent_0",
+      "extracto": "1",
       "pagina": 2,
       "similitud_score": 0.95
     }
@@ -44,14 +44,14 @@
 #### Combinación (B): Desarrollador · Flashcards · Fintech · Técnico · Exhaustivo
 ```json
 {
-  "frente": "Concepto #1 (Monitoreo, Docker, Kubernetes CI/CD #1): ¿Qué relevancia tiene en ¿Qué es Spring Boot??",
-  "dorso": "En Fintech, el concepto 'Monitoreo, Docker, Kubernetes CI/CD #1' establece las bases operativas para Desarrollador (nivel Tecnico).",
-  "pista_didactica": "Pista #1: Analiza la relación entre Monitoreo, Docker, Kubernetes CI/CD #1 y ¿Qué es Spring Boot?.",
+  "frente": "¿Cómo se implementa y configura 'aplicaciones stand-alone Tomcat/Jetty/Undertow' en el módulo de Estructura del Proyecto Generado?",
+  "dorso": "Desde la perspectiva de desarrollo (tecnico - aplicaciones stand-alone Tomcat/Jetty/Undertow), Tomcat/Jetty/Undertow incluido - aplicaciones stand-alone Asegura la integridad transaccional (PCI-DSS), cero latencia y auditoría estricta en servicios financieros.",
+  "pista_didactica": "Pista: Enfócate en el impacto de aplicaciones stand-alone Tomcat/Jetty/Undertow sobre la operatividad del sistema.",
   "fuentes": [
     {
-      "chunk_id": "parent_5",
-      "extracto": "Monitoreo, Docker, Kubernetes y CI/CD",
-      "pagina": 1,
+      "chunk_id": "parent_11",
+      "extracto": "Tomcat/Jetty/Undertow incluido - aplicaciones stand-alone",
+      "pagina": 2,
       "similitud_score": 0.95
     }
   ]
@@ -61,16 +61,16 @@
 #### Combinación (C): Líder Técnico · Tutorial · E-commerce · Exhaustivo · Amplio
 ```json
 {
-  "paso": 9,
-  "titulo": "Paso 9: Implementación de GraalVM Native Compilation ocial (AOT) para #9 en Sesión 1",
-  "instruccion": "En el Paso 9, configura 'GraalVM Native Compilation ocial (AOT) para #9' dentro de Sesión 1.",
-  "ejemplo": "```text\n# Paso 9: GraalVM Native Compilation ocial (AOT) para #9\n// Aplicar GraalVM Native Compilation ocial (AOT) para #9 en Sesión 1\n```",
-  "advertencia": "Verifica que GraalVM Native Compilation ocial (AOT) para #9 esté disponible antes de proceder al Paso 9.",
+  "paso": 1,
+  "titulo": "Módulo 1: Integración de Conguración server.port datasource",
+  "instruccion": "Configura y valida Conguración server.port datasource según la especificidad técnica: Conguración: server.port, datasource, logging levels",
+  "ejemplo": "// Aplicar Conguración server.port datasource en ¿Qué es Spring Boot?\n// Entorno: E-commerce (Líder Técnico)\nval status = process_con_guraci_n_server_()",
+  "advertencia": "Asegúrate de validar la compatibilidad de Conguración server.port datasource antes de desplegar en producción.",
   "fuentes": [
     {
-      "chunk_id": "parent_28",
-      "extracto": "GraalVM Native Compilation ocial (AOT) para startup rápido",
-      "pagina": 3,
+      "chunk_id": "parent_20",
+      "extracto": "Conguración: server.port, datasource, logging levels",
+      "pagina": 1,
       "similitud_score": 0.95
     }
   ]
@@ -80,13 +80,13 @@
 #### Combinación (D): Ejecutivo · Resumen · General · Conciso · Estándar
 ```json
 {
-  "punto_clave": "Eje Estratégico #5: Características conguración del entorno #5 (Sesión 1)",
-  "impacto_negocio": "Relevancia de 'Características conguración del entorno #5' para Ejecutivo en General: optimiza Sesión 1.",
+  "punto_clave": "Impacto Ejecutivo y ROI (3): Convenciones conguración desarrollo",
+  "impacto_negocio": "Desde una visión gerencial y estratégica en general (Convenciones conguración desarrollo), Convenciones sobre conguración para desarrollo rápido Aporta eficiencia operativa, mantenibilidad y excelencia en el ecosistema de General.",
   "fuentes": [
     {
-      "chunk_id": "parent_1",
-      "extracto": "Características y conguración del entorno\n2",
-      "pagina": 3,
+      "chunk_id": "parent_9",
+      "extracto": "Convenciones sobre conguración para desarrollo rápido",
+      "pagina": 2,
       "similitud_score": 0.95
     }
   ]
