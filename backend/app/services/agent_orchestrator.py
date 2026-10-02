@@ -326,34 +326,47 @@ class AgentOrchestrator:
             ]
             """
 
-            try:
-                if tracer: tracer.record_llm_call("generar")
-                if self.gemini_client.has_real_key:
+            raw = None
+            if tracer: tracer.record_llm_call("generar")
+
+            # Tier 1: Try Gemini
+            if self.gemini_client.has_real_key:
+                try:
                     raw = self.gemini_client.generate_content(
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True
                     )
-                elif self.groq_client.has_real_key:
+                except Exception as exc:
+                    logger.warning(f"Lote LLM Gemini {t_idx+1} falló ({exc}). Conmutando por error a Groq...")
+
+            # Tier 2: Try Groq (if Gemini failed or has no key)
+            if not raw and self.groq_client.has_real_key:
+                try:
                     raw = self.groq_client.generate_content(
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True
                     )
-                else:
-                    raw = "[]"
+                except Exception as exc:
+                    logger.warning(f"Lote LLM Groq {t_idx+1} falló ({exc}).")
 
-                cleaned = raw.strip().removeprefix("```json").removesuffix("```").strip()
-                parsed = json.loads(cleaned)
-                if isinstance(parsed, list):
-                    return parsed
-                elif isinstance(parsed, dict) and "items" in parsed:
-                    return parsed["items"]
-            except Exception as exc:
-                logger.warning(f"Lote LLM {t_idx+1} falló: {exc}. Usando generador dinámico de respaldo.")
-                alloc_count = topic.get("allocated", 4)
-                return self._generate_fallback_batch(request, doc_title, topic, alloc_count, t_idx * alloc_count)
-            return []
+            # Try parsing LLM response
+            if raw:
+                try:
+                    cleaned = raw.strip().removeprefix("```json").removesuffix("```").strip()
+                    parsed = json.loads(cleaned)
+                    if isinstance(parsed, list) and len(parsed) > 0:
+                        return parsed
+                    elif isinstance(parsed, dict) and "items" in parsed and len(parsed["items"]) > 0:
+                        return parsed["items"]
+                except Exception as exc:
+                    logger.warning(f"Error al parsear respuesta JSON de LLM en lote {t_idx+1}: {exc}")
+
+            # Tier 3: Upgraded Contextual RAG Synthetic Generator
+            logger.info(f"Lote LLM {t_idx+1} usando generador sintético dinámico anclado a RAG.")
+            alloc_count = topic.get("allocated", 4)
+            return self._generate_fallback_batch(request, doc_title, topic, alloc_count, t_idx * alloc_count)
 
         import concurrent.futures
         max_workers = min(4, max(1, len(topics)))
@@ -467,7 +480,7 @@ class AgentOrchestrator:
     def _generate_fallback_item(
         self, request: AdaptationRequest, doc_title: str, topic: Dict[str, Any], item_idx: int
     ) -> Dict[str, Any]:
-        fmt = request.output_format.lower()
+        fmt = (request.output_format or "flashcards").lower()
         topic_name = topic.get("topic", doc_title)
         chunk_id = topic.get("chunk_id", "chunk-rag-001")
         page = topic.get("page", 1)
@@ -475,62 +488,142 @@ class AgentOrchestrator:
 
         fuente = {
           "chunk_id": chunk_id,
-          "extracto": context[:120],
+          "extracto": context[:140].strip(),
           "pagina": page,
           "similitud_score": 0.95
         }
 
-        ctx_words = [w for w in re.split(r'\s+', context) if len(w) > 2]
-        if ctx_words:
-            w_start = (item_idx - 1) % len(ctx_words)
-            n_w = min(6, len(ctx_words))
-            selected_words = [ctx_words[(w_start + k) % len(ctx_words)] for k in range(n_w)]
-            w_snippet = " ".join(selected_words) + f" #{item_idx}"
-        else:
-            w_snippet = f"ConceptoClave #{item_idx}"
+        # 1. Split context into real technical sentences from RAG chunk
+        raw_sentences = [s.strip() for s in re.split(r'(?<=[.!?])\s+|\n+', context) if len(s.strip()) > 15]
+        if not raw_sentences:
+            raw_sentences = [f"{topic_name} proporciona las bases operativas de {doc_title}."]
 
+        sentence_idx = (item_idx - 1) % len(raw_sentences)
+        target_sentence = raw_sentences[sentence_idx]
+
+        # Prime multiplier prevents modular wrap-around collisions across items
+        words = [w.strip(".,;:()[]\"'") for w in re.split(r'\s+', target_sentence) if len(w) > 3]
+        clean_words = [w for w in words if w.lower() not in {"este", "esta", "estos", "para", "como", "sobre", "entre", "desde", "hasta", "donde", "cuando", "cada", "todo", "toda", "pero", "sino"}]
+        
+        topic_hash = sum(ord(c) for c in topic_name[:15])
+        seed_offset = (item_idx * 13 + topic_hash * 7)
+
+        if clean_words:
+            w_offset = seed_offset % len(clean_words)
+            n_select = min(3, len(clean_words))
+            selected = [clean_words[(w_offset + k) % len(clean_words)] for k in range(n_select)]
+            main_concept = " ".join(selected)
+        else:
+            main_concept = f"{topic_name} Módulo {item_idx}"
+
+        # 2. Profile-driven Phrasing, Perspective Framing, and Question Stems
+        profile = (request.recipient_profile or "General").lower()
+        niche = (request.niche or "General").lower()
+        detail = (request.detail_level or "Estándar").lower()
+
+        if any(p in profile for p in ["principiante", "estudiante", "novato", "basico"]):
+            stem_flashcard = [
+                f"¿En qué consiste el principio de '{main_concept}' en {topic_name}?",
+                f"¿Por qué es importante comprender '{main_concept}' al estudiar {topic_name}?",
+                f"¿Cuál es el concepto clave detrás de '{main_concept}' según la fuente?",
+                f"¿De qué manera facilita '{main_concept}' la comprensión de {topic_name}?"
+            ]
+            quiz_question_stem = f"¿Cuál es la definición o propósito fundamental de '{main_concept}' en {topic_name}?"
+            dorso_prefix = f"Para un perfil de nivel principiante ({main_concept}), {target_sentence}"
+            tutorial_inst_prefix = f"Como primer paso de aprendizaje para {main_concept}: {target_sentence}"
+            exec_prefix = f"Fundamento Didáctico"
+        elif any(p in profile for p in ["desarrollador", "técnico", "tecnico", "ingeniero", "programador"]):
+            stem_flashcard = [
+                f"¿Cómo se implementa y configura '{main_concept}' en el módulo de {topic_name}?",
+                f"¿Qué requerimientos técnicos exige la integración de '{main_concept}'?",
+                f"¿De qué forma interactúa '{main_concept}' con la arquitectura de {topic_name}?",
+                f"¿Cuál es la buena práctica de desarrollo al aplicar '{main_concept}'?"
+            ]
+            quiz_question_stem = f"En la implementación técnica de {topic_name}, ¿qué afirmación sobre '{main_concept}' es correcta?"
+            dorso_prefix = f"Desde la perspectiva de desarrollo ({detail} - {main_concept}), {target_sentence}"
+            tutorial_inst_prefix = f"Configura y valida {main_concept} según la especificidad técnica: {target_sentence}"
+            exec_prefix = f"Especificación Técnica"
+        elif any(p in profile for p in ["líder", "lider", "arquitecto", "senior", "lead"]):
+            stem_flashcard = [
+                f"¿Qué trade-offs y patrones de diseño implica integrar '{main_concept}' en {topic_name}?",
+                f"¿De qué manera '{main_concept}' impacta la escalabilidad y resiliencia en {topic_name}?",
+                f"¿Cómo evaluar el acoplamiento y mantenibilidad de '{main_concept}' a gran escala?",
+                f"¿Qué estrategia de arquitectura se recomienda para potenciar '{main_concept}'?"
+            ]
+            quiz_question_stem = f"En la evaluación arquitectónica de {topic_name}, ¿cuál es la implicación principal de '{main_concept}'?"
+            dorso_prefix = f"A nivel de arquitectura y liderazgo técnico ({main_concept}), {target_sentence}"
+            tutorial_inst_prefix = f"Diseña la estrategia de integración para {main_concept}: {target_sentence}"
+            exec_prefix = f"Decisión de Arquitectura"
+        else: # Ejecutivo / Gerente / General
+            stem_flashcard = [
+                f"¿Cuál es el impacto de negocio y valor estratégico de '{main_concept}' en {topic_name}?",
+                f"¿De qué forma '{main_concept}' optimiza la eficiencia operativa en el ámbito de {niche}?",
+                f"¿Qué riesgo o costo operacional se mitiga mediante '{main_concept}'?",
+                f"¿Cómo contribuye '{main_concept}' a la ventaja competitiva en {niche}?"
+            ]
+            quiz_question_stem = f"Desde la perspectiva de gestión ejecutiva en {niche}, ¿cuál es el beneficio central de '{main_concept}'?"
+            dorso_prefix = f"Desde una visión gerencial y estratégica en {niche} ({main_concept}), {target_sentence}"
+            tutorial_inst_prefix = f"Establece el indicador de éxito operacional para {main_concept}: {target_sentence}"
+            exec_prefix = f"Impacto Ejecutivo y ROI"
+
+        stem_idx = (item_idx - 1 + (sentence_idx * 3)) % len(stem_flashcard)
+        front_q = stem_flashcard[stem_idx]
+
+        # 3. Domain Niche Context Addition
+        if "salud" in niche:
+            niche_context = f"Garantiza el cumplimiento regulatorio (HIPAA/HL7) y la privacidad de datos clínicos en el sector de la salud."
+        elif "fintech" in niche or "financ" in niche:
+            niche_context = f"Asegura la integridad transaccional (PCI-DSS), cero latencia y auditoría estricta en servicios financieros."
+        elif "commerce" in niche or "comercio" in niche:
+            niche_context = f"Soporta la alta concurrencia de checkout y la sincronización en tiempo real del inventario comercial."
+        else:
+            niche_context = f"Aporta eficiencia operativa, mantenibilidad y excelencia en el ecosistema de {request.niche}."
+
+        full_dorso = f"{dorso_prefix} {niche_context}"
+
+        # 4. Format Output Builders
         if "flashcard" in fmt:
             return {
-                "frente": f"Concepto #{item_idx} ({w_snippet}): ¿Qué relevancia tiene en {topic_name}?",
-                "dorso": f"En {request.niche}, el concepto '{w_snippet}' establece las bases operativas para {request.recipient_profile} (nivel {request.detail_level}).",
-                "pista_didactica": f"Pista #{item_idx}: Analiza la relación entre {w_snippet} y {topic_name}.",
+                "frente": front_q,
+                "dorso": full_dorso,
+                "pista_didactica": f"Pista: Enfócate en el impacto de {main_concept} sobre la operatividad del sistema.",
                 "fuentes": [fuente]
             }
         elif "quiz" in fmt:
+            opt_a = f"{target_sentence} (Enfoque en {main_concept})."
+            opt_b = f"Sustituye completamente {main_concept} eliminando la necesidad de {topic_name}."
+            opt_c = f"Restringe {main_concept} exclusivamente a entornos legacy no compatibles con {request.niche}."
+            opt_d = f"Invalida las reglas de seguridad y auditoría en {topic_name} para {request.recipient_profile}."
+            
             return {
-                "pregunta": f"Pregunta #{item_idx}: Respecto a '{w_snippet}' en {topic_name}, ¿cuál afirmación es correcta?",
-                "opciones": [
-                    f"Opción A (Correcta): Explica adecuadamente '{w_snippet}' en el contexto de {topic_name}.",
-                    f"Opción B: Invalida el uso de {w_snippet} en la configuración de {topic_name}.",
-                    f"Opción C: Omitir {w_snippet} en el entorno de {request.niche}.",
-                    f"Opción D: Sustituir {topic_name} por un módulo no soportado."
-                ],
-                "respuesta_correcta": f"Opción A (Correcta): Explica adecuadamente '{w_snippet}' en el contexto de {topic_name}.",
-                "justificacion": f"Respaldado en el fragmento de {doc_title} relativo a {w_snippet}.",
-                "justificacion_didactica": f"Explicación pedagógica para {request.recipient_profile}: {w_snippet} asegura operatividad en {topic_name}.",
+                "pregunta": quiz_question_stem,
+                "opciones": [opt_a, opt_b, opt_c, opt_d],
+                "respuesta_correcta": opt_a,
+                "justificacion": f"Respaldado directamente en la sección del documento: '{target_sentence[:120]}'",
+                "justificacion_didactica": f"Para el perfil {request.recipient_profile}, este concepto es clave porque {niche_context}",
                 "fuentes": [fuente]
             }
         elif "tutorial" in fmt or "paso" in fmt:
             return {
                 "paso": item_idx,
-                "titulo": f"Paso {item_idx}: Implementación de {w_snippet} en {topic_name}",
-                "instruccion": f"En el Paso {item_idx}, configura '{w_snippet}' dentro de {topic_name}.",
-                "ejemplo": f"```text\n# Paso {item_idx}: {w_snippet}\n// Aplicar {w_snippet} en {topic_name}\n```",
-                "advertencia": f"Verifica que {w_snippet} esté disponible antes de proceder al Paso {item_idx}.",
+                "titulo": f"Módulo {item_idx}: Integración de {main_concept}",
+                "instruccion": tutorial_inst_prefix,
+                "ejemplo": f"// Aplicar {main_concept} en {topic_name}\n// Entorno: {request.niche} ({request.recipient_profile})\nval status = process_{re.sub(r'[^a-zA-Z0-9]+', '_', main_concept.lower())[:20]}()",
+                "advertencia": f"Asegúrate de validar la compatibilidad de {main_concept} antes de desplegar en producción.",
                 "fuentes": [fuente]
             }
         elif "resumen" in fmt or "tldr" in fmt:
             return {
-                "punto_clave": f"Eje Estratégico #{item_idx}: {w_snippet} ({topic_name})",
-                "impacto_negocio": f"Relevancia de '{w_snippet}' para {request.recipient_profile} en {request.niche}: optimiza {topic_name}.",
+                "punto_clave": f"{exec_prefix} ({item_idx}): {main_concept}",
+                "impacto_negocio": f"{full_dorso}",
                 "fuentes": [fuente]
             }
         else:
             return {
                 "escena": item_idx,
-                "duracion_seg": 60 + item_idx * 15,
-                "narracion": f"Escena {item_idx}: Explicación de {w_snippet} en el ámbito de {topic_name}.",
-                "apoyo_visual": f"Esquema interactivo mostrando {w_snippet} en {request.niche}.",
+                "duracion_seg": 45 + (item_idx % 4) * 15,
+                "narracion": f"Escena {item_idx}: Análisis de {main_concept} en {topic_name}. {target_sentence}",
+                "apoyo_visual": f"Esquema interactivo representando {main_concept} dentro del ecosistema de {request.niche}.",
                 "fuentes": [fuente]
             }
 
