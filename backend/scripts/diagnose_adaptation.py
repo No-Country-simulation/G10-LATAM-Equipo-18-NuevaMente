@@ -198,6 +198,7 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
     hybrid_rag = HybridRAGService(embedding_service=embedding_service)
     graph_rag = GraphRAGService()
     orchestrator = AgentOrchestrator()
+    orchestrator._response_cache.clear()
 
     # 1. Ingesta y Extracción de Documento Completo
     print(">> Ingestionando msJava.pdf...")
@@ -393,6 +394,10 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
 
         # Detector 3: Ítems duplicados dentro de la misma salida
         if len(items_text) != len(set(items_text)) and len(items_text) > 0:
+            from collections import Counter
+            counts = Counter(items_text)
+            dupes = [txt[:80] for txt, count in counts.items() if count > 1]
+            print(f"DEBUG DUPES ({comb['id'].upper()}): {dupes}")
             failures.append(f"FALLO ({comb['id'].upper()}): Se detectaron ítems duplicados dentro de la misma generación.")
 
         # Detector 4: Ítems sin fuentes

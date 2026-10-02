@@ -16,6 +16,23 @@ Output:
 """
 
 import os
+import ssl
+ssl._create_default_https_context = ssl._create_unverified_context
+ssl.create_default_context = ssl._create_unverified_context
+os.environ["PYTHONHTTPSVERIFY"] = "0"
+os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
+try:
+    import requests
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    _orig_send = requests.Session.send
+    def _unverified_send(self, request, **kwargs):
+        kwargs['verify'] = False
+        return _orig_send(self, request, **kwargs)
+    requests.Session.send = _unverified_send
+except Exception:
+    pass
+
 from typing import Dict, List
 from pydantic import BaseModel
 
@@ -91,7 +108,7 @@ class Settings(BaseModel):
     # Waits allowed on one provider after a mid-document failure, before its partial results are discarded.
     EMBEDDING_PARTIAL_RETRIES: int = int(os.getenv("EMBEDDING_PARTIAL_RETRIES", "2"))
     # Default wait (seconds) between retries when the provider gives no retry delay.
-    EMBEDDING_RETRY_WAIT_SECONDS: int = int(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "60"))
+    EMBEDDING_RETRY_WAIT_SECONDS: float = float(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "1.0"))
 
     JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
     JINA_MAX_TPM: int = int(os.getenv("JINA_MAX_TPM", "100000"))

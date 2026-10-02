@@ -107,6 +107,8 @@ class ResponseMetadata(BaseModel):
     ingestion_summary: Optional[Dict[str, Any]] = Field(None, alias="resumen_ingesta")
     prompt_hash: Optional[str] = Field(None, alias="prompt_hash")
     origin: Optional[str] = Field("llm", alias="origen")
+    timings: Optional[Dict[str, float]] = Field(default_factory=dict, alias="timings")
+    llm_calls: Optional[Dict[str, Any]] = Field(default_factory=dict, alias="llm_calls")
 
 
 class QualityEvaluation(BaseModel):

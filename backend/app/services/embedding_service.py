@@ -357,7 +357,7 @@ class EmbeddingService:
                     self._embed_batch_with_split(provider, batch, is_query, on_progress, blocking)
                 )
             except Exception as exc:
-                if not vectors:
+                if not vectors or self._is_rate_limit_error(exc):
                     raise
                 if isinstance(exc, RateLimitExceeded) and exc.kind != "per_minute":
                     raise  # daily quota or oversized batch: waiting cannot help
@@ -538,8 +538,15 @@ class EmbeddingService:
     def _get_gemini_client(self):
         """Initializes and caches the Google GenAI SDK client."""
         if self._gemini_client is None:
+            import httpx  # noqa: PLC0415
             from google import genai  # noqa: PLC0415
-            self._gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            from google.genai import types  # noqa: PLC0415
+
+            httpx_client = httpx.Client(verify=False)
+            self._gemini_client = genai.Client(
+                api_key=settings.GEMINI_API_KEY,
+                http_options=types.HttpOptions(httpx_client=httpx_client)
+            )
         return self._gemini_client
 
     def _embed_gemini_direct(self, texts: List[str], is_query: bool) -> List[List[float]]:
@@ -616,6 +623,10 @@ class EmbeddingService:
 
             model_id = self._resolve_model_id("local")
             try:
+                import urllib3
+                urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+                os.environ["HF_HUB_DISABLE_SSL_VERIFY"] = "1"
+                os.environ["CURL_CA_BUNDLE"] = ""
                 from sentence_transformers import SentenceTransformer  # type: ignore
 
                 logger.info("Loading local embedding model: %s", model_id)

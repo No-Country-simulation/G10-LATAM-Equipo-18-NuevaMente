@@ -42,7 +42,7 @@ export const CONTENT_QUANTITY_CONFIG: Record<string, FormatQuantityConfig> = {
   'Resumen Ejecutivo': {
     presets: {
       Breve: { items: 3, label: 'Breve', hint: '≈ 3 puntos ejecutivos (TL;DR)' },
-      Estandar: { items: 5, label: 'Estándar', hint: '≈ 5 síntesis de impacto de negocio' },
+      Estandar: { items: 6, label: 'Estándar', hint: '≈ 6 síntesis de impacto de negocio' },
       Amplio: { items: 10, label: 'Amplio', hint: '≈ 10 análisis de métricas y riesgo' },
       Exhaustivo: { items: 15, label: 'Exhaustivo', hint: '≈ 15 puntos de auditoría ejecutiva' }
     },
