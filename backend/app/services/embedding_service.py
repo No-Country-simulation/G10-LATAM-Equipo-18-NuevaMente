@@ -184,8 +184,8 @@ class EmbeddingService:
                     vectors = self._run_provider(
                         candidate, texts, is_query, on_progress, blocking=not is_query
                     )
-                    finalized = self._finalize(vectors)
                     self._apply_active_provider(candidate)
+                    finalized = self._finalize(vectors)
                     return finalized
                 except Exception as exc:
                     last_error = exc

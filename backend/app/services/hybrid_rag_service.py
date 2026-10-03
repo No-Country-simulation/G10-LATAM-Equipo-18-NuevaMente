@@ -87,14 +87,17 @@ class HybridRAGService:
         # Generamos el vector de la pregunta (purificamos antes de comparar)
         query_embedding = self.embedding_service.embed_text(query, is_query=True)
         
+        # Batch compute missing child embeddings in one call to prevent rate limiting
+        missing_indices = [i for i, child in enumerate(child_chunks) if not child.get("embedding")]
+        if missing_indices:
+            missing_texts = [child_chunks[i]["content"] for i in missing_indices]
+            computed_embeddings = self.embedding_service.embed_batch(missing_texts, is_query=False)
+            for i, emb in zip(missing_indices, computed_embeddings):
+                child_chunks[i]["embedding"] = emb
+
         dense_results = []
         for i, child in enumerate(child_chunks):
-            # IDEALMENTE: child["embedding"] ya viene de la BD Vectorial.
-            chunk_embedding = child.get("embedding")
-            if not chunk_embedding:
-                # Si no está en BD, lo calculamos en caliente (solo como fallback)
-                chunk_embedding = self.embedding_service.embed_text(child["content"], is_query=False)
-            
+            chunk_embedding = child["embedding"]
             score = cosine_similarity(query_embedding, chunk_embedding)
             dense_results.append((i, score))
             
