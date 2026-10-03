@@ -143,6 +143,10 @@ class Settings(BaseModel):
     OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
     OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
 
+    @property
+    def OCI_ENABLED(self) -> bool:
+        return os.path.exists(self.OCI_CONFIG_FILE)
+
     # ── RAG Configuration ─────────────────────────────────────────────────────
     MAX_TOP_K_CHUNKS: int = 5
     RRF_DENSE_WEIGHT: float = 0.6
