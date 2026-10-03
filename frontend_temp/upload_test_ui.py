@@ -33,6 +33,10 @@ from app.services.document_pipeline_service import process_and_index_document
 from app.services.document_repository import get_document_repository
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import get_store
+from app.services.retrieval_service import retrieve_context
+from app.services.agent_orchestrator import AgentOrchestrator
+from app.schemas.adaptation import AdaptationRequest
+from app.core.labels import PROFILE_LABELS_ES, FORMAT_LABELS_ES, NICHE_LABELS_ES
 
 DOCUMENT_TABLE_HEADERS = [
     "document_id", "title", "status", "total_parents", "total_children", "created_at",
@@ -269,13 +273,166 @@ def inspect_selected_document(doc_id: str) -> str:
     return format_document_inspection(doc_id.strip())
 
 
-with gr.Blocks(title="NuevaMente — Prueba de carga") as demo:
-    gr.Markdown(
-        "# NuevaMente — Prueba de carga de documentos e inspección vectorial\n"
-        "Interfaz para probar el pipeline de subida, extracción de chunks, generación de embeddings y persistencia en FAISS."
+def handle_agent_generation(
+    doc_id: str,
+    profile_label: str,
+    format_label: str,
+    niche_label: str,
+    language: str,
+    quantity_level: str,
+    target_quantity: Optional[int],
+) -> Tuple[str, str]:
+    """Retrieves document context with RAG and generates educational content with multi-stage agents."""
+    if not doc_id or not doc_id.strip():
+        return "⚠️ Ingrese un `document_id` válido.", ""
+
+    clean_id = doc_id.strip()
+    repo = get_document_repository()
+    doc_record = repo.get_document(clean_id)
+    if not doc_record:
+        return f"❌ No se encontró ningún documento con ID `{clean_id}` en la base de datos.", ""
+    if doc_record.status != "ready":
+        return f"⚠️ El documento está en estado `{doc_record.status}`. Debe estar en estado `ready` para consultar.", ""
+
+    # Reverse lookup from label to internal key
+    profile_rev = {v: k for k, v in PROFILE_LABELS_ES.items()}
+    format_rev = {v: k for k, v in FORMAT_LABELS_ES.items()}
+    niche_rev = {v: k for k, v in NICHE_LABELS_ES.items()}
+
+    profile_key = profile_rev.get(profile_label, "junior_developer")
+    format_key = format_rev.get(format_label, "flashcards")
+    niche_key = niche_rev.get(niche_label, "general")
+
+    query = f"{profile_label} {format_label} {niche_label}"
+
+    try:
+        # 1. Retrieve RAG context (dense + BM25 + RRF + reranker)
+        top_passages = retrieve_context(
+            document_id=clean_id,
+            query=query,
+            top_k=5,
+        )
+    except Exception as exc:
+        return f"❌ Error en la etapa de recuperación RAG: {exc}", ""
+
+    if not top_passages:
+        return "⚠️ No se encontraron fragmentos relevantes en el índice para esta consulta.", ""
+
+    # 2. Build AdaptationRequest
+    request = AdaptationRequest(
+        title=doc_record.title,
+        content="\n\n".join(p.get("content", "") for p in top_passages),
+        recipient_profile=profile_label,
+        output_format=format_key,
+        niche=niche_label,
+        quantity_level=quantity_level,
+        target_quantity=int(target_quantity) if target_quantity else None,
+        language=language,
     )
 
-    with gr.Tab("Subir documento"):
+    # 3. Execute multi-stage agents
+    try:
+        orchestrator = AgentOrchestrator()
+        response = orchestrator.run_pipeline(
+            request=request,
+            top_passages=top_passages,
+            key_concepts=[],
+            prerequisites=[],
+        )
+    except Exception as exc:
+        return f"❌ Error durante la generación con agentes: {exc}", ""
+
+    # 4. Format Visual Output
+    meta = response.metadata
+    adapted = response.adapted_content
+    eval_info = response.quality_evaluation
+
+    md_lines = [
+        f"## 🎓 {adapted.title}",
+        f"*{adapted.contextualized_introduction}*",
+        "",
+        "| Métrica | Valor |",
+        "| :--- | :--- |",
+        f"| **Proveedor LLM** | `{meta.llm_provider}` |",
+        f"| **Items Generados** | `{meta.generated_items}` (solicitados: `{meta.requested_items}`) |",
+        f"| **Score de Anclaje RAG** | `{eval_info.source_grounding_score * 100:.0f}%` (Citas verificadas) |",
+        f"| **Tiempo de Estudio Estimado** | `{meta.estimated_study_time_minutes} minutos` |",
+        f"| **Ubicación en Storage** | `{response.oci_storage.bucket}/{response.oci_storage.object_id}` |",
+        "",
+    ]
+
+    if meta.quantity_warning:
+        md_lines.append(f"> ⚠️ **Aviso de Capacidad:** {meta.quantity_warning}\n")
+
+    # Format specific item views
+    if "flashcard" in format_key.lower():
+        md_lines.append("### 🗂️ Mazo de Flashcards Generadas\n")
+        items = adapted.items or []
+        for i, card in enumerate(items, 1):
+            front = card.get("frente") or card.get("front", "")
+            back = card.get("dorso") or card.get("back", "")
+            hint = card.get("pista_didactica") or card.get("hint", "")
+            fuentes = card.get("fuentes") or card.get("sources") or []
+
+            md_lines.append(f"#### Tarjeta {i}: {front}")
+            md_lines.append(f"**Respuesta:** {back}")
+            if hint:
+                md_lines.append(f"💡 *{hint}*")
+            if fuentes:
+                f_str = ", ".join(f"Chunk `{f.get('chunk_id')}` (Pág. {f.get('pagina', 1)})" for f in fuentes if isinstance(f, dict))
+                md_lines.append(f"🔍 **Fuente:** {f_str}")
+            md_lines.append("---")
+
+    elif "quiz" in format_key.lower():
+        md_lines.append("### 📝 Preguntas de Quiz Interactivas\n")
+        quizzes = adapted.quizzes or adapted.items or []
+        for i, q in enumerate(quizzes, 1):
+            if isinstance(q, dict):
+                pregunta = q.get("pregunta", "")
+                opciones = q.get("opciones", [])
+                correcta = q.get("respuesta_correcta", "")
+                justif = q.get("justificacion_didactica") or q.get("justificacion", "")
+            else:
+                pregunta = q.question
+                opciones = q.options
+                correcta = q.correct_answer
+                justif = q.didactic_justification or q.justification or ""
+
+            md_lines.append(f"#### Pregunta {i}: {pregunta}")
+            for opt in opciones:
+                mark = "✅ " if opt == correcta else "⚪ "
+                md_lines.append(f"- {mark}{opt}")
+            if justif:
+                md_lines.append(f"\n📖 **Justificación Pedagógica:** {justif}")
+            md_lines.append("---")
+
+    elif "tutorial" in format_key.lower():
+        md_lines.append("### 📖 Guía Paso a Paso\n")
+        sections = adapted.tutorial_sections or adapted.items or []
+        for sec in sections:
+            encabezado = sec.get("encabezado") or sec.get("titulo", "")
+            contenido = sec.get("contenido") or sec.get("instruccion", "")
+            md_lines.append(f"#### {encabezado}\n{contenido}\n")
+
+    elif "resumen" in format_key.lower():
+        md_lines.append("### 📋 Resumen Ejecutivo (TL;DR)\n")
+        if adapted.executive_summary:
+            md_lines.append(adapted.executive_summary)
+        else:
+            for it in (adapted.items or []):
+                md_lines.append(f"- **{it.get('punto_clave', '')}**: {it.get('impacto_negocio', '')}")
+
+    json_str = json.dumps(response.model_dump(), ensure_ascii=False, indent=2)
+    return "\n".join(md_lines), json_str
+
+
+with gr.Blocks(title="NuevaMente — Suite de Ingestión y Agentes") as demo:
+    gr.Markdown(
+        "# 🧠 NuevaMente — Prueba de Ingesta, RAG y Agentes Educativos\n"
+        "Suite integral para probar el pipeline completo: desde la carga del documento técnico hasta la generación agéntica."
+    )
+
+    with gr.Tab("1. Subir documento"):
         file_input = gr.File(
             label="Documento (.pdf, .md, .txt)",
             file_types=[".pdf", ".md", ".markdown", ".txt"],
@@ -287,7 +444,7 @@ with gr.Blocks(title="NuevaMente — Prueba de carga") as demo:
 
         submit_button.click(fn=handle_upload, inputs=[file_input, title_input], outputs=result_output)
 
-    with gr.Tab("Documentos existentes"):
+    with gr.Tab("2. Documentos existentes"):
         refresh_button = gr.Button("Actualizar listado")
         documents_table = gr.Dataframe(headers=DOCUMENT_TABLE_HEADERS, label="Documentos procesados")
 
@@ -307,12 +464,76 @@ with gr.Blocks(title="NuevaMente — Prueba de carga") as demo:
             outputs=inspection_output,
         )
 
+    with gr.Tab("3. 🤖 Generar con Agentes (RAG)"):
+        gr.Markdown("### Adaptación Pedagógica con Agentes Multimodales e Híbridos (RAG + Cross-Encoder)")
+        with gr.Row():
+            agent_doc_id = gr.Textbox(
+                label="Document ID",
+                placeholder="Pegue aquí el ID del documento en estado 'ready'",
+                scale=2,
+            )
+            agent_language = gr.Dropdown(
+                label="Idioma de Salida",
+                choices=["Spanish", "English", "Portuguese"],
+                value="Spanish",
+                scale=1,
+            )
+
+        with gr.Row():
+            profile_dropdown = gr.Dropdown(
+                label="Perfil del Estudiante",
+                choices=list(PROFILE_LABELS_ES.values()),
+                value=PROFILE_LABELS_ES.get("junior_developer", "Desarrollador Junior / Semi Senior"),
+            )
+            format_dropdown = gr.Dropdown(
+                label="Formato de Salida",
+                choices=list(FORMAT_LABELS_ES.values()),
+                value=FORMAT_LABELS_ES.get("flashcards", "Flashcards de Memorización"),
+            )
+            niche_dropdown = gr.Dropdown(
+                label="Sector / Nicho",
+                choices=list(NICHE_LABELS_ES.values()),
+                value=NICHE_LABELS_ES.get("general", "General"),
+            )
+
+        with gr.Row():
+            quantity_radio = gr.Radio(
+                label="Nivel de Cantidad",
+                choices=["Breve", "Estandar", "Amplio", "Exhaustivo"],
+                value="Estandar",
+            )
+            target_qty_input = gr.Number(
+                label="Cantidad Específica (Opcional)",
+                value=None,
+                precision=0,
+            )
+
+        generate_button = gr.Button("🚀 Iniciar Generación Agéntica", variant="primary")
+
+        with gr.Tabs():
+            with gr.TabItem("Visualización Didáctica"):
+                agent_visual_output = gr.Markdown()
+            with gr.TabItem("JSON Completo del Artefacto"):
+                agent_json_output = gr.Code(language="json")
+
+        generate_button.click(
+            fn=handle_agent_generation,
+            inputs=[
+                agent_doc_id,
+                profile_dropdown,
+                format_dropdown,
+                niche_dropdown,
+                agent_language,
+                quantity_radio,
+                target_qty_input,
+            ],
+            outputs=[agent_visual_output, agent_json_output],
+        )
+
 
 if __name__ == "__main__":
-    # Reports at startup whether the local embedding fallback can load, so a
-    # missing dependency is visible now and not in the middle of an upload.
     local_available, local_message = EmbeddingService().check_local_available()
     print(f"[Fallback local] {'OK' if local_available else 'NO DISPONIBLE'}: {local_message}")
 
     demo.queue()
-    demo.launch()
+    demo.launch()
