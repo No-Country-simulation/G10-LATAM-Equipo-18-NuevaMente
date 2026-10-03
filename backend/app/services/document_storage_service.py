@@ -49,31 +49,37 @@ class BaseDocumentStorage(ABC):
         """Downloads a previously uploaded document to destination_path."""
         pass
 
+    @abstractmethod
+    def upload_json_artifact(self, object_name: str, json_data: dict) -> dict:
+        """Uploads an educational JSON artifact and returns storage metadata."""
+        pass
+
 
 class SupabaseStorageService(BaseDocumentStorage):
-    """Stores original documents in a Supabase Storage bucket."""
+    """Stores original documents and generated artifacts in Supabase Storage buckets."""
 
-    def __init__(self, bucket: Optional[str] = None):
-        self.bucket = bucket or settings.SUPABASE_BUCKET_DOCUMENTS
+    def __init__(
+        self,
+        docs_bucket: Optional[str] = None,
+        artifacts_bucket: Optional[str] = None,
+    ):
+        self.docs_bucket = docs_bucket or settings.SUPABASE_BUCKET_DOCUMENTS
+        self.artifacts_bucket = artifacts_bucket or settings.SUPABASE_BUCKET_ARTIFACTS
 
     def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
         path = Path(local_path)
         extension = path.suffix.lower()
 
-        # Layout: {owner}/{document_id}{extension}. "anonymous" until login
-        # exists — once it does, user_id being non-null naturally scopes
-        # each user's documents under their own prefix.
         owner_prefix = user_id or "anonymous"
         object_key = f"{owner_prefix}/{document_id}{extension}"
 
         client = get_supabase_client()
         with open(path, "rb") as file:
-            client.storage.from_(self.bucket).upload(
+            client.storage.from_(self.docs_bucket).upload(
                 path=object_key,
                 file=file.read(),
                 file_options={
                     "content-type": _CONTENT_TYPES.get(extension, "application/octet-stream"),
-                    # Allows re-processing the same document_id without a manual delete first.
                     "upsert": "true",
                 },
             )
@@ -81,19 +87,77 @@ class SupabaseStorageService(BaseDocumentStorage):
 
     def download_document(self, object_key: str, destination_path: str) -> str:
         client = get_supabase_client()
-        file_bytes = client.storage.from_(self.bucket).download(object_key)
+        file_bytes = client.storage.from_(self.docs_bucket).download(object_key)
 
         destination = Path(destination_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
         destination.write_bytes(file_bytes)
         return str(destination)
 
+    def upload_json_artifact(self, object_name: str, json_data: dict) -> dict:
+        import json
+
+        client = get_supabase_client()
+        payload_bytes = json.dumps(json_data, ensure_ascii=False, indent=2).encode("utf-8")
+
+        client.storage.from_(self.artifacts_bucket).upload(
+            path=object_name,
+            file=payload_bytes,
+            file_options={
+                "content-type": "application/json",
+                "upsert": "true",
+            },
+        )
+        return {
+            "bucket": self.artifacts_bucket,
+            "objeto_id": object_name,
+            "status_upload": "completado",
+        }
+
+
+class OCIStorageAdapter(BaseDocumentStorage):
+    """Adapter bridging OCIStorageService to the BaseDocumentStorage interface."""
+
+    def __init__(self):
+        from app.services.oci_storage_service import OCIStorageService
+
+        self.service = OCIStorageService()
+
+    def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
+        path = Path(local_path)
+        extension = path.suffix.lower()
+        owner_prefix = user_id or "anonymous"
+        object_key = f"{owner_prefix}/{document_id}{extension}"
+
+        info = self.service.upload_document_source(
+            bucket_name=settings.OCI_BUCKET_DOCS,
+            object_name=object_key,
+            file_bytes=path.read_bytes(),
+            content_type=_CONTENT_TYPES.get(extension, "application/octet-stream"),
+        )
+        return info["objeto_id"]
+
+    def download_document(self, object_key: str, destination_path: str) -> str:
+        destination = Path(destination_path)
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        base_dir = Path.cwd() / "storage_mock" / settings.OCI_BUCKET_DOCS
+        file_path = base_dir / object_key
+        if file_path.exists():
+            destination.write_bytes(file_path.read_bytes())
+        return str(destination)
+
+    def upload_json_artifact(self, object_name: str, json_data: dict) -> dict:
+        return self.service.upload_json_artifact(
+            bucket_name=settings.OCI_BUCKET_ARTIFACTS,
+            object_name=object_name,
+            json_data=json_data,
+        )
+
 
 def get_document_storage() -> BaseDocumentStorage:
     """Factory choosing the storage backend by settings.STORAGE_METHOD."""
     if settings.STORAGE_METHOD == "supabase":
         return SupabaseStorageService()
-    raise ValueError(
-        f"Unsupported STORAGE_METHOD: '{settings.STORAGE_METHOD}'. "
-        "An OCI-backed BaseDocumentStorage implementation is still pending."
-    )
+    elif settings.STORAGE_METHOD == "oci":
+        return OCIStorageAdapter()
+    raise ValueError(f"Unsupported STORAGE_METHOD: '{settings.STORAGE_METHOD}'.")

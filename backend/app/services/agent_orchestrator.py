@@ -29,7 +29,7 @@ from app.schemas.adaptation import (
     OCIStorageResult,
     RagFuente
 )
-from app.services.oci_storage_service import OCIStorageService
+from app.services.document_storage_service import get_document_storage
 
 logger = logging.getLogger("AgentOrchestrator")
 
@@ -56,7 +56,7 @@ class AgentOrchestrator:
         self.gemini_client = GeminiClient()
         self.groq_client = GroqClient()
         self.router = MultiAgentRouter()
-        self.oci_service = OCIStorageService()
+        self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
 
     def run_pipeline(
@@ -197,7 +197,7 @@ class AgentOrchestrator:
             observations=f"Generación agéntica por lotes ({items_generados} items) anclada al documento fuente."
         )
 
-        # OCI Object Storage Save
+        # Save artifact using configured storage backend (Supabase or OCI)
         import time
         def _clean_str(s: str) -> str:
             return re.sub(r'[^a-zA-Z0-9]+', '-', s).strip('-').lower()
@@ -211,16 +211,15 @@ class AgentOrchestrator:
             "evaluacion_calidad": evaluation.model_dump(by_alias=True),
         }
 
-        oci_info = self.oci_service.upload_json_artifact(
-            bucket_name="nuevamente-contenidos-educativos",
+        storage_info = self.storage.upload_json_artifact(
             object_name=object_name,
             json_data=response_payload,
         )
 
         oci_storage = OCIStorageResult(
-            bucket=oci_info["bucket"],
-            object_id=oci_info["objeto_id"],
-            upload_status=oci_info["status_upload"],
+            bucket=storage_info["bucket"],
+            object_id=storage_info["objeto_id"],
+            upload_status=storage_info["status_upload"],
         )
 
         final_response = AdaptationResponse(

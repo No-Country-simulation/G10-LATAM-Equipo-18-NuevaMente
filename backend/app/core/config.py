@@ -137,6 +137,7 @@ class Settings(BaseModel):
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")
     SUPABASE_KEY: str = os.getenv("SUPABASE_KEY", "")
     SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
+    SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
