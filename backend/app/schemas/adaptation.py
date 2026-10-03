@@ -25,6 +25,7 @@ class AdaptationRequest(BaseModel):
     target_quantity: Optional[int] = Field(default=None, alias="cantidad_objetivo")
     quantity: Optional[int] = Field(default=5, alias="cantidad_generar")
     chunk_size: Optional[int] = Field(default=500, alias="tamano_chunk", description="Tamaño de fragmentación (chunks) para el procesamiento RAG (100 - 2000)")
+    language: Optional[str] = Field(default=None, alias="idioma_salida", description="Target language for generated content (defaults to settings.DEFAULT_OUTPUT_LANGUAGE)")
     additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
     force_regenerate: Optional[bool] = Field(default=False, alias="forzar_regenerar")
 
