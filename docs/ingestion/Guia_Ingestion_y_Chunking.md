@@ -25,21 +25,22 @@ El módulo de ingestión realiza **3 pasos esenciales**:
      de página repetidos).
        │
        ▼
-2. Detección de Secciones
-   - En Markdown: reconoce encabezados jerárquicos (#, ##, ###).
-   - En Texto plano: detecta patrones de capítulos y mayúsculas.
-   - En PDF: etiqueta y divide el contenido por número de página (modo
-     plano) o por encabezados Markdown (modo parser).
-       │
-       ▼
+2. Detección de Secciones y Jerarquía (Breadcrumbs)
+   - En Markdown y PDFs estructurados: reconoce encabezados jerárquicos (#, ##, ###) manteniendo una pila jerárquica (*Heading Stack*). Cada sección acumula los títulos de sus ancestros (`Capítulo 1 > 1.1 Descripción general`).
+   - En Texto plano: detecta patrones de capítulos y numeraciones multinivel (`1.`, `1.1`) construyendo la misma ruta jerárquica.
+   - Preservación de contexto: cuando un separador de capítulo vacío es descartado por el filtro de ruido, su título se mantiene en la pila para todos sus subcapítulos.
+   - En PDF sin formato: etiqueta y divide el contenido por número de página (modo plano).
+        │
+        ▼
 3. Segmentación Inteligente (Chunking)
    - Corta el texto respetando párrafos y límites de oraciones (sin cortar palabras a la mitad).
    - Prepara los datos en formato jerárquico Padre-Hijo (Parent-Child) listo para RAG.
+   - Cada chunk conserva la ruta completa de navegación (`breadcrumb`), agnóstica del idioma.
    - Opcionalmente, extrae de 0 a 4 conceptos clave por sección (ver más abajo).
 ```
 
 ### Conceptos Clave
-- **Sección (Parent Chunk):** Es el bloque temático completo (por ejemplo, todo el apartado *"Configuración de Subredes"*). Aporta todo el contexto educativo al LLM.
+- **Sección (Parent Chunk):** Es el bloque temático completo (por ejemplo, todo el apartado *"Capítulo 1 > 1.1 Descripción general"*). Aporta todo el contexto educativo al LLM.
 - **Fragmento (Child Chunk):** Subdivisión más pequeña dentro de la sección. Sirve para calcular vectores (embeddings) con alta precisión matemática.
 - **Conceptos clave (opcional, KeyBERT):** Cada Parent Chunk puede incluir una lista corta de frases clave extraídas automáticamente de su propio texto, útiles como pistas para el prompt del LLM en la etapa de generación. Está **desactivado por defecto** (`USE_KEYBERT_CONCEPTS=false`) porque carga su propio modelo local y añade tiempo a la ingesta; se activa por variable de entorno cuando se quiera medir su aporte. El modelo se carga una sola vez por instancia de `IngesterService`, no en cada documento procesado.
 
@@ -68,7 +69,7 @@ print(f"ID: {doc.document_id}")
 print(f"Título: {doc.title}")
 print(f"Total de chunks: {len(doc.chunks)}")
 
-# 2. Conversión para el pipeline de RAG (Parent-Child)
+# 2. Conversión para el pipeline de RAG (Parent-Child con Breadcrumbs)
 rag_payload = ingester.build_rag_chunks(doc)
 # Contiene: rag_payload["parent_chunks"] y rag_payload["child_chunks"]
 ```
@@ -79,33 +80,21 @@ rag_payload = ingester.build_rag_chunks(doc)
 - **`doc.chunks`** (`List[DocumentChunk]`, definido en `schemas/ingestion.py`):
   - `chunk_id`: Identificador único (ej. `uuid-0`).
   - `text`: Texto limpio del fragmento.
-  - `section_title`: Título de la sección de origen (o `None`).
+  - `section_title`: Ruta jerárquica de la sección (ej. `"Capítulo 1 > 1.1 Descripción general"`).
   - `heading_level`: Nivel jerárquico (1 para `#`, 2 para `##`, etc.).
   - `page_number`: Número de página (específico para PDFs en modo plano).
   - Este esquema describe únicamente la salida cruda de la ingesta — no incluye ningún campo de embeddings, que pertenece a una etapa posterior (ver más abajo).
 - **`rag_payload`** (`dict`), construido a partir de los modelos tipados en **`schemas/rag_chunks.py`** (`ParentChunk` y `ChildChunk`):
-  - `parent_chunks`: cada elemento se valida como `ParentChunk` — `{"id", "title", "breadcrumb", "content", "metadata"}`, donde `metadata` (`ParentChunkMetadata`) incluye `source_title`, `section_index`, `page_number`, `heading_level` y `key_concepts` (lista vacía si `USE_KEYBERT_CONCEPTS=false`).
+  - `parent_chunks`: cada elemento se valida como `ParentChunk` — `{"id", "title", "breadcrumb", "content", "metadata"}`, donde `breadcrumb` es `"[Documento] > [Capítulo] > [Sección]"`, y `metadata` (`ParentChunkMetadata`) incluye `source_title`, `section_index`, `page_number`, `heading_level` y `key_concepts` (lista vacía si `USE_KEYBERT_CONCEPTS=false`).
   - `child_chunks`: cada elemento se valida como `ChildChunk` — `{"id", "parent_id", "breadcrumb", "content", "metadata"}`, donde `metadata` (`ChildChunkMetadata`) incluye `parent_id` y `source`.
   - `build_rag_chunks()` construye estos modelos y los valida al crearlos, pero devuelve diccionarios planos (`.model_dump()`) — así `vector_store_service`, `retrieval_service` y `reranker_service`, que ya operan sobre dicts, no necesitan cambios. La validación ocurre en el origen, no en cada consumidor.
   - **Por qué un archivo aparte de `schemas/ingestion.py`:** los chunks Padre/Hijo son un dato de la etapa RAG (se embeben, se indexan, se recuperan y se reordenan), no de la ingesta cruda del documento — mezclarlos en el mismo esquema que `IngestedDocument` difuminaba esa frontera.
 
-### Endpoint HTTP (FastAPI)
-- **Ruta:** `POST /api/v1/parse-document` (también compatible con `/api/v1/parse-pdf`)
-- **Parámetro:** `file` (multipart/form-data)
-- **Formatos aceptados:** `.pdf`, `.md`, `.markdown`, `.txt` (hasta 20 MB).
-- **Respuesta (JSON):**
-  ```json
-  {
-    "status": "exito",
-    "filename": "manual_oci.pdf",
-    "titulo_sugerido": "Manual Oci",
-    "total_chunks": 12,
-    "texto_extraido": "...",
-    "chunks": [ ... ]
-  }
-  ```
-
-> ⚠️ **Este endpoint solo parsea y trocea el documento.** No genera embeddings, no indexa en el vector store y no sube nada a OCI/Supabase — es decir, un documento pasado por aquí todavía no queda "listo para generar" contenido. Esa responsabilidad completa (subir → registrar metadata → ingestar → embeber → indexar) ya existe en **`document_pipeline_service.py`** (`process_and_index_document()`, ver el documento de Almacenamiento de Documentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
+### Endpoints HTTP de Ingestión
+Para el procesamiento desacoplado en segundo plano con soporte de polling y consulta de estado, consulta la [Guía API de Ingestión](Guia_API_Ingestion.md):
+- `POST /api/v1/ingestion/upload` (Carga y registro inmediato, procesamiento en segundo plano)
+- `GET /api/v1/ingestion/status/{document_id}` (Consulta periódica de estado de indexación)
+- `GET /api/v1/ingestion/documents` (Listado de documentos registrados)umentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
 
 ---
 

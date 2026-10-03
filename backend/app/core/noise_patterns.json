@@ -1,0 +1,92 @@
+{
+    "legal": {
+        "title_patterns": [
+            "copyright",
+            "derechos\\s+de\\s+autor",
+            "aviso\\s+legal",
+            "informaci[oó]n\\s+legal",
+            "legal\\s+(?:notices?|information)",
+            "disclaimer",
+            "exenci[oó]n\\s+de\\s+responsabilidad",
+            "descargo\\s+de\\s+responsabilidad",
+            "marcas?\\s+(?:registradas?|comerciales?)",
+            "trademarks?",
+            "t[eé]rminos\\s+y\\s+condiciones",
+            "terms\\s+(?:and|of)\\s+(?:conditions|use)"
+        ],
+        "content_patterns": [
+            "©",
+            "\\bcopyright\\b",
+            "\\ball\\s+rights\\s+reserved\\b",
+            "\\btodos\\s+los\\s+derechos\\s+(?:est[aá]n\\s+)?reservados\\b",
+            "\\bprohibid[ao]\\s+(?:su|la|el)\\s+(?:reproducci[oó]n|copia|distribuci[oó]n)\\b",
+            "\\bmarcas?\\s+(?:registradas?|comerciales?)\\b",
+            "\\b(?:registered\\s+)?trademarks?\\b",
+            "\\bdisclaimer\\b",
+            "\\bexenci[oó]n\\s+de\\s+responsabilidad\\b",
+            "\\bsin\\s+previo\\s+aviso\\b",
+            "\\bwithout\\s+(?:prior\\s+)?notice\\b"
+        ]
+    },
+    "revision_history": {
+        "title_patterns": [
+            "revision\\s+history",
+            "version\\s+history",
+            "revision\\s+record",
+            "document\\s+history",
+            "change\\s*log",
+            "historial\\s+de\\s+(?:revisiones|cambios|versiones)",
+            "hist[oó]rico\\s+de\\s+(?:revisiones|cambios|versiones)",
+            "control\\s+de\\s+(?:cambios|versiones|revisiones)",
+            "registro\\s+de\\s+(?:cambios|revisiones)"
+        ],
+        "line_patterns": [
+            "^[\\s|*\\-]*(?:rev(?:isi[oó]n)?\\.?|versi[oó]n|version)\\s*[:\\-]?\\s*[A-Za-z0-9][\\w.]*"
+        ]
+    },
+    "index_lists": {
+        "title_patterns": [
+            "^[íi]ndice(?:\\s+(?:general|alfab[eé]tico|de\\s+(?:contenidos?|tablas|figuras|ilustraciones|im[aá]genes|anexos|ap[eé]ndices)))?$",
+            "^tabla\\s+de\\s+contenidos?$",
+            "^contenidos?$",
+            "^table\\s+of\\s+contents$",
+            "^contents$",
+            "^list\\s+of\\s+(?:tables|figures|illustrations)$",
+            "^lista\\s+de\\s+(?:tablas|figuras|ilustraciones|im[aá]genes)$"
+        ]
+    },
+    "near_empty": {
+        "chapter_title_patterns": [
+            "^cap[ií]tulo\\s+(?:\\d+|[ivxlc]+)$",
+            "^chapter\\s+(?:\\d+|[ivxlc]+)$",
+            "^parte\\s+(?:\\d+|[ivxlc]+)$",
+            "^part\\s+(?:\\d+|[ivxlc]+)$",
+            "^secci[oó]n\\s+\\d+$",
+            "^section\\s+\\d+$"
+        ],
+        "blank_page_patterns": [
+            "p[áa]gina\\s+(?:intencionalmente\\s+)?(?:dejada\\s+)?en\\s+blanco",
+            "p[áa]gina\\s+(?:se\\s+)?dej[óo]\\s+en\\s+blanco",
+            "intencionalmente\\s+(?:en\\s+blanco|vac[ií]a)",
+            "intentionally\\s+(?:left\\s+)?blank",
+            "left\\s+blank"
+        ],
+        "protected_patterns": [
+            "\\b(?:advertencia|peligro|precauci[oó]n|cuidado|atenci[oó]n|importante|warning|danger|caution|important)\\b"
+        ]
+    },
+    "normative_appendix": {
+        "title_patterns": [
+            "declaraci[oó]n\\s+(?:de\\s+)?(?:conformidad|cumplimiento)",
+            "declaration\\s+of\\s+(?:conformity|compliance)",
+            "certificaciones",
+            "certifications",
+            "cumplimiento\\s+(?:normativo|ambiental|regulatorio|reglamentario)",
+            "(?:regulatory|environmental)\\s+(?:compliance|information)",
+            "informaci[oó]n\\s+(?:regulatoria|normativa)",
+            "marcado\\s+ce",
+            "ce\\s+marking",
+            "\\b(?-i:RoHS|REACH|WEEE)\\b"
+        ]
+    }
+}
