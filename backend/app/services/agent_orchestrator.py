@@ -614,8 +614,8 @@ class AgentOrchestrator:
             }
         elif "resumen" in fmt or "tldr" in fmt:
             return {
-                "punto_clave": f"{exec_prefix} ({item_idx}): {main_concept}",
-                "impacto_negocio": f"{full_dorso}",
+                "punto_clave": f"{main_concept}: {target_sentence}",
+                "impacto_negocio": f"{target_sentence} — Estrategia de optimización en {request.niche} adaptada para {request.recipient_profile}.",
                 "fuentes": [fuente]
             }
         else:
