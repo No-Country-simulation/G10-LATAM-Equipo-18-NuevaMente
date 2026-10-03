@@ -39,9 +39,15 @@ class LangGraphOrchestrator:
         """Agente Redactor: Genera el contenido pedagógico estructurado."""
         logger.info(f"✍️ [Agente Redactor] Escribiendo borrador (Revisión #{state.get('revision_count', 0)})...")
         
+        profile = state['request'].recipient_profile
+        profile_str = profile.value if hasattr(profile, 'value') else str(profile)
+        
+        fmt = state['request'].output_format
+        fmt_str = fmt.value if hasattr(fmt, 'value') else str(fmt)
+        
         prompt = f"""
-        Eres un experto pedagogo. Adapta el siguiente contenido técnico al perfil '{state['request'].recipient_profile}'.
-        Formato requerido: '{state['request'].output_format.value}'
+        Eres un experto pedagogo. Adapta el siguiente contenido técnico al perfil '{profile_str}'.
+        Formato requerido: '{fmt_str}'
         Contexto original:
         {state['context']}
         
@@ -59,9 +65,12 @@ class LangGraphOrchestrator:
         """Agente Crítico: Evalúa si el borrador cumple con la calidad y fidelidad."""
         logger.info("🧐 [Agente Crítico] Evaluando calidad pedagógica y anclaje (fidelidad)...")
         
+        profile = state['request'].recipient_profile
+        profile_str = profile.value if hasattr(profile, 'value') else str(profile)
+        
         prompt = f"""
         Eres un crítico técnico riguroso. Evalúa este borrador educativo.
-        Perfil objetivo: '{state['request'].recipient_profile}'.
+        Perfil objetivo: '{profile_str}'.
         
         Borrador generado: {state['draft'].model_dump_json()}
         
