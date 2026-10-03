@@ -63,19 +63,14 @@ def _emit(on_progress: Optional[ProgressCallback], stage: str, message: str, **e
         logger.warning("Progress callback raised an error and was ignored: %s", exc)
 
 
-def process_and_index_document(
+def register_document(
     local_path: str,
     title: Optional[str] = None,
     user_id: Optional[str] = None,
     on_progress: Optional[ProgressCallback] = None,
 ) -> DocumentRecord:
     """
-    Runs the full pipeline for one document and returns its final record.
-    Raises if the upload or the initial metadata row can't be created —
-    there's nothing to mark failed yet at that point. Once the document row
-    exists, any later failure is caught and recorded via mark_failed()
-    instead of propagating silently. Every failure also emits a "failed"
-    progress event before the exception is raised.
+    Registers the uploaded document by storing the file and creating the database record.
     """
     document_id = str(uuid.uuid4())
     path = Path(local_path)
@@ -93,7 +88,7 @@ def process_and_index_document(
             document_id=document_id,
         )
 
-        repo.create_document(
+        return repo.create_document(
             document_id=document_id,
             title=resolved_title,
             source_filename=path.name,
@@ -104,15 +99,62 @@ def process_and_index_document(
         _emit(on_progress, "failed", f"No se pudo registrar el documento: {exc}")
         raise
 
+
+def process_registered_document(
+    document_id: str,
+    local_path: str,
+    title: str,
+    on_progress: Optional[ProgressCallback] = None,
+    cleanup_local: bool = True,
+) -> DocumentRecord:
+    """
+    Performs ingestion, chunking, embedding generation, and vector indexing for a registered document.
+    """
+    path = Path(local_path)
+    repo = get_document_repository()
+
     try:
-        _ingest_embed_and_index(path, resolved_title, document_id, repo, on_progress)
+        _ingest_embed_and_index(path, title, document_id, repo, on_progress)
     except Exception as exc:
         logger.error("Pipeline failed for document_id=%s: %s", document_id, exc)
         repo.mark_failed(document_id, error_message=str(exc))
         _emit(on_progress, "failed", f"Falló el procesamiento del documento: {exc}")
         raise
+    finally:
+        if cleanup_local and path.exists():
+            try:
+                path.unlink()
+            except OSError as cleanup_err:
+                logger.warning("Failed to remove temporary file %s: %s", path, cleanup_err)
 
     return repo.get_document(document_id)
+
+
+def process_and_index_document(
+    local_path: str,
+    title: Optional[str] = None,
+    user_id: Optional[str] = None,
+    on_progress: Optional[ProgressCallback] = None,
+) -> DocumentRecord:
+    """
+    Runs the full synchronous pipeline for one document and returns its final record.
+    """
+    path = Path(local_path)
+    resolved_title = title or path.stem
+
+    record = register_document(
+        local_path=local_path,
+        title=resolved_title,
+        user_id=user_id,
+        on_progress=on_progress,
+    )
+    return process_registered_document(
+        document_id=record.document_id,
+        local_path=local_path,
+        title=resolved_title,
+        on_progress=on_progress,
+        cleanup_local=False,
+    )
 
 
 def _ingest_embed_and_index(

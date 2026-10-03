@@ -45,9 +45,7 @@ except ImportError:
 # Module-level constants used inside the class to avoid cross-field references.
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 _JINA_EMBED_MODEL = "jina-embeddings-v3"
-# 768-dim local model, matched to EMBEDDING_DIMENSIONS below so FAISS and
-# pgvector indexes stay interchangeable regardless of which provider produced them.
-_LOCAL_EMBED_MODEL = "sentence-transformers/paraphrase-multilingual-mpnet-base-v2"
+_LOCAL_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 
 
 class Settings(BaseModel):
@@ -61,7 +59,7 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
 
     DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
-    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-flash-latest"
+    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
     DEFAULT_GROQ_MODEL: str = "llama-3.1-8b-instant"
     DEFAULT_OPENROUTER_MODEL: str = "mistral-small-latest"
 
@@ -108,7 +106,7 @@ class Settings(BaseModel):
     # Waits allowed on one provider after a mid-document failure, before its partial results are discarded.
     EMBEDDING_PARTIAL_RETRIES: int = int(os.getenv("EMBEDDING_PARTIAL_RETRIES", "2"))
     # Default wait (seconds) between retries when the provider gives no retry delay.
-    EMBEDDING_RETRY_WAIT_SECONDS: float = float(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "1.0"))
+    EMBEDDING_RETRY_WAIT_SECONDS: int = int(os.getenv("EMBEDDING_RETRY_WAIT_SECONDS", "60"))
 
     JINA_MAX_RPM: int = int(os.getenv("JINA_MAX_RPM", "100"))
     JINA_MAX_TPM: int = int(os.getenv("JINA_MAX_TPM", "100000"))
@@ -141,11 +139,9 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
-    OCI_ENABLED: bool = os.getenv("OCI_ENABLED", "false").lower() == "true"
     OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
     OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
     OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
-    TRASH_RETENTION_DAYS: int = int(os.getenv("TRASH_RETENTION_DAYS", "15"))
 
     # ── RAG Configuration ─────────────────────────────────────────────────────
     MAX_TOP_K_CHUNKS: int = 5
@@ -160,13 +156,41 @@ class Settings(BaseModel):
     CHUNK_OVERLAP: int = 150
     # Child chunks: smaller dense units embedded and indexed in FAISS.
     # Must be strictly less than CHUNK_SIZE and greater than CHILD_CHUNK_OVERLAP.
-    CHILD_CHUNK_SIZE: int = int(os.getenv("CHILD_CHUNK_SIZE", "400"))
-    CHILD_CHUNK_OVERLAP: int = int(os.getenv("CHILD_CHUNK_OVERLAP", "40"))
+    CHILD_CHUNK_SIZE: int = int(os.getenv("CHILD_CHUNK_SIZE", "500"))
+    CHILD_CHUNK_OVERLAP: int = int(os.getenv("CHILD_CHUNK_OVERLAP", "50"))
 
     # Extracts short key-concept tags per chunk at ingestion time (KeyBERT).
     # Disabled by default: it loads its own local model and adds ingestion
     # latency, so it's opt-in until measured on real documents.
     USE_KEYBERT_CONCEPTS: bool = os.getenv("USE_KEYBERT_CONCEPTS", "false").lower() == "true"
+
+    # ── Text Cleaning & Noise Filtering (ingestion) ───────────────────────────
+    # Normalizes extracted text: ligatures, invisible characters, line-break
+    # hyphenation, explicit page numbering and repeated whitespace.
+    CLEAN_TEXT: bool = os.getenv("CLEAN_TEXT", "true").lower() == "true"
+    # Drops non-technical sections (legal pages, revision history, figure/table
+    # indexes, near-empty pages, normative appendices) before chunking.
+    FILTER_NOISE_SECTIONS: bool = os.getenv("FILTER_NOISE_SECTIONS", "true").lower() == "true"
+    # Sections with fewer useful characters than this are candidates for removal.
+    NOISE_MIN_SECTION_CHARS: int = int(os.getenv("NOISE_MIN_SECTION_CHARS", "40"))
+    # If the filter would discard more than this share of the document text,
+    # it is skipped and a warning is logged.
+    NOISE_MAX_DISCARD_RATIO: float = float(os.getenv("NOISE_MAX_DISCARD_RATIO", "0.4"))
+    # Distinct legal patterns a section must match to be treated as a legal page.
+    NOISE_MIN_LEGAL_PATTERNS: int = int(os.getenv("NOISE_MIN_LEGAL_PATTERNS", "2"))
+    # A section longer than this is never discarded as a legal page by content.
+    NOISE_MAX_LEGAL_SECTION_CHARS: int = int(os.getenv("NOISE_MAX_LEGAL_SECTION_CHARS", "1500"))
+    # Revision-like lines ("Rev A", "Revision 2") needed to treat a section as a change log.
+    NOISE_MIN_REVISION_LINES: int = int(os.getenv("NOISE_MIN_REVISION_LINES", "3"))
+    # Share of lines ending in dot leaders + page number needed to treat a section as an index.
+    NOISE_MIN_DOT_LEADER_RATIO: float = float(os.getenv("NOISE_MIN_DOT_LEADER_RATIO", "0.4"))
+    # A section longer than this is never discarded by content patterns.
+    NOISE_PROTECT_LONG_SECTION_CHARS: int = int(os.getenv("NOISE_PROTECT_LONG_SECTION_CHARS", "2000"))
+    # Editable JSON with the title and content patterns of each noise category.
+    NOISE_PATTERNS_FILE: str = os.getenv(
+        "NOISE_PATTERNS_FILE",
+        os.path.join(os.path.dirname(os.path.abspath(__file__)), "noise_patterns.json"),
+    )
 
     # ── Domain Profiles ───────────────────────────────────────────────────────
     PROFILE_BEGINNER: str = "beginner"

@@ -87,29 +87,15 @@ class HybridRAGService:
         # Generamos el vector de la pregunta (purificamos antes de comparar)
         query_embedding = self.embedding_service.embed_text(query, is_query=True)
         
-        def _get_val(obj: Any, attr: str, default: Any = None) -> Any:
-            if isinstance(obj, dict):
-                return obj.get(attr, default)
-            return getattr(obj, attr, default)
-
-        def _set_val(obj: Any, attr: str, val: Any) -> None:
-            if isinstance(obj, dict):
-                obj[attr] = val
-            elif hasattr(obj, "__dict__"):
-                setattr(obj, attr, val)
-
-        missing_indices = [i for i, child in enumerate(child_chunks) if not _get_val(child, "embedding")]
-        if missing_indices:
-            missing_texts = [str(_get_val(child_chunks[i], "content", "")) for i in missing_indices]
-            computed_vectors = self.embedding_service.embed_batch(missing_texts, is_query=False)
-            for idx, vec in zip(missing_indices, computed_vectors):
-                _set_val(child_chunks[idx], "embedding", vec)
-
         dense_results = []
-        default_vec = [0.0] * (len(query_embedding) if query_embedding else 768)
         for i, child in enumerate(child_chunks):
-            child_vec = _get_val(child, "embedding") or default_vec
-            score = cosine_similarity(query_embedding, child_vec) if query_embedding else 0.0
+            # IDEALMENTE: child["embedding"] ya viene de la BD Vectorial.
+            chunk_embedding = child.get("embedding")
+            if not chunk_embedding:
+                # Si no está en BD, lo calculamos en caliente (solo como fallback)
+                chunk_embedding = self.embedding_service.embed_text(child["content"], is_query=False)
+            
+            score = cosine_similarity(query_embedding, chunk_embedding)
             dense_results.append((i, score))
             
         # Ordenamos y sacamos los rankings (mayor score = mejor rank, rank empieza en 0)
@@ -119,16 +105,10 @@ class HybridRAGService:
         # ---------------------------------------------------------
         # 2. Búsqueda Léxica (BM25 Real)
         # ---------------------------------------------------------
-        tokenized_corpus = [str(_get_val(child, "content", "")).lower().split() for child in child_chunks]
-        if tokenized_corpus and any(tokenized_corpus) and sum(len(t) for t in tokenized_corpus) > 0:
-            try:
-                bm25 = BM25Okapi(tokenized_corpus)
-                query_tokens = query.lower().split()
-                bm25_scores = bm25.get_scores(query_tokens)
-            except ZeroDivisionError:
-                bm25_scores = [0.0] * len(child_chunks)
-        else:
-            bm25_scores = [0.0] * len(child_chunks)
+        tokenized_corpus = [child["content"].lower().split() for child in child_chunks]
+        bm25 = BM25Okapi(tokenized_corpus)
+        query_tokens = query.lower().split()
+        bm25_scores = bm25.get_scores(query_tokens)
         
         lexical_results = [(i, score) for i, score in enumerate(bm25_scores)]
         lexical_results.sort(key=lambda x: x[1], reverse=True)

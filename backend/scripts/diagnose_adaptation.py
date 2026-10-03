@@ -203,7 +203,12 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
     # 1. Ingesta y Extracción de Documento Completo
     print(">> Ingestionando msJava.pdf...")
     try:
-        raw_markdown, resumen_ingesta = pdf_parser.parse_pdf_to_markdown(str(PDF_PATH))
+        parsed = pdf_parser.parse_pdf_to_markdown(str(PDF_PATH))
+        if isinstance(parsed, tuple):
+            raw_markdown, resumen_ingesta = parsed
+        else:
+            raw_markdown = parsed
+            resumen_ingesta = {"paginas": 1, "caracteres": len(raw_markdown), "caracteres_por_pagina": len(raw_markdown)}
         ingested_doc = ingester.process_document(PDF_PATH)
         rag_data = ingester.build_rag_chunks(ingested_doc)
         parent_chunks = rag_data.get("parent_chunks", [])

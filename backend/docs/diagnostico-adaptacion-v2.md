@@ -1,41 +1,59 @@
 # Reporte de Diagnóstico y Validación de Adaptación Educativa V2
 
-**Archivo:** `msJava.pdf` | **Páginas:** 64 | **Caracteres Total:** 21488 | **Fecha:** 2026-10-02 12:37:03
+**Archivo:** `msJava.pdf` | **Páginas:** 1 | **Caracteres Total:** 21614 | **Fecha:** 2026-10-02 18:07:31
 
 ## 📊 Tabla Comparativa por Combinación
 
 | Comb | Perfil | Formato | Origen | Proveedor & Modelo LLM | Fallback | Embeddings | Modo Rec. | Items (Sol/Gen) | Score Anclaje | Prompt Hash | Latencia |
 |---|---|---|---|---|---|---|---|---|---|---|---|
-| **A** | Principiante | Flashcards | `cache` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 10/10 | `0.923` | `b22b890099...` | 0.47s |
-| **B** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 80/40 | `0.943` | `3395dc5854...` | 0.71s |
-| **C** | Líder Técnico | Tutorial | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.896` | `2b70e2be69...` | 0.15s |
-| **D** | Ejecutivo | Resumen Ejecutivo | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 5/5 | `0.905` | `aa4c90be94...` | 0.12s |
-| **E** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 25/25 | `0.897` | `90f2badcf4...` | 0.41s |
-| **F** | Líder Técnico | Quiz | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.929` | `41d07455f1...` | 0.24s |
+| **A** | Principiante | Flashcards | `cache` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 10/10 | `0.957` | `322aad75f4...` | 24.13s |
+| **B** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 80/40 | `0.934` | `bce16b6339...` | 49.26s |
+| **C** | Líder Técnico | Tutorial | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.901` | `f68d00a90d...` | 20.06s |
+| **D** | Ejecutivo | Resumen Ejecutivo | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 5/5 | `0.894` | `69eb61488b...` | 19.94s |
+| **E** | Desarrollador | Flashcards | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 25/25 | `0.947` | `c66b3180f9...` | 49.84s |
+| **F** | Líder Técnico | Quiz | `llm` | gemini (gemini-flash-latest) | `False` | gemini | `semantico` | 15/15 | `0.898` | `afcc2c55f8...` | 46.39s |
 
 ## 🔄 Verificación de Caché
 - **Origen devuelto:** `cache`
 - **Prompt Hash coincidente:** `True`
-- **Latencia en caché:** `0.0001s`
+- **Latencia en caché:** `0.0013s`
 
 ## 🔍 Análisis de Comparación de Contenido Real
-- **Similitud Media entre Salidas:** `2.70%`
-- **Similitud Máxima entre Salidas:** `6.70%`
+- **Similitud Media entre Salidas:** `2.93%`
+- **Similitud Máxima entre Salidas:** `6.42%`
 
 ### Primer Ítem Completo por Combinación:
 
 #### Combinación (A): Principiante · Flashcards · Salud · Didáctico · Breve
 ```json
 {
-  "frente": "¿En qué consiste el principio de 'Generado proporciona bases' en Estructura del Proyecto Generado?",
-  "dorso": "Para un perfil de nivel principiante (Generado proporciona bases), Estructura del Proyecto Generado proporciona las bases operativas de msJava. Garantiza el cumplimiento regulatorio (HIPAA/HL7) y la privacidad de datos clínicos en el sector de la salud.",
-  "pista_didactica": "Pista: Enfócate en el impacto de Generado proporciona bases sobre la operatividad del sistema.",
+  "frente": "¿Cuál es el primer concepto mencionado en la lista del fragmento?",
+  "dorso": "El primer concepto mencionado es 'Monitoreo'.",
+  "pista_didactica": "Comienza con la letra M y se refiere a la observación o supervisión.",
+  "pregunta": "¿Qué elemento encabeza la enumeración en el texto?",
+  "opciones": [
+    "Monitoreo",
+    "Docker",
+    "Kubernetes",
+    "CI/CD"
+  ],
+  "respuesta_correcta": "Monitoreo",
+  "justificacion": "El texto inicia explícitamente con la palabra 'Monitoreo'.",
+  "paso": 1,
+  "titulo": "Identificación de Monitoreo",
+  "instruccion": "Reconoce a Monitoreo como el punto de partida en la lista provista.",
+  "ejemplo": "Lectura directa: 'Monitoreo, Docker...'",
+  "punto_clave": "Monitoreo es el primer término citado.",
+  "impacto_negocio": "Permite registrar y revisar los componentes clave descritos.",
+  "escena": 1,
+  "duracion_seg": 30,
+  "narracion": "Iniciamos revisando el primer concepto listado: Monitoreo.",
+  "apoyo_visual": "Texto resaltando la palabra 'Monitoreo'.",
   "fuentes": [
     {
-      "chunk_id": "parent_0",
-      "extracto": "1",
-      "pagina": 2,
-      "similitud_score": 0.95
+      "chunk_id": "parent_5",
+      "extracto": "Monitoreo, Docker, Kubernetes y CI/CD",
+      "pagina": 1
     }
   ]
 }
@@ -44,15 +62,33 @@
 #### Combinación (B): Desarrollador · Flashcards · Fintech · Técnico · Exhaustivo
 ```json
 {
-  "frente": "¿Cómo se implementa y configura 'aplicaciones stand-alone Tomcat/Jetty/Undertow' en el módulo de Estructura del Proyecto Generado?",
-  "dorso": "Desde la perspectiva de desarrollo (tecnico - aplicaciones stand-alone Tomcat/Jetty/Undertow), Tomcat/Jetty/Undertow incluido - aplicaciones stand-alone Asegura la integridad transaccional (PCI-DSS), cero latencia y auditoría estricta en servicios financieros.",
-  "pista_didactica": "Pista: Enfócate en el impacto de aplicaciones stand-alone Tomcat/Jetty/Undertow sobre la operatividad del sistema.",
+  "frente": "¿Qué componente de observabilidad técnica se menciona de forma explícita en el fragmento parent_5?",
+  "dorso": "El componente mencionado es 'Monitoreo'.",
+  "pista_didactica": "Es el primer elemento de la lista técnica provista.",
+  "pregunta": "¿Cuál de los siguientes elementos está listado como parte de la infraestructura técnica en el texto?",
+  "opciones": [
+    "Monitoreo",
+    "Event Sourcing",
+    "BBDD Relacional",
+    "API Gateway"
+  ],
+  "respuesta_correcta": "Monitoreo",
+  "justificacion": "El fragmento parent_5 lista textualmente 'Monitoreo' como parte de sus elementos.",
+  "paso": 1,
+  "titulo": "Identificación de Monitoreo",
+  "instruccion": "Revisar los componentes de supervisión técnica provistos en la fuente.",
+  "ejemplo": "Elemento: Monitoreo",
+  "punto_clave": "El monitoreo forma parte directa de la lista de componentes técnicos.",
+  "impacto_negocio": "Permite registrar el estado y visibilidad de los sistemas.",
+  "escena": 1,
+  "duracion_seg": 60,
+  "narracion": "Dentro de la lista de componentes se incluye el Monitoreo.",
+  "apoyo_visual": "Texto destacando 'Monitoreo'.",
   "fuentes": [
     {
-      "chunk_id": "parent_11",
-      "extracto": "Tomcat/Jetty/Undertow incluido - aplicaciones stand-alone",
-      "pagina": 2,
-      "similitud_score": 0.95
+      "chunk_id": "parent_5",
+      "extracto": "Monitoreo, Docker, Kubernetes y CI/CD",
+      "pagina": 1
     }
   ]
 }
@@ -61,17 +97,33 @@
 #### Combinación (C): Líder Técnico · Tutorial · E-commerce · Exhaustivo · Amplio
 ```json
 {
+  "frente": "¿Cuál es el primer componente operativo contemplado en el fragmento para la gestión técnica?",
+  "dorso": "El primer componente explícitamente listado es el Monitoreo.",
+  "pista_didactica": "Enfóquese en la primera palabra del fragmento sobre la infraestructura técnica.",
+  "pregunta": "¿Qué aspecto inicia la lista de capacidades técnicas citadas en el fragmento parent_5?",
+  "opciones": [
+    "Monitoreo",
+    "Docker",
+    "Kubernetes",
+    "CI/CD"
+  ],
+  "respuesta_correcta": "Monitoreo",
+  "justificacion": "El fragmento documenta de forma secuencial los términos: Monitoreo, Docker, Kubernetes y CI/CD.",
   "paso": 1,
-  "titulo": "Módulo 1: Integración de Conguración server.port datasource",
-  "instruccion": "Configura y valida Conguración server.port datasource según la especificidad técnica: Conguración: server.port, datasource, logging levels",
-  "ejemplo": "// Aplicar Conguración server.port datasource en ¿Qué es Spring Boot?\n// Entorno: E-commerce (Líder Técnico)\nval status = process_con_guraci_n_server_()",
-  "advertencia": "Asegúrate de validar la compatibilidad de Conguración server.port datasource antes de desplegar en producción.",
+  "titulo": "Identificación de Monitoreo",
+  "instruccion": "Establecer la capacidad de Monitoreo como primer elemento clave del ecosistema técnico según las fuentes.",
+  "ejemplo": "Supervisión orientada a 'Monitoreo'",
+  "punto_clave": "Monitoreo como pilar inicial documentado.",
+  "impacto_negocio": "Visibilidad técnica inmediata de acuerdo a las directrices de la arquitectura.",
+  "escena": 1,
+  "duracion_seg": 60,
+  "narracion": "Iniciamos la revisión de la arquitectura técnica priorizando el componente de Monitoreo definido en la base de conocimiento.",
+  "apoyo_visual": "Texto destacado en pantalla que señala 'Monitoreo' como primer bloque del esquema.",
   "fuentes": [
     {
-      "chunk_id": "parent_20",
-      "extracto": "Conguración: server.port, datasource, logging levels",
-      "pagina": 1,
-      "similitud_score": 0.95
+      "chunk_id": "parent_5",
+      "extracto": "Monitoreo, Docker, Kubernetes y CI/CD",
+      "pagina": 2
     }
   ]
 }
@@ -80,14 +132,33 @@
 #### Combinación (D): Ejecutivo · Resumen · General · Conciso · Estándar
 ```json
 {
-  "punto_clave": "Impacto Ejecutivo y ROI (3): Convenciones conguración desarrollo",
-  "impacto_negocio": "Desde una visión gerencial y estratégica en general (Convenciones conguración desarrollo), Convenciones sobre conguración para desarrollo rápido Aporta eficiencia operativa, mantenibilidad y excelencia en el ecosistema de General.",
+  "frente": "¿Qué valor numérico o dato inicial se registra en el fragmento provisto sobre el tema?",
+  "dorso": "El único dato reportado en la documentación disponible es el valor '1'. No se incluye información técnica o conceptual adicional en el texto fuente.",
+  "pista_didactica": "Revise el único carácter numérico provisto en el fragmento.",
+  "pregunta": "¿Cuál es el contenido registrado en la fuente para este apartado?",
+  "opciones": [
+    "1",
+    "Microservicios monolíticos",
+    "Alta disponibilidad",
+    "Ninguno"
+  ],
+  "respuesta_correcta": "1",
+  "justificacion": "El fragmento parent_0 contiene exclusivamente el registro '1'.",
+  "paso": 1,
+  "titulo": "Identificación del dato base en la documentación",
+  "instruccion": "Verificar el valor inicial registrado en la documentación corporativa.",
+  "ejemplo": "Dato asentado: 1.",
+  "punto_clave": "El documento únicamente asienta la cifra 1.",
+  "impacto_negocio": "Garantiza la toma de decisiones basada exclusivamente en registros verificados sin suposiciones.",
+  "escena": 1,
+  "duracion_seg": 60,
+  "narracion": "La documentación analizada asienta como único dato disponible la unidad 1.",
+  "apoyo_visual": "Texto en pantalla mostrando la cifra '1' validada en el documento fuente.",
   "fuentes": [
     {
-      "chunk_id": "parent_9",
-      "extracto": "Convenciones sobre conguración para desarrollo rápido",
-      "pagina": 2,
-      "similitud_score": 0.95
+      "chunk_id": "parent_0",
+      "extracto": "1",
+      "pagina": 1
     }
   ]
 }
