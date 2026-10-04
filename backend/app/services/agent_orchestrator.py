@@ -34,8 +34,7 @@ from app.core.labels import (
     TITLE_TEMPLATES_ES,
     get_capacity_warning_es,
 )
-from app.infrastructure.gemini_client import GeminiClient
-from app.infrastructure.groq_client import GroqClient
+from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
 from app.prompts.prompt_loader import load_prompt
 from app.schemas.adaptation import (
     AdaptationRequest,
@@ -76,6 +75,9 @@ class AgentOrchestrator:
     def __init__(self):
         self.gemini_client = GeminiClient()
         self.groq_client = GroqClient()
+        self.openrouter_client = OpenRouterClient()
+        # Ordered cascade: Gemini -> Groq -> OpenRouter (Mistral) -> fallback
+        self._llm_cascade = [self.gemini_client, self.groq_client, self.openrouter_client]
         self.router = MultiAgentRouter()
         self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
@@ -301,19 +303,20 @@ class AgentOrchestrator:
             if tracer:
                 tracer.record_llm_call("generar")
 
-            if self.gemini_client.has_real_key:
+            # Cascade: attempt each LLM provider in order until one succeeds
+            for llm in self._llm_cascade:
+                if not llm.is_available:
+                    continue
                 try:
-                    raw = self.gemini_client.generate_content(
-                        prompt=prompt, system_instruction=system_instruction, json_output=True
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
                     )
+                    if raw:
+                        break
                 except Exception as exc:
-                    logger.warning("Gemini generation failed: %s", exc)
-
-            if not raw and self.groq_client.is_available:
-                try:
-                    raw = self.groq_client.generate(prompt=prompt, system_prompt=system_instruction)
-                except Exception as exc:
-                    logger.warning("Groq fallback failed: %s", exc)
+                    logger.warning("%s generation failed: %s", type(llm).__name__, exc)
 
             parsed_batch = self._parse_json_batch(raw)
             if not parsed_batch:

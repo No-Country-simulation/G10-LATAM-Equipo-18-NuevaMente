@@ -2,7 +2,7 @@ import tempfile
 import os
 from pathlib import Path
 from fastapi import APIRouter, UploadFile, File, HTTPException, status
-from app.infrastructure.gemini_client import GeminiClient
+from app.infrastructure.llm import GeminiClient
 from app.core.config import settings
 import json
 

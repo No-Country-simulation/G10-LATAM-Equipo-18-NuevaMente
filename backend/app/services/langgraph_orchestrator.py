@@ -1,7 +1,7 @@
 from typing import Annotated, TypedDict, List
 from langgraph.graph import StateGraph, END
 from app.schemas.adaptation import AdaptationRequest, AdaptedContent
-from app.infrastructure.llm.groq_adapter import GroqAdapter
+from app.infrastructure.llm import GroqClient as GroqAdapter
 from loguru import logger
 from pydantic import BaseModel
 
