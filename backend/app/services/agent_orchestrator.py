@@ -78,6 +78,8 @@ class AgentOrchestrator:
         self.openrouter_client = OpenRouterClient()
         # Ordered cascade: Gemini -> Groq -> OpenRouter (Mistral) -> fallback
         self._llm_cascade = [self.gemini_client, self.groq_client, self.openrouter_client]
+        # Tracks the name of the LLM provider that last succeeded in the cascade
+        self.last_provider: str = "fallback"
         self.router = MultiAgentRouter()
         self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
@@ -184,7 +186,7 @@ class AgentOrchestrator:
             estimated_study_time_minutes=max(3, items_generated * 2),
             key_concepts=key_concepts[:8],
             prerequisites=prerequisites[:5],
-            llm_provider=self.router.last_provider or "gemini",
+            llm_provider=self.last_provider,
             timings=tracer.timings if tracer else {},
             llm_calls=tracer.llm_calls if tracer else {},
         )
@@ -314,6 +316,7 @@ class AgentOrchestrator:
                         json_output=True,
                     )
                     if raw:
+                        self.last_provider = type(llm).__name__.lower().replace("client", "")
                         break
                 except Exception as exc:
                     logger.warning("%s generation failed: %s", type(llm).__name__, exc)

@@ -66,37 +66,46 @@ class GeminiClient(BaseLLMClient):
         json_output: bool = False,
         **kwargs: Any,
     ) -> str:
-        """Executes text or multimodal generation using Gemini."""
+        """Executes text or multimodal generation using the chat session API."""
         if not self.is_available:
             raise RuntimeError("GEMINI_API_KEY is not configured or client failed to initialize.")
 
         from google.genai import types  # noqa: PLC0415
-        from PIL import Image  # noqa: PLC0415
 
-        model_name = kwargs.get("model_name") or os.getenv("GEMINI_LLM_MODEL", "gemini-2.5-flash")
+        model_name = kwargs.get("model_name") or settings.GEMINI_LLM_MODEL
         image_path = kwargs.get("image_path")
 
-        config_kwargs = {}
+        # Build generation config
+        gen_config_kwargs = {}
         if json_output:
-            config_kwargs["response_mime_type"] = "application/json"
-        if system_instruction:
-            config_kwargs["system_instruction"] = system_instruction
+            gen_config_kwargs["response_mime_type"] = "application/json"
 
-        contents = [prompt]
+        gen_config = types.GenerateContentConfig(
+            system_instruction=system_instruction,
+            **gen_config_kwargs,
+        ) if system_instruction or gen_config_kwargs else None
+
+        # Build message parts - text first, then optional image
         if image_path and os.path.exists(image_path):
-            img = Image.open(image_path)
-            contents.append(img)
+            import mimetypes  # noqa: PLC0415
+            mime_type = mimetypes.guess_type(image_path)[0] or "image/jpeg"
+            with open(image_path, "rb") as img_file:
+                image_bytes = img_file.read()
+            message_parts = [
+                types.Part.from_text(text=prompt),
+                types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+            ]
+        else:
+            message_parts = prompt
 
         try:
-            response = self._client.models.generate_content(
-                model=model_name,
-                contents=contents,
-                config=types.GenerateContentConfig(**config_kwargs) if config_kwargs else None,
-            )
+            chat = self._client.chats.create(model=model_name, config=gen_config)
+            response = chat.send_message(message_parts)
             return response.text
         except Exception as exc:
             logger.warning("Gemini generation failed: %s", exc)
             raise RuntimeError(f"Gemini API failure: {exc}") from exc
+
 
     def generate_content(
         self,

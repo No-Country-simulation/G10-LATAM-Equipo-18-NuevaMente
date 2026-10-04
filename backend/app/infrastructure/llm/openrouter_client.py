@@ -35,7 +35,7 @@ class OpenRouterClient(BaseLLMClient):
             and not self.api_key.startswith("mock")
         )
         self.base_url = "https://openrouter.ai/api/v1/chat/completions"
-        self.default_model = default_model or "mistralai/mistral-small-24b-instruct-2501"
+        self.default_model = default_model or settings.DEFAULT_OPENROUTER_MODEL
 
     @property
     def is_available(self) -> bool:

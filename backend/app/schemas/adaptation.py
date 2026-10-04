@@ -99,7 +99,7 @@ class ResponseMetadata(BaseModel):
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
-    llm_model: Optional[str] = Field("gemini-flash-latest", alias="modelo_llm")
+    llm_model: Optional[str] = Field(None, alias="modelo_llm")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
     degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
     retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")

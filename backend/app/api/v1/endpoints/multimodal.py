@@ -59,7 +59,7 @@ async def extract_diagram(file: UploadFile = File(...)):
             raw_response = gemini_client.generate_content(
                 prompt=prompt,
                 system_instruction=system_instruction,
-                model_name="gemini-2.5-flash",
+                model_name=settings.DEFAULT_GEMINI_MODEL_PRO,
                 json_output=True,
                 image_path=temp_path
             )

@@ -59,10 +59,12 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     DEFAULT_OUTPUT_LANGUAGE: str = os.getenv("DEFAULT_OUTPUT_LANGUAGE", "Spanish")
 
-    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
+    # LLM model identifiers - defined here, not in .env (which is only for API keys)
+    GEMINI_LLM_MODEL: str = "gemini-3.5-flash"
+    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-3.5-pro"
     DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
-    DEFAULT_GROQ_MODEL: str = "llama-3.1-8b-instant"
-    DEFAULT_OPENROUTER_MODEL: str = "mistral-small-latest"
+    DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-20b"
+    DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
 
     # ── Embedding Configuration ───────────────────────────────────────────────
     EMBEDDING_METHOD: str = os.getenv("EMBEDDING_METHOD", "api")

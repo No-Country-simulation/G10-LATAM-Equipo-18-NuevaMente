@@ -79,7 +79,7 @@ class GroqClient(BaseLLMClient):
         if not self.is_available:
             raise RuntimeError("GROQ_API_KEY is not configured or client is unavailable.")
 
-        model = kwargs.get("model") or kwargs.get("model_name") or "llama-3.3-70b-versatile"
+        model = kwargs.get("model") or kwargs.get("model_name") or settings.DEFAULT_GROQ_MODEL
         messages = []
         if system_instruction:
             messages.append({"role": "system", "content": system_instruction})
@@ -99,7 +99,7 @@ class GroqClient(BaseLLMClient):
         self,
         prompt: str,
         system_instruction: Optional[str] = None,
-        model_name: str = "llama-3.3-70b-versatile",
+        model_name: Optional[str] = None,
         json_output: bool = True,
     ) -> str:
         """Backward compatibility helper matching the original generate_content signature."""
@@ -107,7 +107,7 @@ class GroqClient(BaseLLMClient):
             prompt=prompt,
             system_instruction=system_instruction,
             json_output=json_output,
-            model=model_name,
+            model=model_name or settings.DEFAULT_GROQ_MODEL,
         )
 
 

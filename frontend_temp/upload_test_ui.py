@@ -17,6 +17,7 @@ Output:
     second, penultimate, and final chunks with vector values).
 """
 
+import json
 import queue
 import sys
 import threading
