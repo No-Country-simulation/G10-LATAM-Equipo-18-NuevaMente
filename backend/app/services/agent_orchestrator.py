@@ -17,6 +17,9 @@ from typing import Dict, Any, List, Tuple, Optional
 
 from app.infrastructure.gemini_client import GeminiClient
 from app.infrastructure.groq_client import GroqClient
+from app.services.oci_storage_service import OCIStorageService
+from app.services.pdf_export_service import PDFExportService
+from app.prompts.prompt_loader import load_prompt
 from app.services.multi_agent_router import MultiAgentRouter
 from app.schemas.adaptation import (
     AdaptationRequest,
@@ -29,7 +32,7 @@ from app.schemas.adaptation import (
     OCIStorageResult,
     RagFuente
 )
-from app.services.oci_storage_service import OCIStorageService
+from app.services.document_storage_service import get_document_storage
 
 logger = logging.getLogger("AgentOrchestrator")
 
@@ -59,7 +62,7 @@ class AgentOrchestrator:
         self.oci_service = OCIStorageService()
         self._response_cache: Dict[str, AdaptationResponse] = {}
 
-    def run_pipeline(
+    async def run_pipeline(
         self,
         request: AdaptationRequest,
         top_passages: List[Dict[str, Any]],
@@ -124,7 +127,7 @@ class AgentOrchestrator:
 
         # 4. Stage B: Batch Generators (8-10 items per batch)
         if tracer: tracer.start_stage("generacion_lotes")
-        raw_items = self._stage_batch_generators(request, doc_title, topics, top_passages, effective_target, tracer=tracer)
+        raw_items = await self._stage_batch_generators(request, doc_title, topics, top_passages, effective_target, tracer=tracer)
         if tracer: tracer.end_stage("generacion_lotes")
 
         # 5. Stage C: Deduplication (Similarity > 0.88)
@@ -223,12 +226,21 @@ class AgentOrchestrator:
             upload_status=oci_info["status_upload"],
         )
 
+        pdf_path = None
+        try:
+            pdf_service = PDFExportService()
+            output_name = f"scratch/{object_name.replace('.json', '.pdf')}"
+            pdf_path = pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
+        except Exception as e:
+            logger.warning(f"Error generando PDF: {e}")
+
         final_response = AdaptationResponse(
             status="exito",
             metadata=metadata,
             adapted_content=adapted_content,
             quality_evaluation=evaluation,
             oci_storage=oci_storage,
+            pdf_url=pdf_path
         )
         self._response_cache[prompt_hash] = final_response
         return final_response
@@ -266,7 +278,7 @@ class AgentOrchestrator:
     # ---------------------------------------------------------------------------
     # STAGE B: BATCH GENERATORS (Max 8-10 items per LLM call)
     # ---------------------------------------------------------------------------
-    def _stage_batch_generators(
+    async def _stage_batch_generators(
         self,
         request: AdaptationRequest,
         doc_title: str,
@@ -275,17 +287,17 @@ class AgentOrchestrator:
         total_target: int,
         tracer: Optional[Any] = None,
     ) -> List[Dict[str, Any]]:
-        all_generated = []
-        batch_size = 8
-
+        import asyncio
+        batch_size = 5 if total_target <= 10 else (8 if total_target <= 30 else 10)
+        
+        # Determine format template if necessary or just build it dynamically
         system_instruction = (
-            f"ROL: Eres diseñador instruccional senior y experto en {request.niche}. "
-            f"Escribes para el perfil \"{request.recipient_profile}\" con nivel de detalle \"{request.detail_level}\". "
-            "DEBES RESPONDER ÚNICAMENTE CON UN ARRAY JSON DE OBJETOS."
+            f"ROLE: Senior instructional designer expert in {request.niche}. "
+            f"Writing for profile '{request.recipient_profile}'. "
+            "OUTPUT FORMAT: Return strictly a valid JSON array of objects."
         )
 
-        def _generate_for_topic(t_tuple: Tuple[int, Dict[str, Any]]) -> List[Dict[str, Any]]:
-            t_idx, topic = t_tuple
+        async def _generate_for_topic(topic_idx: int, topic: Dict[str, Any]) -> List[Dict[str, Any]]:
             n_items = batch_size
             chunk_info = f"CHUNK ID: {topic['chunk_id']} (Pág. {topic['page']}): {topic['context']}"
 
@@ -330,26 +342,28 @@ class AgentOrchestrator:
             if tracer: tracer.record_llm_call("generar")
 
             # Tier 1: Try Gemini
-            if self.gemini_client.has_real_key:
+            if hasattr(self.gemini_client, 'has_real_key') and self.gemini_client.has_real_key:
                 try:
-                    raw = self.gemini_client.generate_content(
+                    raw = await asyncio.to_thread(
+                        self.gemini_client.generate_content,
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True
                     )
                 except Exception as exc:
-                    logger.warning(f"Lote LLM Gemini {t_idx+1} falló ({exc}). Conmutando por error a Groq...")
+                    logger.warning(f"Lote LLM Gemini {topic_idx+1} falló ({exc}). Conmutando por error a Groq...")
 
             # Tier 2: Try Groq (if Gemini failed or has no key)
-            if not raw and self.groq_client.has_real_key:
+            if not raw and hasattr(self.groq_client, 'has_real_key') and self.groq_client.has_real_key:
                 try:
-                    raw = self.groq_client.generate_content(
+                    raw = await asyncio.to_thread(
+                        self.groq_client.generate_content,
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True
                     )
                 except Exception as exc:
-                    logger.warning(f"Lote LLM Groq {t_idx+1} falló ({exc}).")
+                    logger.warning(f"Lote LLM Groq {topic_idx+1} falló ({exc}).")
 
             # Try parsing LLM response
             if raw:
@@ -361,25 +375,25 @@ class AgentOrchestrator:
                     elif isinstance(parsed, dict) and "items" in parsed and len(parsed["items"]) > 0:
                         return parsed["items"]
                 except Exception as exc:
-                    logger.warning(f"Error al parsear respuesta JSON de LLM en lote {t_idx+1}: {exc}")
+                    logger.warning(f"Error al parsear respuesta JSON de LLM en lote {topic_idx+1}: {exc}")
 
             # Tier 3: Upgraded Contextual RAG Synthetic Generator
-            logger.info(f"Lote LLM {t_idx+1} usando generador sintético dinámico anclado a RAG.")
-            alloc_count = topic.get("allocated", 4)
-            return self._generate_fallback_batch(request, doc_title, topic, alloc_count, t_idx * alloc_count)
+            logger.info(f"Lote LLM {topic_idx+1} usando generador sintético dinámico anclado a RAG.")
+            alloc_count = topic.get("allocated", n_items)
+            return self._generate_fallback_batch(request, doc_title, topic, alloc_count, topic_idx * alloc_count)
 
-        import concurrent.futures
-        max_workers = min(4, max(1, len(topics)))
-        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_generate_for_topic, (i, t)) for i, t in enumerate(topics)]
-            for fut in concurrent.futures.as_completed(futures):
-                try:
-                    res_items = fut.result()
-                    all_generated.extend(res_items)
-                except Exception as exc:
-                    logger.warning(f"Error en worker de generación: {exc}")
-
-        return all_generated[:total_target]
+        needed_topics = min(len(topics), math.ceil(total_target / batch_size))
+        tasks = [_generate_for_topic(i, topics[i]) for i in range(needed_topics)]
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        
+        items = []
+        for res in results:
+            if isinstance(res, list):
+                items.extend(res)
+            elif isinstance(res, Exception):
+                logger.error(f"Error en generador LLM asíncrono: {res}")
+                
+        return items[:total_target]
 
     # ---------------------------------------------------------------------------
     # STAGE C: FUSION & DEDUPLICATION (Similarity > 0.88)
@@ -461,6 +475,57 @@ class AgentOrchestrator:
             extra.append(fallback_item)
 
         return extra
+
+    # ---------------------------------------------------------------------------
+    # STAGE F: CRITIC EVALUATION
+    # ---------------------------------------------------------------------------
+    def _evaluate_quality_with_critic(
+        self, request: AdaptationRequest, generated_items: List[Dict[str, Any]], passages: List[Dict[str, Any]], fallback_score: float
+    ) -> QualityEvaluation:
+        if not self.groq_client.is_available:
+            return QualityEvaluation(
+                source_grounding_score=fallback_score,
+                pedagogical_clarity="Alta",
+                observations="Generación agéntica por lotes. (Evaluación por heurística; Groq no disponible)."
+            )
+            
+        system_instruction = "You are a pedagogical critic evaluating generated educational content."
+        context_str = "\n".join([str(p.get("content", p.get("text", "")))[:300] for p in passages[:3]])
+        items_str = json.dumps([self._get_item_text(i) for i in generated_items[:3]], ensure_ascii=False)
+        
+        prompt = f"""
+Evaluate the following educational content generated for the profile '{request.recipient_profile}'.
+Source Context excerpts:
+{context_str}
+
+Generated Items (sample):
+{items_str}
+
+Return a valid JSON with:
+- "anclaje_fuente_score": float between 0.0 and 1.0 (how well it reflects the source).
+- "claridad_pedagogica": string ("Alta", "Media", "Baja").
+- "observaciones": A short sentence justifying the evaluation.
+"""
+        try:
+            raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
+            text = raw.strip() if raw else "{}"
+            text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"^```\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+            data = json.loads(text)
+            
+            return QualityEvaluation(
+                source_grounding_score=float(data.get("anclaje_fuente_score", fallback_score)),
+                pedagogical_clarity=data.get("claridad_pedagogica", "Alta"),
+                observations=data.get("observaciones", "Evaluado por agente crítico Groq.")
+            )
+        except Exception as e:
+            logger.warning(f"Critic agent failed: {e}")
+            return QualityEvaluation(
+                source_grounding_score=fallback_score,
+                pedagogical_clarity="Alta",
+                observations="Evaluación heurística de fallback por falla en agente crítico."
+            )
 
     # ---------------------------------------------------------------------------
     # HELPERS & FORMATTING

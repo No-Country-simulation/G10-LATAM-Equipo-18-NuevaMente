@@ -101,7 +101,7 @@ async def adapt_content(request: AdaptationRequest):
         tracer.end_stage("recuperacion_hybrid")
 
         # 4. Agentic Orchestration with Gemini
-        response = agent_orchestrator.run_pipeline(
+        response = await agent_orchestrator.run_pipeline(
             request=request,
             top_passages=top_passages,
             key_concepts=key_concepts,
