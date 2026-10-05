@@ -8,7 +8,7 @@ try:
 except ImportError:
     nx = None
 
-from app.infrastructure.gemini_client import GeminiClient
+from app.infrastructure.llm import GeminiClient
 from app.services.embedding_service import EmbeddingService
 
 logger = logging.getLogger("GraphRAGService")
