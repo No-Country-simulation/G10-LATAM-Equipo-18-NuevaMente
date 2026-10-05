@@ -1,6 +1,9 @@
-# Arquitectura y Flujo de Servicios — Backend NuevaMente
+# Arquitectura y Flujo de Servicios — Backend NuevaMente (Fase 1)
 
-Este documento describe la arquitectura modular, funciones principales y el flujo de ejecución de los **12 servicios** ubicados en `backend/app/services/`.
+> **Nota de Alcance:** Este documento corresponde a la **Fase 1: Ingestión, Segmentación, Embeddings, Indexación Vectorial y Recuperación RAG Base** (12 servicios).  
+> La **Fase 2: Orquestación Multi-Agente, Generación Didáctica y Exportación** se documenta en su propio archivo independiente (`Fase_2_Orquestacion_Agentes.md`).
+
+Este documento describe la arquitectura modular, funciones principales y el flujo de ejecución de los **12 servicios base** ubicados en `backend/app/services/`.
 
 ---
 
@@ -97,10 +100,10 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
   - `process_registered_document(...)`: Ejecuta el parsing, filtrado, embeddings e indexación en segundo plano y marca `ready`.
   - `process_and_index_document(...)`: Wrapper síncrono para pruebas.
 
-#### `document_storage_service.py` (Almacenamiento del Archivo Físico)
-- **Rol:** Abstracción para guardar y recuperar el archivo binario original (`.pdf`, `.md`, `.txt`) tal como lo envió el usuario.
-- **Entradas:** Ruta local del archivo, `document_id`, `user_id`.
-- **Salidas:** `object_key` único que identifica la ruta del archivo dentro del bucket (Supabase Storage u OCI Object Storage).
+#### `document_storage_service.py` (Almacenamiento Físico y Artefactos)
+- **Rol:** Abstracción unificada para guardar y recuperar el archivo binario original (`.pdf`, `.md`, `.txt`) y persistir artefactos educativos generados (`upload_json_artifact`) en Supabase Storage u OCI Object Storage.
+- **Entradas:** Ruta local del archivo / payload JSON, `document_id`, `user_id`.
+- **Salidas:** `object_key` único que identifica la ruta del archivo o artefacto dentro del bucket (`document-source` o `adapted-artifacts`).
 
 #### `document_repository.py` (Repositorio de Metadatos)
 - **Rol:** Manejo de la tabla `documents` en base de datos (PostgreSQL/Supabase). Rastrea el ciclo de vida del documento.
