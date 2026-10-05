@@ -92,12 +92,13 @@ class HybridRAGService:
         if missing_indices:
             missing_texts = [child_chunks[i]["content"] for i in missing_indices]
             computed_embeddings = self.embedding_service.embed_batch(missing_texts, is_query=False)
-            for i, emb in zip(missing_indices, computed_embeddings):
-                child_chunks[i]["embedding"] = emb
+            if isinstance(computed_embeddings, list):
+                for i, emb in zip(missing_indices, computed_embeddings):
+                    child_chunks[i]["embedding"] = emb
 
         dense_results = []
         for i, child in enumerate(child_chunks):
-            chunk_embedding = child["embedding"]
+            chunk_embedding = child.get("embedding") or self.embedding_service.embed_text(child["content"], is_query=False)
             score = cosine_similarity(query_embedding, chunk_embedding)
             dense_results.append((i, score))
             

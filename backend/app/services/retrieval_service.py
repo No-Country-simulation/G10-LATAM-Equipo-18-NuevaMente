@@ -220,3 +220,15 @@ class RetrievalService:
 
         logger.warning("All rerankers failed. Falling back to RRF order.")
         return candidates[:top_k]
+
+
+def retrieve_context(
+    document_id: str,
+    query: str,
+    top_k: int = 5,
+    embedding_service: Optional[EmbeddingService] = None,
+) -> List[Dict[str, Any]]:
+    """Convenience function running retrieval with default EmbeddingService."""
+    svc = embedding_service or EmbeddingService()
+    retrieval_svc = RetrievalService(embedding_service=svc)
+    return retrieval_svc.retrieve(document_id=document_id, query=query, top_k=top_k)

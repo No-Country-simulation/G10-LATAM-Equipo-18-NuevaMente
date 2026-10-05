@@ -196,7 +196,7 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       const topic = topics[i % topics.length];
       const verb = verbs[i % verbs.length];
       const pageNum = Math.floor(i / 5) + 1;
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Especificación técnica #${i + 1} sobre ${topic} en ${title}.`;
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Especificación técnica sobre ${topic} en ${title}.`;
 
       const fuente: RagFuente = {
         chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
@@ -206,9 +206,9 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       };
 
       items.push({
-        frente: `Tarjeta #${i + 1}: ¿Cómo se debe ${verb} ${topic} en ${title}?`,
-        dorso: `En el contexto de ${req.nicho_sector}, la recomendación técnica es: ${sentence} Esto garantiza alineación con el nivel ${req.nivel_detalle}.`,
-        pista_didactica: `Concepto clave #${(i % 5) + 1}: Enfócate en el impacto operativo para ${req.perfil_destinatario}.`,
+        frente: `¿Cómo se debe ${verb} '${topic}' en ${title}?`,
+        dorso: `En el contexto de ${req.nicho_sector}, la recomendación es: ${sentence} Esto garantiza alineación con la profundidad ${req.nivel_detalle}.`,
+        pista_didactica: `Pista sobre ${topic}: Revisa el impacto directo de "${sentence.substring(0, 65)}..." para ${req.perfil_destinatario}.`,
         fuentes: [fuente]
       });
     }
@@ -256,7 +256,7 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
 
     for (let i = 0; i < requested; i++) {
       const topic = concepts[i % concepts.length];
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Requerimiento de seguridad #${i + 1} para ${topic}.`;
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Requerimiento de seguridad para ${topic}.`;
 
       const fuente: RagFuente = {
         chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
@@ -266,12 +266,12 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       };
 
       items.push({
-        pregunta: `Pregunta ${i + 1}: En relación a ${topic} en ${title}, ¿cuál afirmación es correcta para el perfil de ${req.perfil_destinatario}?`,
+        pregunta: `Pregunta ${i + 1}: En relación a '${topic}' en ${title}, ¿cuál afirmación es correcta para ${req.perfil_destinatario}?`,
         opciones: [
           `Opción A (Correcta): ${sentence}`,
           `Opción B: Desactivar los controles de auditoría en ${req.nicho_sector}`,
-          `Opción C: Omitir la segmentación de red y usar valores por defecto`,
-          `Opción D: Sustituir la autenticación por un método no validado`
+          `Opción C: Omitir la segmentación de red y usar valores por defecto en ${topic}`,
+          `Opción D: Sustituir la autenticación de ${topic} por un método no validado`
         ],
         respuesta_correcta: `Opción A (Correcta): ${sentence}`,
         justificacion: `Directamente respaldado en el fragmento fuente: "${sentence}".`,
@@ -318,7 +318,7 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
 
     for (let i = 0; i < requested; i++) {
       const topic = concepts[i % concepts.length];
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Paso instructivo #${i + 1} sobre ${topic}.`;
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Paso instructivo sobre ${topic}.`;
 
       const fuente: RagFuente = {
         chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
@@ -328,15 +328,15 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       };
 
       const codeExample = (i % 2 === 0)
-        ? `\`\`\`bash\n# Paso ${i + 1}: ${topic}\noci network vcn create --display-name "${topic}" --cidr-block "10.${i}.0.0/16"\n\`\`\``
+        ? `\`\`\`bash\n# Paso ${i + 1}: Configurar ${topic}\noci network vcn create --display-name "${topic}" --cidr-block "10.${i}.0.0/16"\n\`\`\``
         : undefined;
 
       items.push({
         paso: i + 1,
-        titulo: `Paso ${i + 1}: ${topic}`,
-        instruccion: `${sentence} Configuración ajustada al sector ${req.nicho_sector} para ${req.perfil_destinatario}.`,
+        titulo: `Paso ${i + 1}: Integración de ${topic}`,
+        instruccion: `${sentence} Procedimiento optimizado para ${req.perfil_destinatario} en el sector ${req.nicho_sector}.`,
         ejemplo: codeExample,
-        advertencia: (i % 4 === 0) ? `Verifica que las políticas IAM permitan la acción antes de ejecutar el Paso ${i + 1}.` : undefined,
+        advertencia: (i % 4 === 0) ? `Verifica que las políticas IAM de ${topic} permitan la acción antes de continuar.` : undefined,
         fuentes: [fuente]
       });
     }
@@ -377,9 +377,18 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
     const concepts = this.extractKeyConcepts(title, sentences);
     const items: ResumenEjecutivoItem[] = [];
 
+    const businessAspects = [
+      `Permite estandarizar los procesos operativos reduciendo costos de integración en el sector ${req.nicho_sector}.`,
+      `Garantiza alta disponibilidad y mitigación de riesgos de fallos para el perfil ${req.perfil_destinatario}.`,
+      `Acelera la toma de decisiones al estructurar este componente como un pilar técnico estratégico.`,
+      `Optimiza el rendimiento del sistema alineando la arquitectura a los estándares del sector.`,
+      `Facilita la mantenibilidad y escalabilidad del ecosistema a largo plazo.`
+    ];
+
     for (let i = 0; i < requested; i++) {
       const topic = concepts[i % concepts.length];
-      const sentence = sentences[i % Math.max(1, sentences.length)] || `Punto clave #${i + 1} de ${topic}.`;
+      const sentence = sentences[i % Math.max(1, sentences.length)] || `Aspecto fundamental de ${topic}.`;
+      const aspect = businessAspects[i % businessAspects.length];
 
       const fuente: RagFuente = {
         chunk_id: `chunk-rag-${(i + 1).toString().padStart(3, '0')}`,
@@ -388,9 +397,13 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
         similitud_score: 0.96
       };
 
+      const impactText = sentence.length > 10
+        ? `${sentence.substring(0, 110)}${sentence.length > 110 ? '...' : ''} — ${aspect}`
+        : `${topic}: ${aspect}`;
+
       items.push({
-        punto_clave: `${topic}: ${sentence.substring(0, 80)}...`,
-        impacto_negocio: `Optimización operativa #${i + 1} en el sector ${req.nicho_sector}, acelerando la toma de decisiones para el perfil ${req.perfil_destinatario}.`,
+        punto_clave: `${topic}: ${sentence}`,
+        impacto_negocio: impactText,
         fuentes: [fuente]
       });
     }

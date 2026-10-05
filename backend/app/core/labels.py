@@ -35,3 +35,19 @@ NICHE_LABELS_ES = {
     settings.NICHE_HEALTH: "Salud",
     settings.NICHE_ECOMMERCE: "E-commerce",
 }
+
+TITLE_TEMPLATES_ES = {
+    settings.FORMAT_FLASHCARDS: "Mazo de Flashcards ({count} Tarjetas): {doc_title}",
+    settings.FORMAT_QUIZ: "Evaluación Técnica Interactiva ({count} Preguntas): {doc_title}",
+    settings.FORMAT_TUTORIAL: "Tutorial Paso a Paso ({count} Módulos): {doc_title}",
+    settings.FORMAT_SUMMARY: "Resumen Ejecutivo (TL;DR - {count} Puntos): {doc_title}",
+    settings.FORMAT_CLASS_SCRIPT: "Guion de Clase Didáctica ({count} Escenas): {doc_title}",
+}
+
+def get_capacity_warning_es(effective_count: int, requested_count: int) -> str:
+    """Generates Spanish warning message when document density limits the generation target."""
+    return (
+        f"Tu documento dio para {effective_count} elementos verificados. "
+        f"Con un documento más extenso podrás generar los {requested_count} solicitados."
+    )
+
