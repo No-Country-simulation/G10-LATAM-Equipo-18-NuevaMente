@@ -35,7 +35,7 @@ class GeminiClient:
                 from google.genai import types  # noqa: PLC0415
 
                 # Bypass SSL verification on Windows if local CA certificates fail
-                httpx_client = httpx.Client(verify=False)
+                httpx_client = httpx.Client()
                 self._client = genai.Client(
                     api_key=self.api_key,
                     http_options=types.HttpOptions(httpx_client=httpx_client)

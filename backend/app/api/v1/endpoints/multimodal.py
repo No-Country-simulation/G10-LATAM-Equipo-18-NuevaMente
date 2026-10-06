@@ -28,10 +28,14 @@ async def extract_diagram(file: UploadFile = File(...)):
     try:
         content_bytes = await file.read()
         
-        # Escribir temporalmente la imagen
-        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
-            temp_file.write(content_bytes)
-            temp_path = temp_file.name
+        import anyio
+        import uuid
+        import tempfile
+        import os
+
+        temp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}{extension}")
+        async with await anyio.open_file(temp_path, "wb") as f:
+            await f.write(content_bytes)
 
         try:
             system_instruction = (

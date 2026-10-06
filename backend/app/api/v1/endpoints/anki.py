@@ -130,7 +130,8 @@ def export_anki_deck(request: AnkiExportRequest):
 
     # Generar el archivo temporal .apkg
     temp_dir = tempfile.mkdtemp()
-    file_name = f"NuevaMente_Deck_{random.randint(1000, 9999)}.apkg"
+    import secrets
+    file_name = f"NuevaMente_Deck_{secrets.token_hex(4)}.apkg"
     output_path = os.path.join(temp_dir, file_name)
 
     package = genanki.Package(my_deck)

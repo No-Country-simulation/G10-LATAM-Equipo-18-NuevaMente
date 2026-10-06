@@ -57,9 +57,14 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
                 detail=f"Archivo demasiado pesado: {size_mb:.1f}MB. El límite permitido es de {settings.MAX_FILE_SIZE_MB}MB.",
             )
 
-        with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
-            temp_file.write(content_bytes)
-            temp_path = Path(temp_file.name)
+        import anyio
+        import uuid
+        import os
+
+        temp_path_str = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}{extension}")
+        temp_path = Path(temp_path_str)
+        async with await anyio.open_file(temp_path_str, "wb") as f:
+            await f.write(content_bytes)
 
         try:
             suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
@@ -123,9 +128,14 @@ async def parse_pdf_llm(file: UploadFile = File(...)):
 
     try:
         content_bytes = await file.read()
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
-            temp_file.write(content_bytes)
-            temp_path = Path(temp_file.name)
+        import anyio
+        import uuid
+        import os
+
+        temp_path_str = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.pdf")
+        temp_path = Path(temp_path_str)
+        async with await anyio.open_file(temp_path_str, "wb") as f:
+            await f.write(content_bytes)
 
         try:
             suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
