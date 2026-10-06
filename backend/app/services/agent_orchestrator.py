@@ -84,7 +84,7 @@ class AgentOrchestrator:
         self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
 
-    def run_pipeline(
+    async def run_pipeline(
         self,
         request: AdaptationRequest,
         top_passages: List[Dict[str, Any]],
@@ -220,6 +220,14 @@ class AgentOrchestrator:
             upload_status=storage_info["status_upload"],
         )
 
+        pdf_path = None
+        try:
+            pdf_service = PDFExportService()
+            output_name = f"scratch/{object_name.replace('.json', '.pdf')}"
+            pdf_path = pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
+        except Exception as e:
+            logger.warning(f"Error generando PDF: {e}")
+
         final_response = AdaptationResponse(
             status="exito",
             metadata=metadata,
@@ -261,7 +269,7 @@ class AgentOrchestrator:
     # ---------------------------------------------------------------------------
     # STAGE B: BATCH GENERATORS
     # ---------------------------------------------------------------------------
-    def _stage_batch_generators(
+    async def _stage_batch_generators(
         self,
         request: AdaptationRequest,
         doc_title: str,
@@ -398,6 +406,57 @@ class AgentOrchestrator:
                 )
             )
         return extra
+
+    # ---------------------------------------------------------------------------
+    # STAGE F: CRITIC EVALUATION
+    # ---------------------------------------------------------------------------
+    def _evaluate_quality_with_critic(
+        self, request: AdaptationRequest, generated_items: List[Dict[str, Any]], passages: List[Dict[str, Any]], fallback_score: float
+    ) -> QualityEvaluation:
+        if not self.groq_client.is_available:
+            return QualityEvaluation(
+                source_grounding_score=fallback_score,
+                pedagogical_clarity="Alta",
+                observations="Generación agéntica por lotes. (Evaluación por heurística; Groq no disponible)."
+            )
+            
+        system_instruction = "You are a pedagogical critic evaluating generated educational content."
+        context_str = "\n".join([str(p.get("content", p.get("text", "")))[:300] for p in passages[:3]])
+        items_str = json.dumps([self._get_item_text(i) for i in generated_items[:3]], ensure_ascii=False)
+        
+        prompt = f"""
+Evaluate the following educational content generated for the profile '{request.recipient_profile}'.
+Source Context excerpts:
+{context_str}
+
+Generated Items (sample):
+{items_str}
+
+Return a valid JSON with:
+- "anclaje_fuente_score": float between 0.0 and 1.0 (how well it reflects the source).
+- "claridad_pedagogica": string ("Alta", "Media", "Baja").
+- "observaciones": A short sentence justifying the evaluation.
+"""
+        try:
+            raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
+            text = raw.strip() if raw else "{}"
+            text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
+            text = re.sub(r"^```\s*", "", text)
+            text = re.sub(r"\s*```$", "", text)
+            data = json.loads(text)
+            
+            return QualityEvaluation(
+                source_grounding_score=float(data.get("anclaje_fuente_score", fallback_score)),
+                pedagogical_clarity=data.get("claridad_pedagogica", "Alta"),
+                observations=data.get("observaciones", "Evaluado por agente crítico Groq.")
+            )
+        except Exception as e:
+            logger.warning(f"Critic agent failed: {e}")
+            return QualityEvaluation(
+                source_grounding_score=fallback_score,
+                pedagogical_clarity="Alta",
+                observations="Evaluación heurística de fallback por falla en agente crítico."
+            )
 
     # ---------------------------------------------------------------------------
     # HELPERS & FORMATTING

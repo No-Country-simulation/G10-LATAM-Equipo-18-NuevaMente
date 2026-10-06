@@ -95,7 +95,7 @@ def test_llm_gemini() -> Dict[str, Any]:
         from google.genai import types
 
         # Timeout estricto para evitar bloqueos
-        httpx_client = httpx.Client(verify=False, timeout=10.0)
+        httpx_client = httpx.Client(timeout=10.0)
         client = genai.Client(
             api_key=api_key,
             http_options=types.HttpOptions(httpx_client=httpx_client)

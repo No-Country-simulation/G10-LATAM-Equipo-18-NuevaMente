@@ -60,7 +60,8 @@ def _make_mock_response(title: str, text_content: str, items_count: int, groundi
 @patch("scripts.diagnose_adaptation.IngesterService")
 @patch("scripts.diagnose_adaptation.HybridRAGService")
 @patch("scripts.diagnose_adaptation.GraphRAGService")
-def test_diagnose_script_detects_fixed_template_failure(mock_graph, mock_hybrid, mock_ingester, mock_parser, mock_orch_cls):
+@patch("os.path.exists", return_value=True)
+def test_diagnose_script_detects_fixed_template_failure(mock_exists, mock_graph, mock_hybrid, mock_ingester, mock_parser, mock_orch_cls):
     """Verifica que el script devuelva FALLÓ cuando las respuestas contienen plantillas fijas o scores hardcodeados."""
     mock_parser.return_value.parse_pdf_to_markdown.return_value = ("Markdown de Java", {"paginas": 10, "caracteres": 5000, "caracteres_por_pagina": 500})
     mock_graph.return_value.build_concept_dag.return_value = (None, ["Java"], ["OOP"])
@@ -81,7 +82,8 @@ def test_diagnose_script_detects_fixed_template_failure(mock_graph, mock_hybrid,
 @patch("scripts.diagnose_adaptation.IngesterService")
 @patch("scripts.diagnose_adaptation.HybridRAGService")
 @patch("scripts.diagnose_adaptation.GraphRAGService")
-def test_diagnose_script_passes_on_dynamic_outputs(mock_graph, mock_hybrid, mock_ingester, mock_parser, mock_orch_cls):
+@patch("os.path.exists", return_value=True)
+def test_diagnose_script_passes_on_dynamic_outputs(mock_exists, mock_graph, mock_hybrid, mock_ingester, mock_parser, mock_orch_cls):
     """Verifica que el script devuelva APROBADO cuando las respuestas son dinámicas, variadas y sin patrones prohibidos."""
     mock_parser.return_value.parse_pdf_to_markdown.return_value = ("Texto completo del PDF sobre Java y Spring Boot", {"paginas": 10, "caracteres": 5000, "caracteres_por_pagina": 500})
     mock_graph.return_value.build_concept_dag.return_value = (None, ["Java", "Spring"], ["OOP"])

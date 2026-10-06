@@ -139,3 +139,5 @@ class AdaptationResponse(BaseModel):
     adapted_content: AdaptedContent = Field(..., alias="contenido_adaptado")
     quality_evaluation: QualityEvaluation = Field(..., alias="evaluacion_calidad")
     oci_storage: OCIStorageResult = Field(..., alias="almacenamiento_oci")
+    pdf_url: Optional[str] = Field(None, alias="url_pdf")
+
