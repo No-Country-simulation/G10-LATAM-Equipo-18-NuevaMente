@@ -25,6 +25,7 @@ class AdaptationRequest(BaseModel):
     target_quantity: Optional[int] = Field(default=None, alias="cantidad_objetivo")
     quantity: Optional[int] = Field(default=5, alias="cantidad_generar")
     chunk_size: Optional[int] = Field(default=500, alias="tamano_chunk", description="Tamaño de fragmentación (chunks) para el procesamiento RAG (100 - 2000)")
+    language: Optional[str] = Field(default=None, alias="idioma_salida", description="Target language for generated content (defaults to settings.DEFAULT_OUTPUT_LANGUAGE)")
     additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
     force_regenerate: Optional[bool] = Field(default=False, alias="forzar_regenerar")
 
@@ -98,7 +99,7 @@ class ResponseMetadata(BaseModel):
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
-    llm_model: Optional[str] = Field("gemini-flash-latest", alias="modelo_llm")
+    llm_model: Optional[str] = Field(None, alias="modelo_llm")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
     degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
     retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")

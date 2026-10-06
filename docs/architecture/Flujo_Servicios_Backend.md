@@ -40,7 +40,7 @@ flowchart TD
 
     subgraph G5 ["5. Recuperación RAG y Reordenamiento"]
         RS["retrieval_service\n(Búsqueda Híbrida: FAISS Densa + BM25 Léxica + RRF)"]
-        RRS["reranker_service\n(Cross-Encoder Reranking rápido con Cohere / Jina)"]
+        RRS["reranker_service\n(Cross-Encoder Reranking con Jina / Cohere)"]
     end
 
     %% Relaciones en Ingestión
@@ -83,7 +83,7 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 | **2. Limpieza y Segmentación (Ingesta)** | • `pdf_parser_service.py`<br>• `text_cleaner.py`<br>• `noise_filter_service.py`<br>• `ingester_service.py` | Transforma archivos crudos (.pdf, .md, .txt) en texto estructurado, eliminando contenido irrelevante y dividiéndolo en fragmentos jerárquicos Padre/Hijo con migas de pan (*breadcrumbs*). |
 | **3. Embeddings y Control de Cuota** | • `embedding_rate_limiter.py`<br>• `embedding_service.py` | Convierte texto en vectores semánticos con estrategia de fallback automático (Gemini $\to$ Jina $\to$ MiniLM) y control estricto de límites de API (RPM/TPM/RPD). |
 | **4. Almacenamiento Vectorial** | • `vector_store_service.py` | Gestiona índices vectoriales locales (FAISS) aislados por `document_id` con cálculo de similitud de coseno y almacenamiento de metadatos asociados. |
-| **5. Recuperación RAG y Reordenamiento** | • `retrieval_service.py`<br>• `reranker_service.py`<br>• `hybrid_rag_service.py` | Responde consultas mediante búsqueda híbrida (densa + dispersa BM25 fusionadas con RRF) y reordena los bloques resultantes con modelos Cross-Encoder rápidos (Cohere v3 primario). |
+| **5. Recuperación RAG y Reordenamiento** | • `retrieval_service.py`<br>• `reranker_service.py` | Responde consultas mediante búsqueda híbrida (densa + dispersa BM25 fusionadas con RRF) y reordena los bloques resultantes con modelos Cross-Encoder. |
 
 ---
 
@@ -174,23 +174,6 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 - **Salidas:** Lista de bloques padre deduplicados y ordenados por score de relevancia fusionado.
 
 #### `reranker_service.py` (Reordenador Cross-Encoder)
-- **Rol:** Toma los candidatos preseleccionados por `retrieval_service` y los vuelve a calificar analizando conjuntamente los pares `(query, document)` con modelos de reordenamiento profundo rápido (Cohere Rerank v3 como primario por su velocidad multilingüe, con fallback de seguridad a Jina Reranker v2).
+- **Rol:** Toma los candidatos preseleccionados por `retrieval_service` y los vuelve a calificar analizando conjuntamente los pares `(query, document)` con modelos de reordenamiento profundo (Jina Reranker v2 con fallback a Cohere Rerank v3).
 - **Entradas:** `query`, lista de textos candidatos, cantidad final a devolver (`top_n`).
 - **Salidas:** Lista ordenada de mayor a menor relevancia con scores normalizados de coincidencia semántica.
-
----
-
-### Grupo 6: Orquestación Multi-Agente y Generación Didáctica (Fase 6)
-
-#### `agent_orchestrator.py` (Director de Generación Educativa)
-- **Rol:** Ejecuta el pipeline agéntico en múltiples etapas: Planificación de temas, generación por lotes (batch) delegada a LLMs en cascada, deduplicación de ítems, y verificación de anclaje semántico (Critic Agent).
-- **Entradas:** `AdaptationRequest` (con perfiles y esquemas de generación tipados en Enums), fragmentos `top_passages`, y `key_concepts`.
-- **Salidas:** `AdaptationResponse` conteniendo el JSON final adaptado, métricas de calidad y URL del PDF generado.
-- **Funciones Clave:**
-  - Carga dinámica de **prompts especializados** desde `app/prompts/formats/` (flashcards, quizzes, tutoriales, resúmenes, guiones).
-  - Invocación de `_evaluate_quality_with_critic` usando un Agente Crítico (Groq) para calificar la claridad y el anclaje de las respuestas.
-
-#### `pdf_export_service.py` (Generador de PDF Didáctico)
-- **Rol:** Transforma el `AdaptedContent` estructurado en un documento PDF formateado con carátula, índice y colores institucionales (azul/rojo), listo para su descarga y estudio offline.
-- **Entradas:** JSON `AdaptedContent` y ruta destino.
-- **Salidas:** Ruta del PDF guardado (`pdf_url`).

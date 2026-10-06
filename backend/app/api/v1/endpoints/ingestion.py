@@ -15,6 +15,8 @@ Output:
 
 import tempfile
 from pathlib import Path
+from typing import Tuple, Any
+import anyio
 from fastapi import APIRouter, UploadFile, File, HTTPException, status, Query
 
 from app.core.config import settings
@@ -27,6 +29,44 @@ ingester_service = IngesterService()
 pdf_parser_service = PdfParserService()
 oci_storage_service = OCIStorageService()
 
+
+def _save_and_process_document(
+    content_bytes: bytes,
+    extension: str,
+    suggested_title: str,
+    use_llm: bool,
+) -> Tuple[Any, str]:
+    """Saves content to a temporary file and parses it synchronously in a worker thread."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
+        temp_file.write(content_bytes)
+        temp_path = Path(temp_file.name)
+
+    try:
+        if use_llm and extension == ".pdf":
+            parsed_llm = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
+            extracted_text = parsed_llm.get("markdown_text", "")
+            engine_used = parsed_llm.get("engine", "Gemini 1.5 LLM Vision Parser")
+            ingested_doc = ingester_service.process_text(extracted_text, title=suggested_title)
+        else:
+            ingested_doc = ingester_service.process_document(temp_path, title=suggested_title)
+            engine_used = "PyMuPDF / Text Ingest Engine"
+        return ingested_doc, engine_used
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
+
+
+def _save_and_parse_pdf_llm(content_bytes: bytes) -> dict:
+    """Saves PDF to a temporary file and parses it with LLM synchronously in a worker thread."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as temp_file:
+        temp_file.write(content_bytes)
+        temp_path = Path(temp_file.name)
+
+    try:
+        return pdf_parser_service.parse_pdf_with_llm(str(temp_path))
+    finally:
+        if temp_path.exists():
+            temp_path.unlink()
 
 
 @router.post("/parse-document", status_code=status.HTTP_200_OK)
@@ -57,29 +97,15 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
                 detail=f"Archivo demasiado pesado: {size_mb:.1f}MB. El límite permitido es de {settings.MAX_FILE_SIZE_MB}MB.",
             )
 
-        import anyio
-        import uuid
-        import os
+        suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
 
-        temp_path_str = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}{extension}")
-        temp_path = Path(temp_path_str)
-        async with await anyio.open_file(temp_path_str, "wb") as f:
-            await f.write(content_bytes)
-
-        try:
-            suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
-
-            if use_llm and extension == ".pdf":
-                parsed_llm = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
-                extracted_text = parsed_llm.get("markdown_text", "")
-                engine_used = parsed_llm.get("engine", "Gemini 1.5 LLM Vision Parser")
-                ingested_doc = ingester_service.process_text(extracted_text, title=suggested_title)
-            else:
-                ingested_doc = ingester_service.process_document(temp_path, title=suggested_title)
-                engine_used = "PyMuPDF / Text Ingest Engine"
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        ingested_doc, engine_used = await anyio.to_thread.run_sync(
+            _save_and_process_document,
+            content_bytes,
+            extension,
+            suggested_title,
+            use_llm,
+        )
 
         # Upload original document to OCI Object Storage Always Free bucket
         oci_doc_info = oci_storage_service.upload_document_source(
@@ -99,7 +125,6 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
             "chunks": [chunk.model_dump() for chunk in ingested_doc.chunks],
             "almacenamiento_oci": oci_doc_info
         }
-
 
     except HTTPException:
         raise
@@ -128,21 +153,12 @@ async def parse_pdf_llm(file: UploadFile = File(...)):
 
     try:
         content_bytes = await file.read()
-        import anyio
-        import uuid
-        import os
+        suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
 
-        temp_path_str = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}.pdf")
-        temp_path = Path(temp_path_str)
-        async with await anyio.open_file(temp_path_str, "wb") as f:
-            await f.write(content_bytes)
-
-        try:
-            suggested_title = Path(filename).stem.replace("_", " ").replace("-", " ").title()
-            parsed_result = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
-        finally:
-            if temp_path.exists():
-                temp_path.unlink()
+        parsed_result = await anyio.to_thread.run_sync(
+            _save_and_parse_pdf_llm,
+            content_bytes,
+        )
 
         return {
             "status": "exito",

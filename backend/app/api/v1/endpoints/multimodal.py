@@ -1,13 +1,36 @@
 import tempfile
 import os
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException, status
-from app.infrastructure.gemini_client import GeminiClient
-from app.core.config import settings
 import json
+import anyio
+from fastapi import APIRouter, UploadFile, File, HTTPException, status
+from app.infrastructure.llm import GeminiClient
+from app.core.config import settings
 
 router = APIRouter()
 gemini_client = GeminiClient()
+
+
+def _analyze_diagram_sync(content_bytes: bytes, extension: str, prompt: str, system_instruction: str) -> dict:
+    """Writes image to a temp file and invokes Gemini vision synchronously in a worker thread."""
+    with tempfile.NamedTemporaryFile(delete=False, suffix=extension) as temp_file:
+        temp_file.write(content_bytes)
+        temp_path = temp_file.name
+
+    try:
+        raw_response = gemini_client.generate_content(
+            prompt=prompt,
+            system_instruction=system_instruction,
+            model_name=settings.DEFAULT_GEMINI_MODEL_PRO,
+            json_output=True,
+            image_path=temp_path,
+        )
+        cleaned = raw_response.strip().removeprefix("```json").removesuffix("```").strip()
+        return json.loads(cleaned)
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
 
 @router.post("/extract-diagram", status_code=status.HTTP_200_OK)
 async def extract_diagram(file: UploadFile = File(...)):
@@ -27,58 +50,41 @@ async def extract_diagram(file: UploadFile = File(...)):
 
     try:
         content_bytes = await file.read()
-        
-        import anyio
-        import uuid
-        import tempfile
-        import os
 
-        temp_path = os.path.join(tempfile.gettempdir(), f"{uuid.uuid4()}{extension}")
-        async with await anyio.open_file(temp_path, "wb") as f:
-            await f.write(content_bytes)
+        system_instruction = (
+            "Eres un Arquitecto Cloud Experto y Diseñador Instruccional. "
+            "Tu trabajo es analizar diagramas técnicos y extraer su conocimiento en formato de Flashcards (Anki). "
+            "Responde ÚNICAMENTE con un JSON válido."
+        )
 
-        try:
-            system_instruction = (
-                "Eres un Arquitecto Cloud Experto y Diseñador Instruccional. "
-                "Tu trabajo es analizar diagramas técnicos y extraer su conocimiento en formato de Flashcards (Anki). "
-                "Responde ÚNICAMENTE con un JSON válido."
-            )
-            
-            prompt = """
-            Analiza el diagrama técnico adjunto. Extrae los componentes principales, 
-            sus relaciones y su propósito. Devuelve un JSON estricto con la siguiente estructura:
-            {
-                "diagram_title": "Título inferido del diagrama",
-                "summary": "Breve explicación de cómo fluye la información en este diagrama",
-                "flashcards": [
-                    {
-                        "front": "Pregunta sobre un componente específico del diagrama",
-                        "back": "Respuesta detallada basada en la imagen",
-                        "hint": "Pista didáctica"
-                    }
-                ]
-            }
-            """
-            
-            raw_response = gemini_client.generate_content(
-                prompt=prompt,
-                system_instruction=system_instruction,
-                model_name="gemini-2.5-flash",
-                json_output=True,
-                image_path=temp_path
-            )
-            
-            raw_response = raw_response.strip().removeprefix("```json").removesuffix("```").strip()
-            parsed_data = json.loads(raw_response)
-            
-            return {
-                "status": "exito",
-                "datos_diagrama": parsed_data
-            }
-            
-        finally:
-            if os.path.exists(temp_path):
-                os.remove(temp_path)
+        prompt = """
+        Analiza el diagrama técnico adjunto. Extrae los componentes principales, 
+        sus relaciones y su propósito. Devuelve un JSON estricto con la siguiente estructura:
+        {
+            "diagram_title": "Título inferido del diagrama",
+            "summary": "Breve explicación de cómo fluye la información en este diagrama",
+            "flashcards": [
+                {
+                    "front": "Pregunta sobre un componente específico del diagrama",
+                    "back": "Respuesta detallada basada en la imagen",
+                    "hint": "Pista didáctica"
+                }
+            ]
+        }
+        """
+
+        parsed_data = await anyio.to_thread.run_sync(
+            _analyze_diagram_sync,
+            content_bytes,
+            extension,
+            prompt,
+            system_instruction,
+        )
+
+        return {
+            "status": "exito",
+            "datos_diagrama": parsed_data,
+        }
 
     except Exception as error:
         raise HTTPException(
