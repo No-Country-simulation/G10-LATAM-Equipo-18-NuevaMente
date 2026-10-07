@@ -1,0 +1,83 @@
+================================================================================
+RESUMEN DE REFACTORIZACIÓN Y LIMPIEZA ARQUITECTÓNICA
+Fecha: 05 de Octubre, 2026
+================================================================================
+
+1. ARCHIVOS ELIMINADOS Y EL "POR QUÉ"
+Se realizó una auditoría y limpieza profunda del repositorio ("Clean Code") para eliminar redundancias y deuda técnica. Los archivos purgados fueron:
+
+- app/services/trash_service.py: Era código de pruebas/basura (scratch code) sin uso real en el pipeline de producción.
+- app/services/langgraph_orchestrator.py: Su lógica multi-agente y orquestación era redundante. Sus capacidades fueron absorbidas y unificadas de forma más limpia dentro de `agent_orchestrator.py`.
+- app/services/hybrid_rag_service.py: Su funcionalidad se solapaba completamente con `retrieval_service.py`, el cual ya maneja la recuperación de forma robusta.
+- app/services/markdown_splitter_adapter.py: Quedó obsoleto y fue suplantado de forma más eficiente por `ingester_service.py`.
+- app/services/embedding_rate_limiter.py: Añadía complejidad innecesaria para el manejo de la concurrencia que no estaba contemplada en el diseño final de la arquitectura.
+- app/services/document_index_cache.py: Innecesario; la indexación y recuperación ahora delegan el caché directamente a la lógica de FAISS y al almacenamiento persistente.
+- backend/logs/* y backend/scratch/*: Se borraron decenas de archivos temporales de PDFs fallidos y logs pesados antiguos que ensuciaban el entorno.
+
+2. CÓMO TERMINÓ LA ARQUITECTURA (EL NUEVO PARADIGMA)
+La arquitectura ha abandonado el modelo de "script monolítico" y se ha convertido en un sistema estructurado en dos fases desacopladas:
+
+FASE 1: INGESTA, CHUNKING Y VECTOR STORE
+Cuando el usuario sube un archivo, el backend lo limpia, extrae su texto (PyMuPDF), genera embeddings y lo guarda en FAISS. El documento físico y sus metadatos van a OCI/Supabase. El frontend solo recibe un `document_id`.
+
+FASE 2: RAG, RETRIEVAL Y AGENTES
+Cuando el usuario quiere generar contenido pedagógico, el frontend NO manda todo el texto de nuevo. Envía únicamente el `document_id` y sus preferencias (perfil, formato, nicho). El orquestador (`agent_orchestrator.py`) busca en FAISS los fragmentos relevantes y ejecuta el grafo generativo dividiendo el trabajo en lotes paralelos o secuenciales.
+
+3. LA GRAN DIFERENCIA QUE TENEMOS AHORA
+- Cero Sobrecarga de Red: Antes se transferían megabytes de texto plano por HTTP repetidamente. Ahora, el frontend y backend se comunican de forma ultra-ligera usando identificadores (UUID).
+- Personalización Extrema y Dinámica: El sistema ya no escupe resúmenes genéricos. Un mismo documento base genera respuestas completamente distintas. Si se pide un "Guion de Video" para un "Líder Técnico" en "E-commerce", el RAG estructura la salida hablando de arquitectura y escalabilidad, con tiempos de escena y narrativa visual. Si se pide una "Flashcard" para "Desarrollador" general, produce tarjetas con pistas técnicas directas al código.
+- Grounding Dinámico: La evaluación de anclaje a fuentes (similitud) ya no es un número inventado, sino que se recalcula dinámicamente y se ancla a cada fragmento (`chunk_id`) real.
+
+4. POSIBLES MEJORAS FUTURAS (RECOMENDACIONES DE ESCALABILIDAD)
+A. Base de Datos Vectorial Nativa de Nube:
+   Reemplazar FAISS en memoria (que obliga a manejar archivos locales o descargar índices) por una base de datos vectorial administrada (como pgvector en Supabase, Qdrant o Pinecone) para permitir escalabilidad horizontal sin complicaciones de estado.
+
+B. Caché Distribuido con Redis:
+   El orquestador actualmente usa un diccionario en memoria (`self._response_cache`) para las respuestas. Si se levantan varios workers (Uvicorn/Gunicorn), la caché no se comparte. Implementar Redis solventaría esto y aceleraría lecturas repetidas.
+
+C. Concurrencia Asíncrona Pura (asyncio):
+   El `agent_orchestrator.py` utiliza `concurrent.futures.ThreadPoolExecutor` para paralelizar LLMs. En FastAPI, la mejor práctica es refactorizar estos clientes (Gemini/Groq) a versiones asíncronas (`async/await`) y utilizar `asyncio.gather()`. Esto liberaría drásticamente los hilos del servidor.
+
+D. Telemetría y Observabilidad (LangSmith / Phoenix):
+   Implementar una herramienta de monitoreo LLM para registrar el costo de tokens exacto, latencia de Gemini vs Groq, y el porcentaje de fallos en la estructura JSON devuelta por los modelos.
+
+
+5. ESQUEMA DE LA ARQUITECTURA FINAL (ASYNC + RAG + CLEAN CODE)
+================================================================================
+FRONTEND (Angular)                       BACKEND (FastAPI - Async)                   BASE DE DATOS / NUBE
+------------------                       -------------------------                   --------------------
+[ Sube PDF ] ------------------------> (Fase 1: /upload)
+                                         - PyMuPDF extrae texto
+                                         - Chunks semánticos
+                                         - Embeddings (Gemini) -----------------> [ FAISS (Local) o Qdrant ]
+                                         - Guarda Metadata & File --------------> [ OCI Object Storage ]
+             <-- (Devuelve document_id) --
+
+[ Pide Flashcards/Quiz ] ------------> (Fase 2: /adapt)
+(Pasa document_id, perfil, nicho)        - Retrieval RAG de FAISS (Async)
+                                         - AgentOrchestrator planifica
+                                         - Lotes asíncronos (asyncio.gather) ---> [ LLMs: Gemini / Groq ]
+                                         - Crítico evalúa calidad (Groq)
+                                         - Genera PDF & JSON
+                                         - Guarda artefacto --------------------> [ OCI Object Storage ]
+             <-- (Devuelve JSON final) ---
+
+
+6. SUGERENCIAS DE DB EN LA NUBE GRATUITAS (TIER FREE)
+================================================================================
+Para sacar este proyecto de local y llevarlo a la nube 100% gratis (para el hackathon o portafolio):
+
+- Base de Datos Relacional y Vectorial: **Supabase** (PostgreSQL + pgvector). 
+  Te da 500MB gratis, autenticación y storage. Reemplaza a FAISS y te da persistencia total de vectores.
+- Base de Datos Vectorial Especializada: **Qdrant Cloud** o **Pinecone**.
+  Qdrant da un clúster gratis de 1GB (suficiente para miles de PDFs).
+- Caché y Colas Asíncronas: **Upstash** (Redis Serverless).
+  Da hasta 10,000 peticiones diarias gratis. Ideal para cachear respuestas RAG.
+- Almacenamiento de Archivos (Object Storage): **OCI (Oracle Cloud) Always Free**.
+  Da 10 GB gratis de por vida. Ya tienes la clase OCIStorageService lista para esto.
+
+
+7. MEJORAS EXCLUSIVAS (PARA EL DESARROLLADOR)
+================================================================================
+- Implementar "Soft Delete": Cuando el usuario borre un archivo en el frontend, en BD cambiar el estado a `status = 'trashed'` y guardar la fecha `deleted_at`. El archivo no se borra de OCI ni FAISS inmediatamente. Un cron job (o un script diario) borra definitivamente (`Hard Delete`) los archivos donde `deleted_at` supera los 10 días. Mientras tanto, el frontend puede consultar el endpoint `/trash` para restaurarlos.
+- Re-Ranking Rápido: Usar Cohere Rerank (API gratuita en tier de desarrollo) para ordenar los chunks de FAISS antes de pasarlos a Gemini. Esto mejora brutalmente la exactitud de las flashcards sin consumir tantos tokens.

@@ -1,4 +1,4 @@
-import { Component, signal, computed, inject, ViewChild } from '@angular/core';
+import { Component, signal, computed, inject, ViewChild, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -20,6 +20,8 @@ import { SourcesDrawerComponent } from './sources-drawer.component';
 import { JsonDrawerComponent } from './json-drawer.component';
 import { ExportService } from '../../core/services/export.service';
 import { StateService } from '../../core/services/state.service';
+import { DocumentService } from '../../core/services/document.service';
+import { AppDocument } from '../../core/models/document.model';
 
 @Component({
   selector: 'app-workspace',
@@ -72,7 +74,7 @@ import { StateService } from '../../core/services/state.service';
             />
           </div>
 
-          <!-- Document Input Tabs (Upload vs Text) -->
+          <!-- Document Input Tabs (Upload vs Text vs From Mis Documentos) -->
           <div class="input-tabs-wrapper">
             <div class="tabs-header">
               <button 
@@ -81,7 +83,7 @@ import { StateService } from '../../core/services/state.service';
                 [class.active]="activeTab() === 'upload'"
                 (click)="activeTab.set('upload')"
               >
-                📁 Cargar Documento (PDF / MD / TXT)
+                📂 Cargar Documento (PDF / MD / TXT)
               </button>
               <button 
                 type="button" 
@@ -90,6 +92,14 @@ import { StateService } from '../../core/services/state.service';
                 (click)="activeTab.set('text')"
               >
                 📝 Pegar Texto Plano
+              </button>
+              <button 
+                type="button" 
+                class="tab-btn" 
+                [class.active]="activeTab() === 'from_documents'"
+                (click)="activeTab.set('from_documents')"
+              >
+                📚 Desde Mis Documentos
               </button>
             </div>
 
@@ -130,6 +140,69 @@ import { StateService } from '../../core/services/state.service';
               ></textarea>
               <div class="char-count">
                 {{ (adaptForm.get('documento_contenido')?.value || '').length }} caracteres
+              </div>
+            </div>
+
+            <!-- Tab 3: From Mis Documentos Selector -->
+            <div class="tab-content" *ngIf="activeTab() === 'from_documents'">
+              <!-- Selected Document Card -->
+              <div class="selected-document-card" *ngIf="selectedWorkspaceDoc()">
+                <div class="selected-doc-icon">
+                  <span *ngIf="selectedWorkspaceDoc()?.type === 'pdf'">📕</span>
+                  <span *ngIf="selectedWorkspaceDoc()?.type === 'md'">📘</span>
+                  <span *ngIf="selectedWorkspaceDoc()?.type === 'txt'">📄</span>
+                </div>
+                <div class="selected-doc-info">
+                  <div class="doc-badge-row">
+                    <span class="type-pill">{{ selectedWorkspaceDoc()?.type?.toUpperCase() }}</span>
+                    <span class="status-ready">✓ Listo para procesamiento RAG</span>
+                  </div>
+                  <strong>{{ selectedWorkspaceDoc()?.name }}</strong>
+                  <span class="doc-meta-text">{{ formatSize(selectedWorkspaceDoc()?.size || 0) }} · Cargado el {{ formatDate(selectedWorkspaceDoc()?.uploadDate || '') }}</span>
+                </div>
+                <button type="button" class="btn-clear-doc" (click)="clearSelectedWorkspaceDoc()">✕ Cambiar</button>
+              </div>
+
+              <!-- Interactive Document Picker Grid -->
+              <div class="document-picker-wrapper" *ngIf="!selectedWorkspaceDoc()">
+                <div class="picker-search-bar">
+                  <input 
+                    type="text" 
+                    placeholder="Buscar documento en tu almacén por nombre o etiqueta..." 
+                    [value]="pickerSearchQuery()"
+                    (input)="onPickerSearch($event)"
+                  />
+                  <select [value]="pickerTypeFilter()" (change)="onPickerTypeChange($event)">
+                    <option value="all">Todos (.pdf, .md, .txt)</option>
+                    <option value="pdf">PDF (.pdf)</option>
+                    <option value="md">Markdown (.md)</option>
+                    <option value="txt">Texto (.txt)</option>
+                  </select>
+                </div>
+
+                <div class="picker-grid" *ngIf="pickerDocuments().length > 0">
+                  <div 
+                    class="picker-item-card" 
+                    *ngFor="let doc of pickerDocuments()"
+                    (click)="selectDocFromPicker(doc)"
+                  >
+                    <div class="picker-item-top">
+                      <span class="type-pill" [ngClass]="doc.type">{{ doc.type.toUpperCase() }}</span>
+                      <span class="item-size">{{ formatSize(doc.size) }}</span>
+                    </div>
+                    <h4 class="picker-item-title">{{ doc.name }}</h4>
+                    <button type="button" class="btn-select-doc">
+                      ✅ Seleccionar
+                    </button>
+                  </div>
+                </div>
+
+                <div class="picker-empty" *ngIf="pickerDocuments().length === 0">
+                  <p>No hay documentos disponibles en el almacén con este filtro.</p>
+                  <button type="button" class="btn-nav-docs" (click)="navigateToDocuments()">
+                    📂 Ir a Mis Documentos para subir archivos
+                  </button>
+                </div>
               </div>
             </div>
           </div>
@@ -201,20 +274,21 @@ import { StateService } from '../../core/services/state.service';
                 type="range" 
                 [min]="currentCustomRange().min" 
                 [max]="currentCustomRange().max" 
-                formControlName="cantidad_objetivo"
+                [value]="adaptForm.get('cantidad_objetivo')?.value"
+                (input)="onCustomQuantityChange($event)"
               />
               <div class="slider-labels">
                 <span>{{ currentCustomRange().min }}</span>
-                <span>{{ currentCustomRange().max }} elementos</span>
+                <span>{{ currentCustomRange().max }}</span>
               </div>
             </div>
           </div>
 
-          <!-- Sector Nicho & Nivel de Detalle Row -->
+          <!-- Selector 4 & 5 Dual Row (Nicho + Nivel Detalle) -->
           <div class="form-row-dual">
-            <!-- Sector Chips (4) -->
+            <!-- Chips: Nicho Sector (4) -->
             <div class="form-group flex-1">
-              <label>4. Nicho / Sector Industrial</label>
+              <label>4. Nicho / Sector de Aplicación</label>
               <div class="chips-selector">
                 <button 
                   type="button" 
@@ -300,23 +374,29 @@ import { StateService } from '../../core/services/state.service';
                 [attr.aria-expanded]="isExportMenuOpen()"
               >
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                <span>Exportar Todos</span>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" [class.rotated]="isExportMenuOpen()"><polyline points="6 9 12 15 18 9"/></svg>
+                <span>Exportar como... ▼</span>
               </button>
 
-              <div class="export-menu glass-card" *ngIf="isExportMenuOpen()">
-                <button type="button" class="menu-item" (click)="exportMarkdown(); closeExportMenu()">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                  <span>Markdown (.md)</span>
-                </button>
-                <button type="button" class="menu-item" (click)="exportPdf(); closeExportMenu()">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+              <div class="export-menu" *ngIf="isExportMenuOpen()">
+                <button 
+                  type="button" 
+                  class="menu-item" 
+                  (click)="exportPdf(); closeExportMenu()"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                   <span>PDF Didáctico</span>
                 </button>
                 <button 
                   type="button" 
                   class="menu-item" 
-                  *ngIf="currentResponse()?.metadatos?.formato_generado === 'Flashcards'" 
+                  (click)="exportMarkdown(); closeExportMenu()"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+                  <span>Markdown (.md)</span>
+                </button>
+                <button 
+                  type="button" 
+                  class="menu-item" 
                   (click)="exportAnki(); closeExportMenu()"
                 >
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3k-4 4-4-4"/></svg>
@@ -453,55 +533,84 @@ import { StateService } from '../../core/services/state.service';
         </div>
       </div>
 
-      <!-- RAG SOURCES DRAWER MODAL -->
+      <!-- DRAWERS -->
       <app-sources-drawer 
-        [isOpen]="isSourcesDrawerOpen()" 
-        [fuente]="selectedFuente()"
-        (closeDrawer)="isSourcesDrawerOpen.set(false)"
+        *ngIf="isSourcesDrawerOpen()"
+        [fuentes]="currentResponse()?.evaluacion_calidad?.fuentes_consultadas || []"
+        [selectedFuente]="selectedFuente()"
+        (close)="isSourcesDrawerOpen.set(false)"
       ></app-sources-drawer>
 
-      <!-- JSON DATA DRAWER OVERLAY -->
-      <app-json-drawer
-        [isOpen]="isJsonDrawerOpen()"
+      <app-json-drawer 
+        *ngIf="isJsonDrawerOpen()"
         [data]="currentResponse()"
-        (closeDrawer)="isJsonDrawerOpen.set(false)"
+        (close)="isJsonDrawerOpen.set(false)"
       ></app-json-drawer>
     </div>
   `,
   styles: [`
-    .workspace-layout {
-      max-width: 1040px;
-      margin: 0 auto;
-      padding: 0 1rem;
-    }
+    .workspace-layout { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
+    .workspace-header h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.4rem; color: var(--text-primary); }
+    .value-prop-tag { font-size: 0.75rem; font-weight: 800; color: #6366F1; letter-spacing: 0.08em; margin-bottom: 0.25rem; display: block; }
+    .value-prop-subtitle { color: var(--text-secondary); font-size: 1.05rem; margin-bottom: 1.25rem; }
 
-    .workspace-header { margin-bottom: 2rem; }
-    .value-prop-tag { font-size: 0.75rem; font-weight: 800; color: #22D3EE; letter-spacing: 0.05em; margin-bottom: 0.4rem; display: block; }
-    .workspace-header h2 { font-size: 2rem; font-weight: 800; margin-bottom: 0.35rem; }
-    .value-prop-subtitle { color: var(--text-secondary); font-size: 1rem; margin-bottom: 1.25rem; }
-    .presets-row { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; }
-    .presets-label { font-size: 0.8rem; font-weight: 700; color: var(--text-muted); }
-    .preset-btn { padding: 0.4rem 0.85rem; border-radius: 20px; background: var(--bg-surface); border: 1px solid var(--border-subtle); color: var(--text-primary); font-size: 0.82rem; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-    .preset-btn:hover { border-color: #6366F1; background: rgba(99, 102, 241, 0.08); }
+    .presets-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
+    .presets-label { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); }
+    .preset-btn { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 0.4rem 0.85rem; border-radius: 20px; font-size: 0.82rem; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: all 0.2s; }
+    .preset-btn:hover { border-color: #6366F1; color: #6366F1; transform: translateY(-1px); }
 
-    .input-zone-card { padding: 2rem; border-radius: 20px; background: var(--bg-surface); border: 1px solid var(--border-subtle); margin-bottom: 2rem; }
-    .form-group { margin-bottom: 1.5rem; }
-    .form-group label { display: block; font-size: 0.88rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary); }
-
-    input[type="text"], textarea { width: 100%; padding: 0.85rem 1rem; border-radius: 12px; background: var(--bg-app); border: 1px solid var(--border-subtle); color: var(--text-primary); font-size: 0.95rem; outline: none; }
+    .input-zone-card { padding: 2rem; border-radius: 20px; background: var(--bg-surface); border: 1px solid var(--border-subtle); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.04); }
+    .form-group { margin-bottom: 1.75rem; }
+    .form-group label { display: block; font-size: 0.92rem; font-weight: 700; margin-bottom: 0.5rem; color: var(--text-primary); }
+    .form-group input[type="text"], textarea { width: 100%; padding: 0.85rem 1rem; border-radius: 12px; border: 1px solid var(--border-subtle); background: var(--bg-app); color: var(--text-primary); font-size: 0.95rem; outline: none; transition: border-color 0.2s; }
+    .form-group input[type="text"]:focus, textarea:focus { border-color: #6366F1; }
 
     .input-tabs-wrapper { margin-bottom: 2rem; }
-    .tabs-header { display: flex; gap: 0.5rem; margin-bottom: 0.75rem; }
-    .tab-btn { padding: 0.5rem 1rem; border-radius: 8px; background: transparent; border: 1px solid var(--border-subtle); color: var(--text-secondary); font-size: 0.88rem; font-weight: 600; cursor: pointer; }
-    .tab-btn.active { background: #4F46E5; color: #FFFFFF; border-color: #4F46E5; }
+    .tabs-header { display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; }
+    .tab-btn { padding: 0.65rem 1.25rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
+    .tab-btn.active { color: #4F46E5; border-bottom-color: #4F46E5; }
 
-    .dropzone { border: 2px dashed var(--border-subtle); border-radius: 16px; padding: 2.5rem 1.5rem; text-align: center; cursor: pointer; background: var(--bg-app); transition: border-color 0.2s; }
-    .dropzone.dragover { border-color: #22D3EE; background: rgba(34, 211, 238, 0.05); }
+    .dropzone { padding: 2.5rem 1.5rem; border: 2px dashed #818CF8; border-radius: 16px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-app); }
+    .dropzone.dragover { border-color: #4F46E5; background: rgba(79, 70, 229, 0.08); }
     .drop-icon { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
     .drop-hint { font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem; }
     .file-preview { display: flex; align-items: center; gap: 1rem; justify-content: center; }
     .btn-remove-file { background: transparent; border: none; color: #EF4444; font-weight: 800; cursor: pointer; }
     .char-count { font-size: 0.78rem; color: var(--text-muted); text-align: right; margin-top: 0.35rem; }
+
+    /* FROM MIS DOCUMENTOS STYLES */
+    .selected-document-card {
+      display: flex; align-items: center; gap: 1.25rem; padding: 1.25rem;
+      border-radius: 16px; background: rgba(99, 102, 241, 0.06); border: 1.5px solid #6366F1;
+    }
+    .selected-doc-icon { font-size: 2.2rem; }
+    .selected-doc-info { flex: 1; display: flex; flex-direction: column; gap: 0.25rem; }
+    .doc-badge-row { display: flex; align-items: center; gap: 0.6rem; }
+    .type-pill { font-size: 0.72rem; font-weight: 800; padding: 0.15rem 0.5rem; border-radius: 6px; background: #4F46E5; color: #FFF; }
+    .type-pill.pdf { background: #EF4444; }
+    .type-pill.md { background: #7C3AED; }
+    .type-pill.txt { background: #0891B2; }
+    .status-ready { font-size: 0.78rem; color: #10B981; font-weight: 700; }
+    .selected-doc-info strong { font-size: 1.05rem; color: var(--text-primary); }
+    .doc-meta-text { font-size: 0.8rem; color: var(--text-muted); }
+    .btn-clear-doc { background: transparent; border: 1px solid var(--border-subtle); padding: 0.45rem 0.85rem; border-radius: 10px; font-size: 0.82rem; font-weight: 700; color: var(--text-secondary); cursor: pointer; }
+    .btn-clear-doc:hover { background: var(--bg-surface); color: #EF4444; border-color: #EF4444; }
+
+    .document-picker-wrapper { background: var(--bg-app); border-radius: 16px; padding: 1.25rem; border: 1px solid var(--border-subtle); }
+    .picker-search-bar { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
+    .picker-search-bar input { flex: 1; padding: 0.6rem 1rem; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--text-primary); font-size: 0.9rem; outline: none; }
+    .picker-search-bar select { padding: 0.6rem 1rem; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-surface); color: var(--text-primary); font-size: 0.9rem; outline: none; }
+
+    .picker-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 1rem; }
+    .picker-item-card { background: var(--bg-surface); border: 1px solid var(--border-subtle); border-radius: 14px; padding: 1rem; cursor: pointer; display: flex; flex-direction: column; justify-content: space-between; transition: all 0.2s; }
+    .picker-item-card:hover { border-color: #6366F1; transform: translateY(-2px); box-shadow: 0 4px 12px rgba(99, 102, 241, 0.12); }
+    .picker-item-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem; }
+    .item-size { font-size: 0.75rem; color: var(--text-muted); }
+    .picker-item-title { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.85rem; line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+    .btn-select-doc { background: #4F46E5; color: #FFF; border: none; padding: 0.45rem; border-radius: 8px; font-size: 0.82rem; font-weight: 700; cursor: pointer; width: 100%; }
+
+    .picker-empty { text-align: center; padding: 2rem; color: var(--text-muted); }
+    .btn-nav-docs { margin-top: 0.75rem; background: #4F46E5; color: #FFF; border: none; padding: 0.55rem 1.15rem; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 0.85rem; }
 
     .selectors-section { margin-bottom: 2rem; }
     .section-title { display: block; font-size: 0.95rem; font-weight: 800; margin-bottom: 0.85rem; color: var(--text-primary); }
@@ -605,16 +714,21 @@ import { StateService } from '../../core/services/state.service';
     }
   `]
 })
-export class WorkspaceComponent {
+export class WorkspaceComponent implements OnInit {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
   private stateService = inject(StateService);
+  readonly documentService = inject(DocumentService);
   private router = inject(Router);
 
-  activeTab = signal<'upload' | 'text'>('text');
+  activeTab = signal<'upload' | 'text' | 'from_documents'>('from_documents');
   isDragging = signal<boolean>(false);
   uploadedFile = signal<File | null>(null);
+  selectedWorkspaceDoc = signal<AppDocument | null>(null);
+
+  pickerSearchQuery = signal<string>('');
+  pickerTypeFilter = signal<string>('all');
 
   isPipelineRunning = signal<boolean>(false);
   currentResponse = signal<AdaptationResponse | null>(null);
@@ -627,6 +741,8 @@ export class WorkspaceComponent {
   isConceptsExpanded = signal<boolean>(false);
   userVote = signal<'up' | 'down' | null>(null);
   feedbackSubmitted = signal<boolean>(false);
+
+  private pipelineSub?: Subscription;
 
   perfiles = [
     { value: 'Principiante', label: 'Principiante', icon: '🌱', desc: 'Explicaciones didácticas y analogías sencillas' },
@@ -648,7 +764,7 @@ export class WorkspaceComponent {
   nivelesCantidad: NivelCantidad[] = ['Breve', 'Estandar', 'Amplio', 'Exhaustivo', 'Personalizado'];
 
   adaptForm = this.fb.group({
-    documento_titulo: ['Introducción a la Arquitectura de Redes VCN en OCI', [Validators.required]],
+    documento_titulo: ['Especificación de Redes VCN en Oracle Cloud Infrastructure (OCI)', [Validators.required]],
     documento_contenido: ['Una Virtual Cloud Network (VCN) en Oracle Cloud Infrastructure es una red privada definida por software...', [Validators.required]],
     perfil_destinatario: ['Desarrollador' as PerfilDestinatario, [Validators.required]],
     formato_salida: ['Flashcards' as FormatoSalida, [Validators.required]],
@@ -657,6 +773,61 @@ export class WorkspaceComponent {
     nivel_cantidad: ['Estandar' as NivelCantidad, [Validators.required]],
     cantidad_objetivo: [20]
   });
+
+  ngOnInit(): void {
+    // Check if document was pre-selected from DocumentService
+    const preselected = this.documentService.selectedWorkspaceDocument();
+    if (preselected) {
+      this.selectDocFromPicker(preselected);
+    } else {
+      const activeDocs = this.documentService.activeDocuments();
+      if (activeDocs.length > 0) {
+        this.selectDocFromPicker(activeDocs[0]);
+      }
+    }
+  }
+
+  pickerDocuments = computed(() => {
+    const query = this.pickerSearchQuery().toLowerCase();
+    const type = this.pickerTypeFilter();
+
+    return this.documentService.activeDocuments().filter(doc => {
+      const matchQuery = doc.name.toLowerCase().includes(query) ||
+        (doc.tags && doc.tags.some(t => t.toLowerCase().includes(query)));
+      const matchType = type === 'all' || doc.type === type;
+      return matchQuery && matchType;
+    });
+  });
+
+  selectDocFromPicker(doc: AppDocument): void {
+    this.selectedWorkspaceDoc.set(doc);
+    this.activeTab.set('from_documents');
+    this.documentService.selectForWorkspace(doc);
+
+    // Clean title from extension
+    const cleanTitle = doc.name.replace(/\.(pdf|md|txt)$/i, '');
+    this.adaptForm.patchValue({
+      documento_titulo: cleanTitle,
+      documento_contenido: doc.content || `Contenido de ${doc.name}`
+    });
+  }
+
+  clearSelectedWorkspaceDoc(): void {
+    this.selectedWorkspaceDoc.set(null);
+    this.documentService.clearWorkspaceSelection();
+  }
+
+  onPickerSearch(event: Event): void {
+    this.pickerSearchQuery.set((event.target as HTMLInputElement).value);
+  }
+
+  onPickerTypeChange(event: Event): void {
+    this.pickerTypeFilter.set((event.target as HTMLSelectElement).value);
+  }
+
+  navigateToDocuments(): void {
+    this.router.navigate(['/documents']);
+  }
 
   currentQuantityHint = computed(() => {
     const val = this.adaptForm.value;
@@ -740,6 +911,148 @@ export class WorkspaceComponent {
     this.adaptForm.patchValue({ cantidad_objetivo: targetQty });
   }
 
+  onCustomQuantityChange(event: Event): void {
+    const val = parseInt((event.target as HTMLInputElement).value, 10);
+    this.adaptForm.patchValue({ cantidad_objetivo: val });
+  }
+
+  applyPreset(type: string): void {
+    if (type === 'beginner-flashcards') {
+      this.adaptForm.patchValue({
+        documento_titulo: 'Guía Didáctica: MsJava Microservicios',
+        documento_contenido: 'MsJava en aplicaciones empresariales Fintech...',
+        perfil_destinatario: 'Principiante',
+        formato_salida: 'Flashcards',
+        nicho_sector: 'Fintech',
+        nivel_detalle: 'Didactico',
+        nivel_cantidad: 'Estandar',
+        cantidad_objetivo: 20
+      });
+    } else if (type === 'leader-summary') {
+      this.adaptForm.patchValue({
+        documento_titulo: 'Arquitectura de Redes VCN en OCI',
+        documento_contenido: 'Virtual Cloud Network (VCN) en Oracle Cloud Infrastructure...',
+        perfil_destinatario: 'Lider Tecnico',
+        formato_salida: 'Resumen Ejecutivo',
+        nicho_sector: 'General',
+        nivel_detalle: 'Conciso',
+        nivel_cantidad: 'Breve',
+        cantidad_objetivo: 5
+      });
+    } else if (type === 'dev-quiz') {
+      this.adaptForm.patchValue({
+        documento_titulo: 'Manual de Desarrollo Spring Boot 3',
+        documento_contenido: 'Configuración de endpoints REST con Spring Boot y Gradle...',
+        perfil_destinatario: 'Desarrollador',
+        formato_salida: 'Quiz',
+        nicho_sector: 'Fintech',
+        nivel_detalle: 'Tecnico',
+        nivel_cantidad: 'Estandar',
+        cantidad_objetivo: 10
+      });
+    }
+  }
+
+  onDragOver(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging.set(true);
+  }
+
+  onDragLeave(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging.set(false);
+  }
+
+  onDrop(event: DragEvent): void {
+    event.preventDefault();
+    this.isDragging.set(false);
+    if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
+      this.handleFile(event.dataTransfer.files[0]);
+    }
+  }
+
+  onFileSelected(event: Event): void {
+    const input = event.target as HTMLInputElement;
+    if (input.files && input.files.length > 0) {
+      this.handleFile(input.files[0]);
+    }
+  }
+
+  private handleFile(file: File): void {
+    this.uploadedFile.set(file);
+    const cleanName = file.name.replace(/\.(pdf|md|txt)$/i, '');
+    this.adaptForm.patchValue({ documento_titulo: cleanName });
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target?.result as string || `Contenido de ${file.name}`;
+      this.adaptForm.patchValue({ documento_contenido: text });
+    };
+    reader.readAsText(file);
+  }
+
+  removeFile(): void {
+    this.uploadedFile.set(null);
+  }
+
+  runPipeline(): void {
+    if (this.adaptForm.invalid) return;
+
+    this.isPipelineRunning.set(true);
+    const formVal = this.adaptForm.value;
+
+    const req: AdaptationRequest = {
+      documento_titulo: formVal.documento_titulo || 'Documento Técnico',
+      documento_contenido: formVal.documento_contenido || '',
+      perfil_destinatario: formVal.perfil_destinatario || 'Desarrollador',
+      formato_salida: formVal.formato_salida || 'Flashcards',
+      nicho_sector: formVal.nicho_sector || 'General',
+      nivel_detalle: formVal.nivel_detalle || 'Tecnico',
+      nivel_cantidad: formVal.nivel_cantidad || 'Estandar',
+      cantidad_objetivo: formVal.cantidad_objetivo || 20
+    };
+
+    this.pipelineSub = this.api.adaptContent(req).subscribe({
+      next: (resp) => {
+        this.currentResponse.set(resp);
+        this.stateService.addProjectFromResponse(req, resp);
+        this.isPipelineRunning.set(false);
+      },
+      error: (err) => {
+        console.error('Error en pipeline RAG:', err);
+        this.isPipelineRunning.set(false);
+      }
+    });
+  }
+
+  cancelPipeline(): void {
+    if (this.pipelineSub) {
+      this.pipelineSub.unsubscribe();
+    }
+    this.isPipelineRunning.set(false);
+  }
+
+  getGenerationParams(): any {
+    const val = this.adaptForm.value;
+    return {
+      titulo: val.documento_titulo,
+      perfil: val.perfil_destinatario,
+      formato: val.formato_salida,
+      cantidad: this.effectiveTargetCount()
+    };
+  }
+
+  resetForm(): void {
+    this.currentResponse.set(null);
+    this.isPipelineRunning.set(false);
+    this.feedbackSubmitted.set(false);
+    this.userVote.set(null);
+  }
+
+  navigateToLibrary(): void {
+    this.router.navigate(['/library']);
+  }
+
   toggleExportMenu(): void {
     this.isExportMenuOpen.set(!this.isExportMenuOpen());
   }
@@ -748,57 +1061,33 @@ export class WorkspaceComponent {
     this.isExportMenuOpen.set(false);
   }
 
-  navigateToLibrary(): void {
-    this.router.navigate(['/biblioteca']);
+  exportPdf(): void {
+    const resp = this.currentResponse();
+    if (resp) this.exportService.exportPdfDidactico(resp);
   }
 
-  applyPreset(preset: 'beginner-flashcards' | 'leader-summary' | 'dev-quiz'): void {
-    this.activeTab.set('text');
-    if (preset === 'beginner-flashcards') {
-      this.adaptForm.patchValue({
-        documento_titulo: 'Conceptos Básicos de VCN en OCI',
-        documento_contenido: 'Una VCN es una red privada en la nube. Permite organizar servidores en subredes públicas y privadas.',
-        perfil_destinatario: 'Principiante',
-        formato_salida: 'Flashcards',
-        nicho_sector: 'General',
-        nivel_detalle: 'Didactico',
-        nivel_cantidad: 'Estandar',
-        cantidad_objetivo: 20
-      });
-    } else if (preset === 'leader-summary') {
-      this.adaptForm.patchValue({
-        documento_titulo: 'Estrategia de Redes Privadas & Seguridad OCI',
-        documento_contenido: 'Las redes VCN permiten aislamiento corporativo y reducción de riesgos ante auditorías PCI-DSS.',
-        perfil_destinatario: 'Ejecutivo',
-        formato_salida: 'Resumen Ejecutivo',
-        nicho_sector: 'Fintech',
-        nivel_detalle: 'Conciso',
-        nivel_cantidad: 'Estandar',
-        cantidad_objetivo: 5
-      });
-    } else if (preset === 'dev-quiz') {
-      this.adaptForm.patchValue({
-        documento_titulo: 'Configuración Avanzada de Network Security Groups',
-        documento_contenido: 'Los NSGs aplican reglas a nivel de VNIC individual sin alterar la subred completa.',
-        perfil_destinatario: 'Desarrollador',
-        formato_salida: 'Quiz',
-        nicho_sector: 'E-commerce',
-        nivel_detalle: 'Tecnico',
-        nivel_cantidad: 'Estandar',
-        cantidad_objetivo: 10
-      });
-    }
+  exportMarkdown(): void {
+    const resp = this.currentResponse();
+    if (resp) this.exportService.exportMarkdown(resp);
   }
 
-  quickPrefillFormat(formato: FormatoSalida): void {
-    this.adaptForm.patchValue({ formato_salida: formato });
-    const lvl = this.adaptForm.get('nivel_cantidad')?.value as NivelCantidad || 'Estandar';
-    this.adaptForm.patchValue({ cantidad_objetivo: getTargetItemCount(formato, lvl) });
+  exportAnki(): void {
+    const resp = this.currentResponse();
+    if (resp) this.exportService.exportAnkiCsv(resp);
+  }
+
+  getTypedItems(): any[] {
+    const resp = this.currentResponse();
+    return resp?.contenido_adaptado?.items || [];
+  }
+
+  quickPrefillFormat(fmt: string): void {
+    this.selectFormato(fmt);
     this.resetForm();
   }
 
-  quickPrefillProfile(perfil: PerfilDestinatario): void {
-    this.adaptForm.patchValue({ perfil_destinatario: perfil });
+  quickPrefillProfile(prof: string): void {
+    this.selectPerfil(prof);
     this.resetForm();
   }
 
@@ -807,146 +1096,18 @@ export class WorkspaceComponent {
     this.feedbackSubmitted.set(true);
   }
 
-  onDragOver(e: DragEvent): void { e.preventDefault(); this.isDragging.set(true); }
-  onDragLeave(e: DragEvent): void { e.preventDefault(); this.isDragging.set(false); }
-
-  onDrop(e: DragEvent): void {
-    e.preventDefault();
-    this.isDragging.set(false);
-    if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
-      this.handleFile(e.dataTransfer.files[0]);
-    }
+  formatSize(bytes: number): string {
+    if (bytes < 1024) return `${bytes} B`;
+    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
+    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
-  onFileSelected(e: Event): void {
-    const input = e.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      this.handleFile(input.files[0]);
-    }
-  }
-
-  handleFile(file: File): void {
-    this.uploadedFile.set(file);
-    const cleanTitle = file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' ');
-    const formattedTitle = cleanTitle.charAt(0).toUpperCase() + cleanTitle.slice(1);
-    this.adaptForm.patchValue({ documento_titulo: formattedTitle });
-    
-    const isTextFile = file.name.endsWith('.txt') || file.name.endsWith('.md') || file.name.endsWith('.json') || file.name.endsWith('.csv') || file.type.startsWith('text/');
-    
-    if (isTextFile) {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = (e.target?.result as string) || '';
-        this.adaptForm.patchValue({ documento_contenido: this.sanitizeTechnicalText(text) });
-      };
-      reader.readAsText(file);
-    } else {
-      this.api.parsePdf(file).subscribe({
-        next: (res) => {
-          if (res && res.texto_extraido) {
-            const cleanText = this.sanitizeTechnicalText(res.texto_extraido);
-            this.adaptForm.patchValue({ documento_contenido: cleanText });
-          }
-        },
-        error: () => {
-          const fallbackText = `Documento Técnico: ${formattedTitle}\nCurso de Microservicios con Spring Boot 3 y 4. Arquitectura de Microservicios, APIs REST, Spring Data JPA, Spring Cloud Gateway, Resilience4j Circuit Breakers, Apache Kafka, Observabilidad y Kubernetes.`;
-          this.adaptForm.patchValue({ documento_contenido: fallbackText });
-        }
-      });
-    }
-  }
-
-  private sanitizeTechnicalText(text: string): string {
-    if (!text) return '';
-    return text.replace(/[^\x20-\x7E\xA0-\xFFáéíóúÁÉÍÓÚñÑ\n\r\t]/g, ' ').replace(/[^\S\r\n]{2,}/g, ' ').trim();
-  }
-
-  @ViewChild(GenerationLoaderComponent) loaderComp?: GenerationLoaderComponent;
-  private activeAdaptationSub: Subscription | null = null;
-
-  removeFile(): void { this.uploadedFile.set(null); }
-
-  getGenerationParams(): { perfil?: string; formato?: string; nicho?: string; nivel?: string } {
-    const val = this.adaptForm.value;
-    return {
-      perfil: val.perfil_destinatario ?? undefined,
-      formato: val.formato_salida ?? undefined,
-      nicho: val.nicho_sector ?? undefined,
-      nivel: val.nivel_detalle ?? undefined
-    };
-  }
-
-  runPipeline(): void {
-    if (this.adaptForm.invalid) return;
-    this.isPipelineRunning.set(true);
-    this.currentResponse.set(null);
-    this.feedbackSubmitted.set(false);
-    this.userVote.set(null);
-
-    const startTime = Date.now();
-    const req = this.adaptForm.value as AdaptationRequest;
-    req.cantidad_generar = this.effectiveTargetCount();
-
-    if (typeof console !== 'undefined' && console.log) {
-      console.log('[NUEVAMENTE DEV] Payload de Generación enviado al Backend:', req);
-    }
-
-    if (this.activeAdaptationSub) {
-      this.activeAdaptationSub.unsubscribe();
-    }
-
-    this.activeAdaptationSub = this.api.adaptContent(req).subscribe({
-      next: (res) => {
-        const elapsed = Date.now() - startTime;
-        const minDuration = 600;
-        const delay = elapsed < minDuration ? minDuration - elapsed : 0;
-
-        setTimeout(() => {
-          this.currentResponse.set(res);
-          this.isPipelineRunning.set(false);
-          localStorage.setItem('nuevamente_library_initialized', 'true');
-          this.stateService.addProjectFromResponse(req, res);
-        }, delay);
-      },
-      error: (err) => {
-        const errorMsg = err?.error?.mensaje || err?.message || 'Error al comunicarse con el servidor RAG.';
-        this.loaderComp?.triggerError(errorMsg);
-      }
-    });
-  }
-
-  cancelPipeline(): void {
-    if (this.activeAdaptationSub) {
-      this.activeAdaptationSub.unsubscribe();
-      this.activeAdaptationSub = null;
-    }
-    this.isPipelineRunning.set(false);
-  }
-
-  resetForm(): void {
-    this.currentResponse.set(null);
-    this.isPipelineRunning.set(false);
-  }
-
-  getTypedItems(): any[] {
-    return this.currentResponse()?.contenido_adaptado?.items || [];
-  }
-
-  exportMarkdown(): void {
-    if (this.currentResponse()) {
-      this.exportService.exportMarkdown(this.currentResponse()!);
-    }
-  }
-
-  exportPdf(): void {
-    if (this.currentResponse()) {
-      this.exportService.exportPdfDidactico(this.currentResponse()!);
-    }
-  }
-
-  exportAnki(): void {
-    if (this.currentResponse()) {
-      this.exportService.exportAnkiCsv(this.currentResponse()!);
+  formatDate(dateStr: string): string {
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short' });
+    } catch {
+      return dateStr;
     }
   }
 }

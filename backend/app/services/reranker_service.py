@@ -98,8 +98,8 @@ class JinaReranker(BaseReranker):
 
 
 class CohereReranker(BaseReranker):
-    """Wraps the existing CohereClient. Used only as a fallback when Jina
-    fails, since Cohere's free trial tier has a low request-per-minute limit."""
+    """Wraps the existing CohereClient. Used as the primary fast and highly accurate
+    multilingual reranker."""
 
     def __init__(self):
         from app.infrastructure.cohere_client import CohereClient  # noqa: PLC0415
@@ -123,7 +123,7 @@ class CohereReranker(BaseReranker):
 
 
 def get_default_rerankers() -> List[BaseReranker]:
-    """Returns the reranker chain in priority order: Jina first, Cohere as
+    """Returns the reranker chain in priority order: Cohere first for speed/accuracy, Jina as
     fallback. Construction is deferred to retrieval_service, which catches
     failures per-provider and tries the next one."""
-    return [JinaReranker(), CohereReranker()]
+    return [CohereReranker(), JinaReranker()]

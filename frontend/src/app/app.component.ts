@@ -5,6 +5,7 @@ import { ThemeService } from './core/services/theme.service';
 import { I18nService } from './core/services/i18n.service';
 import { AuthStore } from './core/store/auth.store';
 import { StateService } from './core/services/state.service';
+import { DocumentService } from './core/services/document.service';
 
 @Component({
   selector: 'app-root',
@@ -48,6 +49,16 @@ import { StateService } from './core/services/state.service';
           >
             <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
+          </a>
+
+          <a 
+            routerLink="/documents" 
+            routerLinkActive="active" 
+            class="nav-btn"
+          >
+            <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <span class="nav-text" *ngIf="!isSidebarCollapsed()">Mis Documentos</span>
+            <span class="nav-doc-badge" *ngIf="getActiveDocCount() > 0">{{ getActiveDocCount() }}</span>
           </a>
 
           <a 
@@ -151,6 +162,16 @@ import { StateService } from './core/services/state.service';
     .nav-btn.active { background: rgba(79, 70, 229, 0.1); color: #4F46E5; font-weight: 700; }
     .nav-icon-svg { flex-shrink: 0; }
 
+    .nav-doc-badge {
+      margin-left: auto;
+      background: #4F46E5;
+      color: #FFFFFF;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+    }
+
     .nav-trash-badge {
       margin-left: auto;
       background: #EF4444;
@@ -203,12 +224,17 @@ export class AppComponent implements OnInit {
   readonly i18n = inject(I18nService);
   readonly authStore = inject(AuthStore);
   private stateService = inject(StateService);
+  readonly documentService = inject(DocumentService);
   private router = inject(Router);
 
   isSidebarCollapsed = signal<boolean>(false);
 
   ngOnInit(): void {
     this.authStore.initSession();
+  }
+
+  getActiveDocCount(): number {
+    return this.documentService.totalActiveCount();
   }
 
   getTrashCount(): number {

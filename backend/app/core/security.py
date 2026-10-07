@@ -26,12 +26,21 @@ def get_db():
 
 # Password Hashing with PBKDF2-HMAC-SHA256
 def hash_password(password: str) -> str:
-    salt = b"nuevamente_pbkdf2_salt_2026"
+    salt = secrets.token_bytes(16)
     key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
-    return key.hex()
+    return f"{salt.hex()}:{key.hex()}"
 
 def verify_password(password: str, hashed: str) -> bool:
-    return hmac.compare_digest(hash_password(password), hashed)
+    if ":" in hashed:
+        salt_hex, key_hex = hashed.split(":")
+        salt = bytes.fromhex(salt_hex)
+        expected_key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return hmac.compare_digest(expected_key.hex(), key_hex)
+    else:
+        # Fallback for old hardcoded salt format
+        salt = b"nuevamente_pbkdf2_salt_2026"
+        expected_key = hashlib.pbkdf2_hmac('sha256', password.encode('utf-8'), salt, 100000)
+        return hmac.compare_digest(expected_key.hex(), hashed)
 
 def init_auth_tables():
     conn = get_db()
@@ -272,7 +281,7 @@ def generate_totp_code(secret: str, time_step: int = 30) -> str:
     key = base64.b32decode(secret, casefold=True)
     t = int(time.time() // time_step)
     msg = t.to_bytes(8, byteorder='big')
-    hmac_hash = hmac.new(key, msg, hashlib.sha1).digest()
+    hmac_hash = hmac.new(key, msg, hashlib.sha512).digest()
     offset = hmac_hash[-1] & 0x0F
     code = ((hmac_hash[offset] & 0x7F) << 24 |
             (hmac_hash[offset+1] & 0xFF) << 16 |
@@ -286,7 +295,7 @@ def verify_totp_code(secret: str, code: str) -> bool:
     for delta in [-1, 0, 1]:
         key = base64.b32decode(secret, casefold=True)
         t = (current_time + delta).to_bytes(8, byteorder='big')
-        hmac_hash = hmac.new(key, t, hashlib.sha1).digest()
+        hmac_hash = hmac.new(key, t, hashlib.sha512).digest()
         offset = hmac_hash[-1] & 0x0F
         expected = ((hmac_hash[offset] & 0x7F) << 24 |
                     (hmac_hash[offset+1] & 0xFF) << 16 |
