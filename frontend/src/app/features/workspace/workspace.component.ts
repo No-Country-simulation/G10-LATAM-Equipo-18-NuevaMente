@@ -983,12 +983,35 @@ export class WorkspaceComponent implements OnInit {
     const cleanName = file.name.replace(/\.(pdf|md|txt)$/i, '');
     this.adaptForm.patchValue({ documento_titulo: cleanName });
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const text = e.target?.result as string || `Contenido de ${file.name}`;
-      this.adaptForm.patchValue({ documento_contenido: text });
-    };
-    reader.readAsText(file);
+    if (file.name.toLowerCase().endsWith('.pdf')) {
+      this.api.parsePdf(file).subscribe({
+        next: (res) => {
+          if (res && res.texto_extraido) {
+            this.adaptForm.patchValue({ documento_contenido: res.texto_extraido });
+          }
+        },
+        error: () => {
+          const reader = new FileReader();
+          reader.onload = (e) => {
+            const raw = e.target?.result as string || '';
+            let text = raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
+            text = text.replace(/stream[\s\S]*?endstream/gi, '');
+            text = text.replace(/<<[\s\S]*?>>/g, '');
+            text = text.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
+            text = text.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
+            this.adaptForm.patchValue({ documento_contenido: text || `Especificación técnica de ${file.name}` });
+          };
+          reader.readAsText(file);
+        }
+      });
+    } else {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const text = e.target?.result as string || `Contenido de ${file.name}`;
+        this.adaptForm.patchValue({ documento_contenido: text });
+      };
+      reader.readAsText(file);
+    }
   }
 
   removeFile(): void {

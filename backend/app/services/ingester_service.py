@@ -588,7 +588,8 @@ class IngesterService:
         handles a file. No file extension is available, so section
         detection uses the TXT heuristic and the text is treated as plain text."""
         document_id = str(uuid.uuid4())
-        sections = self.detect_sections(content, ".txt")
+        cleaned_content = clean_text(content)
+        sections = self.detect_sections(cleaned_content, ".txt")
         sections, noise_report = self.prepare_sections(sections, False, options)
         chunks = self.build_chunks_from_sections(sections, document_id)
 
@@ -596,7 +597,7 @@ class IngesterService:
             document_id=document_id,
             title=title,
             source_filename="inline_text",
-            raw_text=content,
+            raw_text=cleaned_content,
             chunks=chunks,
             noise_report=noise_report,
         )

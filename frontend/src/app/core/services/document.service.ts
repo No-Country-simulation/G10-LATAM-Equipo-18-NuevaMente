@@ -136,14 +136,34 @@ Este documento detalla la combinación de Embeddings Densos (Gemini 001) y Búsq
     return newDoc;
   }
 
+  private cleanPdfTextFrontend(raw: string, filename: string): string {
+    if (!raw) return `Documento PDF ${filename} cargado para procesamiento RAG.`;
+    let text = raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
+    text = text.replace(/stream[\s\S]*?endstream/gi, '');
+    text = text.replace(/<<[\s\S]*?>>/g, '');
+    text = text.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
+    text = text.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '');
+    text = text.trim();
+    if (text.length < 20) {
+      return `Documento PDF ${filename} cargado. El contenido será extraído mediante el motor RAG del backend.`;
+    }
+    return text;
+  }
+
   /**
    * Reads file as plain text for RAG processing
    */
   private readFileAsText(file: File): Promise<string> {
+    const fileExt = file.name.split('.').pop()?.toLowerCase();
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
-        resolve(e.target?.result as string || `Contenido de archivo: ${file.name}`);
+        const result = e.target?.result as string || '';
+        if (fileExt === 'pdf') {
+          resolve(this.cleanPdfTextFrontend(result, file.name));
+        } else {
+          resolve(result || `Contenido de archivo: ${file.name}`);
+        }
       };
       reader.onerror = () => resolve(`Documento ${file.name} cargado.`);
       reader.readAsText(file);
