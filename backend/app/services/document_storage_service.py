@@ -27,7 +27,6 @@ from pathlib import Path
 from typing import Optional
 
 from app.core.config import settings
-from app.infrastructure.supabase_client import get_supabase_client
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +75,7 @@ class SupabaseStorageService(BaseDocumentStorage):
         owner_prefix = user_id or "anonymous"
         object_key = f"{owner_prefix}/{document_id}{extension}"
 
+        from app.infrastructure.supabase_client import get_supabase_client
         client = get_supabase_client()
         with open(path, "rb") as file:
             client.storage.from_(self.docs_bucket).upload(
@@ -89,6 +89,7 @@ class SupabaseStorageService(BaseDocumentStorage):
         return object_key
 
     def download_document(self, object_key: str, destination_path: str) -> str:
+        from app.infrastructure.supabase_client import get_supabase_client
         client = get_supabase_client()
         file_bytes = client.storage.from_(self.docs_bucket).download(object_key)
 
@@ -101,6 +102,7 @@ class SupabaseStorageService(BaseDocumentStorage):
         import json
 
         try:
+            from app.infrastructure.supabase_client import get_supabase_client
             client = get_supabase_client()
             payload_bytes = json.dumps(json_data, ensure_ascii=False, indent=2).encode("utf-8")
 

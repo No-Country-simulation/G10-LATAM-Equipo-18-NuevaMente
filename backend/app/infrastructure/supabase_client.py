@@ -14,19 +14,21 @@ Output:
     get_supabase_client() -> a ready-to-use supabase.Client instance.
 """
 
-from typing import Optional
-
-from supabase import create_client, Client
+from typing import Any, Optional
 
 from app.core.config import settings
 
-_client: Optional[Client] = None
+_client: Optional[Any] = None
 
 
-def get_supabase_client() -> Client:
+def get_supabase_client() -> Any:
     """Returns the cached Supabase client, creating it on first use."""
     global _client
     if _client is None:
+        try:
+            from supabase import create_client
+        except ImportError:
+            raise RuntimeError("El paquete 'supabase' no está instalado. Instálalo con 'pip install supabase'.")
         if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:
             raise RuntimeError(
                 "SUPABASE_URL and SUPABASE_KEY must be set in .env to use Supabase "
