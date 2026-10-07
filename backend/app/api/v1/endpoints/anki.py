@@ -7,7 +7,6 @@ import requests
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
-import genanki
 
 router = APIRouter()
 
@@ -83,6 +82,11 @@ def export_anki_deck(request: AnkiExportRequest):
         margin-bottom: 8px;
     }
     """
+
+    try:
+        import genanki
+    except ImportError:
+        raise HTTPException(status_code=500, detail="El módulo 'genanki' no está instalado. Ejecute 'pip install genanki'.")
 
     my_model = genanki.Model(
         model_id,
