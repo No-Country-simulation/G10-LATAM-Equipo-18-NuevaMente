@@ -151,10 +151,12 @@ class OCIStorageAdapter(BaseDocumentStorage):
     def download_document(self, object_key: str, destination_path: str) -> str:
         destination = Path(destination_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        base_dir = Path.cwd() / "storage_mock" / settings.OCI_BUCKET_DOCS
-        file_path = base_dir / object_key
-        if file_path.exists():
-            destination.write_bytes(file_path.read_bytes())
+        file_bytes = self.service.download_document_source(
+            bucket_name=settings.OCI_BUCKET_DOCS,
+            object_name=object_key,
+        )
+        if file_bytes is not None:
+            destination.write_bytes(file_bytes)
         return str(destination)
 
     def upload_json_artifact(self, object_name: str, json_data: dict) -> dict:

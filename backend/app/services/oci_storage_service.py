@@ -81,3 +81,22 @@ class OCIStorageService:
             "objeto_id": object_name,
             "status_upload": "completado"
         }
+
+    def download_document_source(self, bucket_name: str, object_name: str) -> Optional[bytes]:
+        """
+        Descarga documentos técnicos u objetos desde OCI Object Storage Always Free.
+        """
+        if self.is_connected and self.client:
+            try:
+                response = self.client.get_object(self.namespace, bucket_name, object_name)
+                return response.data.content
+            except Exception as e:
+                logger.error(f"Error descargando documento desde OCI Object Storage: {e}")
+
+        # Fallback local mock
+        base_dir = Path(os.getcwd()) / "storage_mock" / bucket_name
+        file_path = base_dir / object_name
+        if file_path.exists():
+            return file_path.read_bytes()
+        return None
+
