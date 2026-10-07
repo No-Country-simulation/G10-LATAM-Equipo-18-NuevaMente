@@ -22,6 +22,7 @@ from app.services.agent_orchestrator import AgentOrchestrator
 from app.services.embedding_service import EmbeddingService
 
 from app.core.timer import PipelineTracer
+from app.services.text_cleaner import clean_text
 from app.services.document_index_cache import DocumentIndexCache
 
 router = APIRouter()
@@ -43,8 +44,22 @@ async def adapt_content(request: AdaptationRequest):
     """
     tracer = PipelineTracer()
     try:
-        doc_hash = index_cache.compute_doc_hash(request.title or request.documento_titulo, request.content or request.documento_contenido)
+        # Sanitize incoming document content immediately
+        raw_content = request.content or ""
+        cleaned = clean_text(raw_content)
+        request.content = cleaned
+
+        doc_hash = index_cache.compute_doc_hash(request.title, cleaned)
         cached_index = index_cache.get_indexed_document(doc_hash)
+
+        if cached_index:
+            parent_chunks = cached_index.get("doc_data", {}).get("parent_chunks", [])
+            has_garbage = any(
+                "FlateDecode" in p.get("content", "") or "stream" in p.get("content", "") or "\ufffd" in p.get("content", "")
+                for p in parent_chunks
+            )
+            if has_garbage:
+                cached_index = None
 
         if cached_index:
             doc_data = cached_index["doc_data"]

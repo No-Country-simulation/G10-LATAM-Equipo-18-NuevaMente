@@ -806,9 +806,16 @@ export class WorkspaceComponent implements OnInit {
 
     // Clean title from extension
     const cleanTitle = doc.name.replace(/\.(pdf|md|txt)$/i, '');
+    let cleanContent = doc.content || `Contenido de ${doc.name}`;
+    cleanContent = cleanContent.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
+    cleanContent = cleanContent.replace(/stream[\s\S]*?endstream/gi, '');
+    cleanContent = cleanContent.replace(/<<[\s\S]*?>>/g, '');
+    cleanContent = cleanContent.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
+    cleanContent = cleanContent.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
+
     this.adaptForm.patchValue({
       documento_titulo: cleanTitle,
-      documento_contenido: doc.content || `Contenido de ${doc.name}`
+      documento_contenido: cleanContent || `Especificación técnica de ${cleanTitle}`
     });
   }
 

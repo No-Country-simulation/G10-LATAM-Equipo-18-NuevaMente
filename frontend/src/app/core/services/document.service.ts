@@ -37,7 +37,11 @@ export class DocumentService {
     if (saved) {
       try {
         const parsed: AppDocument[] = JSON.parse(saved);
-        this.documentsSignal.set(parsed);
+        const cleanedDocs = parsed.map(doc => ({
+          ...doc,
+          content: this.cleanPdfTextFrontend(doc.content || '', doc.name)
+        }));
+        this.saveToStorage(cleanedDocs);
         return;
       } catch (e) {
         console.error('Error parsing stored documents:', e);
