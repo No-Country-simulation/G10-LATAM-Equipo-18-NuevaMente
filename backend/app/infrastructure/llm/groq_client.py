@@ -16,13 +16,6 @@ Output:
 import json
 import logging
 from typing import Any, Optional, Type
-import groq
-from tenacity import (
-    retry,
-    retry_if_exception_type,
-    stop_after_attempt,
-    wait_exponential,
-)
 
 from app.core.config import settings
 from app.infrastructure.llm.base import BaseLLMClient, T
@@ -40,10 +33,11 @@ class GroqClient(BaseLLMClient):
             and self.api_key != "your_groq_api_key_here"
             and self.api_key != "mock_key"
         )
-        self._client: Optional[groq.Client] = None
+        self._client = None
 
         if self.has_real_key:
             try:
+                import groq
                 self._client = groq.Client(api_key=self.api_key)
                 logger.info("Groq client initialized successfully.")
             except Exception as exc:
@@ -56,18 +50,6 @@ class GroqClient(BaseLLMClient):
     def is_available(self) -> bool:
         """True when a valid Groq client instance is present."""
         return self.has_real_key and self._client is not None
-
-    @retry(
-        stop=stop_after_attempt(3),
-        wait=wait_exponential(multiplier=1.2, min=1.5, max=10),
-        retry=retry_if_exception_type((groq.APIConnectionError, groq.RateLimitError, groq.InternalServerError)),
-        before_sleep=lambda retry_state: logger.warning(
-            "Groq temporary failure. Retrying in %.2fs (attempt %d/3)...",
-            retry_state.next_action.sleep,
-            retry_state.attempt_number,
-        ),
-        reraise=True,
-    )
     def generate(
         self,
         prompt: str,
