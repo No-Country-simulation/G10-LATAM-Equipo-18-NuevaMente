@@ -544,9 +544,14 @@ Return a valid JSON with:
     ) -> Dict[str, Any]:
         fmt = request.output_format.lower()
         topic_name = topic["topic"]
-        main_concept = topic.get("concept", topic_name.split("(")[0].strip())
-        context = topic.get("context", "")
+        raw_concept = topic.get("concept", topic_name.split("(")[0].strip())
 
+        # Clean concept of any trailing PDF xref or startxref artifacts
+        clean_concept = re.sub(r"(?:%?\s*startxref[\s\d]*|%%EOF|xref\s*\d+\s*\d+|\b\d{5,}\b)", "", raw_concept, flags=re.IGNORECASE).strip()
+        clean_concept = re.sub(r"[\:\%\-_]+$", "", clean_concept).strip()
+        main_concept = clean_concept if len(clean_concept) > 2 else "Componente Técnico"
+
+        context = topic.get("context", "")
         sentences = [s.strip() for s in re.split(r"[.!?]", context) if len(s.strip()) > 15]
         target_sentence = sentences[item_idx % len(sentences)] if sentences else f"Definición clave de {main_concept}."
 
@@ -559,22 +564,22 @@ Return a valid JSON with:
 
         if "flashcard" in fmt:
             return {
-                "frente": f"¿Cuál es el propósito y aplicación de '{main_concept}' en {topic_name}?",
-                "dorso": f"{target_sentence} Permite optimizar el rendimiento y robustez en {request.niche}.",
-                "pista_didactica": f"Pista: Evalúa el impacto operativo de {main_concept}.",
+                "frente": f"¿Cuál es el propósito y aplicación de '{main_concept}'?",
+                "dorso": f"{target_sentence} Optimiza el rendimiento, la seguridad y la mantenibilidad en {request.niche}.",
+                "pista_didactica": f"Pista: Evalúa el impacto operativo de {main_concept} para {request.recipient_profile}.",
                 "fuentes": [fuente],
             }
         elif "quiz" in fmt:
             return {
-                "pregunta": f"Respecto a {main_concept} en {topic_name}, ¿cuál de las siguientes afirmaciones es correcta?",
+                "pregunta": f"Respecto a {main_concept}, ¿cuál de las siguientes afirmaciones es correcta?",
                 "opciones": [
                     f"{target_sentence}",
-                    f"Invalida las políticas de {request.niche}.",
-                    f"Aplica únicamente a entornos obsoletos de {topic_name}.",
-                    f"No guarda relación con los requerimientos de {request.recipient_profile}.",
+                    f"Invalida las políticas de seguridad de {request.niche}.",
+                    f"Aplica únicamente a arquitecturas obsoletas.",
+                    f"No guarda relación con las funciones de {request.recipient_profile}.",
                 ],
                 "respuesta_correcta": f"{target_sentence}",
-                "justificacion": f"Respaldado directamente en el texto: '{target_sentence[:120]}'",
+                "justificacion": f"Respaldado directamente en la fuente técnica: '{target_sentence[:120]}'",
                 "justificacion_didactica": f"Fundamento técnico clave para {request.recipient_profile}.",
                 "fuentes": [fuente],
             }
@@ -582,14 +587,22 @@ Return a valid JSON with:
             return {
                 "paso": item_idx,
                 "titulo": f"Paso {item_idx}: Configuración de {main_concept}",
-                "instruccion": f"Implementa {main_concept} siguiendo las pautas de {topic_name}: {target_sentence}",
-                "ejemplo": f"// Ejemplo de configuración para {main_concept}\napply_rule('{main_concept}')",
+                "instruccion": f"Configura {main_concept} según las especificaciones técnicas: {target_sentence}",
+                "ejemplo": f"# Configuración de {main_concept}\nconfigure --name '{main_concept}' --profile '{request.recipient_profile}'",
                 "fuentes": [fuente],
             }
         else:
+            impactos = [
+                f"Garantiza el cumplimiento normativo y la continuidad de servicio para {main_concept} en {request.niche}.",
+                f"Optimiza la arquitectura de red y el aislamiento de recursos en arquitecturas de {request.niche}.",
+                f"Mitiga riesgos de seguridad y simplifica la administración para {request.recipient_profile}.",
+                f"Soporta alta disponibilidad y escalabilidad automatizada en entornos de {request.niche}.",
+                f"Facilita la auditoría técnica y la gestión estructurada de políticas.",
+            ]
+            dynamic_impact = impactos[(item_idx - 1) % len(impactos)]
             return {
-                "punto_clave": f"{main_concept}: {target_sentence}",
-                "impacto_negocio": f"Asegura eficiencia operativa y valor estratégico en {request.niche}.",
+                "punto_clave": f"{main_concept}",
+                "impacto_negocio": f"{target_sentence} {dynamic_impact}",
                 "fuentes": [fuente],
             }
 
