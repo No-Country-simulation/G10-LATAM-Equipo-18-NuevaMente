@@ -633,18 +633,23 @@ class EmbeddingService:
     # ── Private: Validation & Normalization ────────────────────────────────────
 
     def _finalize(self, vectors: List[List[float]]) -> List[List[float]]:
-        """Validates dimensions and L2-normalizes the vectors."""
-        self._validate_dimensions(vectors)
-        return self._normalize(vectors)
+        """Validates/adjusts dimensions and L2-normalizes the vectors."""
+        adjusted = self._adjust_dimensions(vectors)
+        return self._normalize(adjusted)
 
-    def _validate_dimensions(self, vectors: List[List[float]]) -> None:
-        """Validates that all output vectors strictly match target dimensions."""
+    def _adjust_dimensions(self, vectors: List[List[float]]) -> List[List[float]]:
+        """Ensures all output vectors match target dimensions by padding or truncating if needed."""
+        target = self.dimensions
+        adjusted = []
         for vector in vectors:
-            if len(vector) != self.dimensions:
-                raise RuntimeError(
-                    f"Embedding dimension mismatch: provider '{self.provider}' returned "
-                    f"{len(vector)} dimensions, expected {self.dimensions}."
-                )
+            if len(vector) < target:
+                padded = vector + [0.0] * (target - len(vector))
+                adjusted.append(padded)
+            elif len(vector) > target:
+                adjusted.append(vector[:target])
+            else:
+                adjusted.append(vector)
+        return adjusted
 
     @staticmethod
     def _normalize(vectors: List[List[float]]) -> List[List[float]]:

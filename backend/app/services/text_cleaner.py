@@ -85,6 +85,27 @@ _BLOCKQUOTE = re.compile(r"^([ \t]{0,3})>+(?![ \t]*[\d=])[ \t]?", re.MULTILINE)
 _SPACES_RUN = re.compile(r"[ \t]+")
 _BLANK_LINES_RUN = re.compile(r"\n{3,}")
 
+_PDF_STREAM_PATTERN = re.compile(r"stream[\s\S]*?endstream", re.IGNORECASE)
+_PDF_DICT_PATTERN = re.compile(r"<<[\s\S]*?>>")
+_PDF_OBJ_PATTERN = re.compile(r"\d+\s+\d+\s+obj[\s\S]*?endobj", re.IGNORECASE)
+_PDF_HEADER_FOOTER_PATTERN = re.compile(r"^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|/FlateDecode|/Filter\b|/FontDescriptor\b|/MediaBox\b|/Parent\b|/Catalog\b|/Length\b|startxref|%%EOF|xref\b|trailer\b).*$", re.MULTILINE | re.IGNORECASE)
+_PDF_XREF_NOISE = re.compile(r"(?:%?\s*startxref[\s\d]*|%%EOF|xref\s*\d+\s*\d+|\b\d{5,}\b(?=\s*$|\s*R\b))", re.IGNORECASE)
+_NON_PRINTABLE_CHARS = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]")
+
+
+def clean_pdf_binary_artifacts(text: str) -> str:
+    """Removes raw PDF binary stream chunks, dictionary objects, xref trailers, and unprintable binary characters."""
+    if not text:
+        return ""
+    text = _NON_PRINTABLE_CHARS.sub("", text)
+    text = _PDF_STREAM_PATTERN.sub("", text)
+    text = _PDF_DICT_PATTERN.sub("", text)
+    text = _PDF_OBJ_PATTERN.sub("", text)
+    text = _PDF_HEADER_FOOTER_PATTERN.sub("", text)
+    text = _PDF_XREF_NOISE.sub("", text)
+    return text
+
+
 
 @dataclass
 class CleaningStats:
@@ -174,6 +195,7 @@ def clean_text(
 
     local_stats = stats if stats is not None else CleaningStats()
 
+    text = clean_pdf_binary_artifacts(text)
     text = _normalize_characters(text, local_stats)
     text = text.replace("\r\n", "\n").replace("\r", "\n")
 
