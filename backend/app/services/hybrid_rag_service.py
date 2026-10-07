@@ -2,7 +2,6 @@ import math
 import numpy as np
 from typing import List, Dict, Any
 from rank_bm25 import BM25Okapi
-import cohere
 import logging
 
 from app.core.config import settings
