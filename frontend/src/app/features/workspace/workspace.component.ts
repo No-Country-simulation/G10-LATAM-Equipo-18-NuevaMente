@@ -3,6 +3,7 @@ import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
+import { toSignal } from '@angular/core/rxjs-interop';
 
 import { NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, NivelCantidad, RagFuente } from '../../core/models/adaptation.model';
@@ -774,6 +775,8 @@ export class WorkspaceComponent implements OnInit {
     cantidad_objetivo: [20]
   });
 
+  readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
+
   ngOnInit(): void {
     // Check if document was pre-selected from DocumentService
     const preselected = this.documentService.selectedWorkspaceDocument();
@@ -837,23 +840,24 @@ export class WorkspaceComponent implements OnInit {
   }
 
   currentQuantityHint = computed(() => {
-    const val = this.adaptForm.value;
-    const fmt = val.formato_salida as FormatoSalida || 'Flashcards';
-    const lvl = val.nivel_cantidad as NivelCantidad || 'Estandar';
-    const customVal = val.cantidad_objetivo || undefined;
+    const val = this.formValues();
+    const fmt = (val?.formato_salida as FormatoSalida) || 'Flashcards';
+    const lvl = (val?.nivel_cantidad as NivelCantidad) || 'Estandar';
+    const customVal = val?.cantidad_objetivo || undefined;
     return getQuantityHintText(fmt, lvl, customVal);
   });
 
   currentCustomRange = computed(() => {
-    const fmt = (this.adaptForm.get('formato_salida')?.value as FormatoSalida) || 'Flashcards';
+    const val = this.formValues();
+    const fmt = (val?.formato_salida as FormatoSalida) || 'Flashcards';
     return CONTENT_QUANTITY_CONFIG[fmt]?.customRange || { min: 1, max: 100, default: 20 };
   });
 
   effectiveTargetCount = computed(() => {
-    const val = this.adaptForm.value;
-    const fmt = val.formato_salida as FormatoSalida || 'Flashcards';
-    const lvl = val.nivel_cantidad as NivelCantidad || 'Estandar';
-    const customVal = val.cantidad_objetivo || undefined;
+    const val = this.formValues();
+    const fmt = (val?.formato_salida as FormatoSalida) || 'Flashcards';
+    const lvl = (val?.nivel_cantidad as NivelCantidad) || 'Estandar';
+    const customVal = val?.cantidad_objetivo || undefined;
     return getTargetItemCount(fmt, lvl, customVal);
   });
 
