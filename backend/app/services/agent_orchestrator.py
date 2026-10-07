@@ -246,7 +246,7 @@ class AgentOrchestrator:
     ) -> List[Dict[str, Any]]:
         topics = []
         base_concepts = key_concepts if key_concepts else [doc_title]
-        num_topics = max(3, min(15, math.ceil(target / 4)))
+        num_topics = max(3, min(30, math.ceil(target / 3)))
         items_per_topic = math.ceil(target / num_topics)
 
         for i in range(num_topics):
@@ -493,8 +493,8 @@ Return a valid JSON with:
             base_target if request.quantity_level else (request.quantity or base_target)
         )
 
-        cap_factor = FORMAT_CAPACITY_FACTOR.get(fmt_key, 4)
-        max_capacity = max(5, max(1, passages_count) * cap_factor)
+        cap_factor = FORMAT_CAPACITY_FACTOR.get(fmt_key, 8)
+        max_capacity = max(target_quantity, max(1, passages_count) * cap_factor)
         effective_target = min(target_quantity, max_capacity)
 
         warning = None

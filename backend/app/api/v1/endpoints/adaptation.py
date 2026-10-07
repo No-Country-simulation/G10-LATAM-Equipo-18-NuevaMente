@@ -24,6 +24,8 @@ from app.services.embedding_service import EmbeddingService
 from app.core.timer import PipelineTracer
 from app.services.text_cleaner import clean_text
 from app.services.document_index_cache import DocumentIndexCache
+from app.services.agent_orchestrator import QUANTITY_TABLE
+import math
 
 router = APIRouter()
 
@@ -107,11 +109,21 @@ async def adapt_content(request: AdaptationRequest):
                     tracer.record_embedding_call(len(doc_data["child_chunks"]), 0)
 
         # 3. Hybrid RAG (BM25 + Dense Embeddings + Cross-Encoder Re-ranker)
+        fmt_key = (request.output_format or "flashcards").lower()
+        lvl_key = (request.quantity_level or "estandar").lower()
+        base_target = QUANTITY_TABLE.get(fmt_key, {}).get(lvl_key, 20)
+        target_qty = request.target_quantity if request.target_quantity is not None else (
+            base_target if request.quantity_level else (request.quantity or base_target)
+        )
+        total_parents = len(doc_data.get("parent_chunks", []))
+        dynamic_top_k = max(10, min(total_parents, math.ceil(target_qty / 2))) if total_parents > 0 else 10
+
         tracer.start_stage("recuperacion_hybrid")
         top_passages = hybrid_rag_service.retrieve_top_passages(
             query=f"{request.recipient_profile} {request.output_format} {request.niche}",
             child_chunks=doc_data["child_chunks"],
             parent_chunks=doc_data["parent_chunks"],
+            top_k=dynamic_top_k,
         )
         tracer.end_stage("recuperacion_hybrid")
 
