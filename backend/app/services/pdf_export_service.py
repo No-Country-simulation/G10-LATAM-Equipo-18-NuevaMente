@@ -137,20 +137,24 @@ class PDFExportService:
             self._add_section_title(pdf, "4. Tarjetas de Memorización")
             for idx, item in enumerate(content.items, 1):
                 # Frente (Pregunta)
+                frente = getattr(item, "front", None) or (item.get("frente") or item.get("front") if isinstance(item, dict) else "")
+                dorso = getattr(item, "back", None) or (item.get("dorso") or item.get("back") if isinstance(item, dict) else "")
+                pista = getattr(item, "hint", None) or (item.get("pista_didactica") or item.get("hint") if isinstance(item, dict) else "")
+
                 pdf.set_font("helvetica", "B", 12)
                 pdf.set_fill_color(240, 248, 255) # Azul clarito
                 pdf.set_text_color(*self.color_secondary)
-                pdf.multi_cell(0, 10, f"Q{idx}: {item.front}", fill=True, new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 10, f"Q{idx}: {frente}", fill=True, new_x="LMARGIN", new_y="NEXT")
                 
                 # Dorso (Respuesta)
                 pdf.set_font("helvetica", "", 12)
-                pdf.multi_cell(0, 10, f"R: {item.back}", new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 10, f"R: {dorso}", new_x="LMARGIN", new_y="NEXT")
                 
                 # Pista
-                if item.hint:
+                if pista:
                     pdf.set_font("helvetica", "I", 10)
                     pdf.set_text_color(*self.color_accent)
-                    pdf.multi_cell(0, 8, f"Pista: {item.hint}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.multi_cell(0, 8, f"Pista: {pista}", new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(5)
                 
         # 5. Quizzes

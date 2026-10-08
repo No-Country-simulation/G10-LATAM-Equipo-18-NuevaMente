@@ -373,19 +373,34 @@ def handle_agent_generation(
         md_lines.append(f"> ⚠️ **Aviso de Capacidad:** {meta.quantity_warning}\n")
 
     def format_source_badges(fuentes: List[Any]) -> str:
-        """Formats citation sources with section, breadcrumb, and conditional page."""
+        """Formats citation sources cleanly for the user, hiding internal chunk IDs."""
         formatted = []
         for f in fuentes:
             if not isinstance(f, dict):
                 continue
-            parts = [f"Chunk `{f.get('chunk_id', 'N/A')}`"]
-            if f.get("seccion"):
-                parts.append(f"Sección: **{f['seccion']}**")
-            if f.get("breadcrumb"):
-                parts.append(f"*{f['breadcrumb']}*")
+            parts = []
+            sec = f.get("seccion")
+            bc = f.get("breadcrumb")
+            if sec and bc and sec != bc:
+                parts.append(f"**{bc}** &rsaquo; *{sec}*")
+            elif sec:
+                parts.append(f"**{sec}**")
+            elif bc:
+                parts.append(f"*{bc}*")
+            else:
+                parts.append("Documento base")
+
             page_val = f.get("pagina")
             if isinstance(page_val, int) and page_val > 0:
                 parts.append(f"Pág. {page_val}")
+
+            extract = f.get("extracto")
+            if extract and len(extract.strip()) > 0:
+                clean_extract = extract.strip().replace("\n", " ")
+                if len(clean_extract) > 85:
+                    clean_extract = clean_extract[:82] + "..."
+                parts.append(f'&laquo;{clean_extract}&raquo;')
+
             formatted.append(" | ".join(parts))
         return " &bull; ".join(formatted) if formatted else ""
 
@@ -399,14 +414,15 @@ def handle_agent_generation(
             hint = card.get("pista_didactica") or card.get("hint", "")
             fuentes = card.get("fuentes") or card.get("sources") or []
 
-            md_lines.append(f"#### Tarjeta {i}: {front}")
-            md_lines.append(f"**Respuesta:** {back}")
+            md_lines.append(f"**🃏 Tarjeta {i:02d}**")
+            md_lines.append(f"* **Pregunta / Frente:** {front}")
+            md_lines.append(f"* **Respuesta / Dorso:** {back}")
             if hint:
-                md_lines.append(f"💡 *{hint}*")
+                md_lines.append(f"* **Pista didáctica:** 💡 *{hint}*")
             src_str = format_source_badges(fuentes)
             if src_str:
-                md_lines.append(f"🔍 **Fuente:** {src_str}")
-            md_lines.append("---")
+                md_lines.append(f"* **Fuente:** 🔍 {src_str}")
+            md_lines.append("\n---\n")
 
     elif "quiz" in format_key.lower():
         md_lines.append("### 📝 Preguntas de Quiz Interactivas\n")
@@ -425,29 +441,35 @@ def handle_agent_generation(
                 justif = q.didactic_justification or q.justification or ""
                 fuentes = getattr(q, "sources", []) or getattr(q, "fuentes", [])
 
-            md_lines.append(f"#### Pregunta {i}: {pregunta}")
+            md_lines.append(f"**🎯 Pregunta {i:02d}:** {pregunta}\n")
+            md_lines.append("**Opciones:**")
             for opt in opciones:
-                mark = "✅ " if opt == correcta else "⚪ "
-                md_lines.append(f"- {mark}{opt}")
+                mark = "✅ **[Correcta]** " if opt == correcta else "⚪ "
+                md_lines.append(f"  * {mark}{opt}")
             if justif:
-                md_lines.append(f"\n📖 **Justificación Pedagógica:** {justif}")
+                md_lines.append(f"\n* **Justificación Didáctica:** 📖 {justif}")
             src_str = format_source_badges(fuentes)
             if src_str:
-                md_lines.append(f"🔍 **Fuente:** {src_str}")
-            md_lines.append("---")
+                md_lines.append(f"* **Fuente:** 🔍 {src_str}")
+            md_lines.append("\n---\n")
 
     elif "tutorial" in format_key.lower():
-        md_lines.append("### 📖 Guía Paso a Paso\n")
+        md_lines.append("### 📖 Guía Paso a Paso (Tutorial)\n")
         sections = adapted.tutorial_sections or adapted.items or []
-        for sec in sections:
-            encabezado = sec.get("encabezado") or sec.get("titulo", "")
+        for i, sec in enumerate(sections, 1):
+            encabezado = sec.get("encabezado") or sec.get("titulo") or f"Paso {i}"
             contenido = sec.get("contenido") or sec.get("instruccion", "")
+            ejemplo = sec.get("ejemplo", "")
             fuentes = sec.get("fuentes") or sec.get("sources") or []
-            md_lines.append(f"#### {encabezado}\n{contenido}\n")
+
+            md_lines.append(f"#### 📌 {encabezado}\n")
+            md_lines.append(f"{contenido}\n")
+            if ejemplo:
+                md_lines.append(f"```text\n{ejemplo}\n```\n")
             src_str = format_source_badges(fuentes)
             if src_str:
-                md_lines.append(f"🔍 **Fuente:** {src_str}")
-            md_lines.append("---")
+                md_lines.append(f"* **Fuente:** 🔍 {src_str}")
+            md_lines.append("\n---\n")
 
     elif "guion" in format_key.lower() or "video" in format_key.lower():
         md_lines.append("### 🎬 Guion de Clase / Video Educativo\n")
@@ -457,28 +479,33 @@ def handle_agent_generation(
             narracion = sc.get("narracion", "")
             apoyo = sc.get("apoyo_visual", "")
             fuentes = sc.get("fuentes") or sc.get("sources") or []
-            md_lines.append(f"#### Escena {escena_num} ({duracion} seg)")
-            md_lines.append(f"**Narración:** {narracion}")
+
+            md_lines.append(f"#### 🎬 Escena {escena_num} (Duración: {duracion} seg)\n")
+            md_lines.append(f"* **🎙️ Narración (Voz en off):**\n  > {narracion}\n")
             if apoyo:
-                md_lines.append(f"🎥 *Apoyo Visual:* {apoyo}")
+                md_lines.append(f"* **🎥 Apoyo Visual:** {apoyo}")
             src_str = format_source_badges(fuentes)
             if src_str:
-                md_lines.append(f"🔍 **Fuente:** {src_str}")
-            md_lines.append("---")
+                md_lines.append(f"* **Fuente:** 🔍 {src_str}")
+            md_lines.append("\n---\n")
 
     elif "resumen" in format_key.lower():
         md_lines.append("### 📋 Resumen Ejecutivo (TL;DR)\n")
-        if adapted.executive_summary:
-            md_lines.append(adapted.executive_summary)
-        else:
-            for it in (adapted.items or []):
+        items = adapted.items or []
+        if items:
+            for i, it in enumerate(items, 1):
                 punto = it.get("punto_clave", "")
                 impacto = it.get("impacto_negocio", "")
                 fuentes = it.get("fuentes") or it.get("sources") or []
-                md_lines.append(f"- **{punto}**: {impacto}")
+                md_lines.append(f"**📌 Punto {i:02d}: {punto}**")
+                md_lines.append(f"* **Impacto Operativo / Negocio:** {impacto}")
                 src_str = format_source_badges(fuentes)
                 if src_str:
-                    md_lines.append(f"  🔍 *{src_str}*")
+                    md_lines.append(f"* **Fuente:** 🔍 {src_str}")
+                md_lines.append("\n---\n")
+        elif adapted.executive_summary:
+            md_lines.append(adapted.executive_summary)
+            md_lines.append("\n---\n")
 
     json_str = json.dumps(response.model_dump(), ensure_ascii=False, indent=2)
     return "\n".join(md_lines), json_str

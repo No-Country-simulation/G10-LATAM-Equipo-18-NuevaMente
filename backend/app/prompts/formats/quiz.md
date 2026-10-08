@@ -16,8 +16,9 @@ INSTRUCTIONS FOR QUIZ:
 2. Ground all claims STRICTLY in the provided excerpts. Do not fabricate.
 3. Distractors MUST be plausible and based on common misconceptions within the domain.
 4. Adapt tone and difficulty to the profile "{recipient_profile}".
-5. All text MUST be written in {target_language}.
-6. Each item MUST include its source provenance:
+5. STRICT LANGUAGE PURITY: All text (questions, options, correct answer, and justification) MUST be written 100% in {target_language}. Do not mix languages or leave phrases in English unless they are universal technical code identifiers.
+6. CONTENT FOCUS (PEDAGOGICAL ASSESSMENT): Questions MUST evaluate concepts, architectures, definitions, trade-offs, and practical technical application. NEVER ask meta-questions about the document's structure, layout, chapters, authors, sections, or formatting (e.g. NEVER ask "In which section is X mentioned?", "What does this chapter discuss?", or "What is the document's layout?").
+7. Each item MUST include its source provenance:
    "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<section or chapter title>", "breadcrumb": "<doc > section path>", "extracto": "<relevant verbatim quote>"}}]
    Include "pagina": {page_number} ONLY if the page_number shown in the excerpt header is a real numeric page (i.e., not "N/A").
 

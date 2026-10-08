@@ -51,3 +51,21 @@ def get_capacity_warning_es(effective_count: int, requested_count: int) -> str:
         f"Con un documento más extenso podrás generar los {requested_count} solicitados."
     )
 
+
+def get_contextualized_intro(
+    doc_title: str, effective_count: int, recipient_profile: str, niche: str, language: str = "Spanish"
+) -> str:
+    """Builds a contextualized introduction in the target language."""
+    is_spanish = "es" in (language or "spanish").lower()
+    if is_spanish:
+        prof_label = PROFILE_LABELS_ES.get(recipient_profile, recipient_profile)
+        niche_label = NICHE_LABELS_ES.get(niche, niche)
+        return (
+            f"Versión didáctica adaptada de «{doc_title}» estructurada en {effective_count} elementos clave "
+            f"para el perfil '{prof_label}' orientada al sector '{niche_label}'."
+        )
+    return (
+        f"Adapted version of '{doc_title}' structured into {effective_count} elements "
+        f"for profile '{recipient_profile}' in the '{niche}' sector."
+    )
+

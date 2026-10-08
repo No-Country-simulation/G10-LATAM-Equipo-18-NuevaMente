@@ -15,8 +15,9 @@ INSTRUCTIONS FOR SUMMARY:
 1. Generate EXACTLY {item_count} key takeaway points covering "{topic}".
 2. Ground all points STRICTLY in the provided excerpts.
 3. Frame the points around business impact, strategic value, or critical operational insights, appropriate for "{recipient_profile}".
-4. All text MUST be written in {target_language}.
-5. Each item MUST include its source provenance:
+4. STRICT LANGUAGE PURITY: All text (core takeaways and business impacts) MUST be written 100% in {target_language}. Do not mix languages.
+5. CONTENT FOCUS: Summarize strategic insights and technical realities, not document layout or metadata.
+6. Each item MUST include its source provenance:
    "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<section or chapter title>", "breadcrumb": "<doc > section path>", "extracto": "<relevant verbatim quote>"}}]
    Include "pagina": {page_number} ONLY if the page_number shown in the excerpt header is a real numeric page (i.e., not "N/A").
 

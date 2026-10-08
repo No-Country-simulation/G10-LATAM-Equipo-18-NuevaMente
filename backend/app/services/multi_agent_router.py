@@ -1,77 +1,110 @@
-import re
-from typing import List
+"""
+multi_agent_router.py
+
+Purpose:
+    Intelligent router and provider order strategy for educational content adaptation.
+    Routes tasks to the most suitable LLM provider (Groq, Gemini, OpenRouter) based on
+    the requested pedagogical format and content requirements, while defining an
+    optimized cascade order for resilient fallbacks.
+
+Inputs:
+    - output_format (str): Educational output format (flashcards, quiz, tutorial, etc.)
+    - task_description (str, optional): Additional context or user instructions.
+
+Outputs:
+    - preferred_provider (str): Name of primary LLM provider ('groq', 'gemini', 'openrouter').
+    - provider_cascade (List[str]): Ordered list of provider identifiers for fallback execution.
+"""
+
+from typing import Dict, List, Optional
+
 
 class AgentProfile:
-    def __init__(self, name: str, description: str, keywords: List[str]):
+    """Represents a supported LLM provider and its pedagogical specialization."""
+
+    def __init__(self, key: str, name: str, description: str, formats: List[str]):
+        self.key = key.lower()
         self.name = name
         self.description = description
-        self.keywords = [kw.lower() for kw in keywords]
+        self.formats = [f.lower() for f in formats]
+
 
 class MultiAgentRouter:
     """
-    Enrutador Inteligente (Traffic Cop) que lee el requerimiento del usuario
-    y decide qué agente (LLM) es el más óptimo, rápido y económico para la tarea.
+    Intelligent router and cascade strategy manager.
+    Selects primary provider and constructs prioritized fallback order based on format.
     """
-    def __init__(self):
-        self.agents = [
-            AgentProfile(
-                name="GEMINI",
-                description="Deep Research & Multimodal. Investigaciones complejas, análisis pesado.",
-                keywords=["investigar", "análisis profundo", "informe", "sintetizar", "documentar", "comparar datos", "visión multimodal", "pdf pesado", "tutorial", "investigacion"]
-            ),
-            AgentProfile(
-                name="GROQ",
-                description="Fast Generation & Multimodal Hybrid. Generación rápida de contenido formateado.",
-                keywords=["flashcard", "tarjetas de estudio", "quiz", "cuestionario", "examen corto", "generar lista", "resumen rápido", "estructurar datos", "resumen"]
-            ),
-            AgentProfile(
-                name="GROK",
-                description="Conversacional, Voz & Workflows. Chats interactivos y flujos de tiempo real.",
-                keywords=["voz", "audio", "automatizar", "flujo de trabajo", "workflow", "chatbot interactivo", "charla fluida", "integraciones"]
-            ),
-            AgentProfile(
-                name="CEREBRAS",
-                description="Ultra-Low Latency. Respuestas inmediatas y de baja latencia.",
-                keywords=["respuesta inmediata", "tiempo real", "latencia cero", "validación rápida", "clasificación exprés"]
-            ),
-            AgentProfile(
-                name="QWEN_VL",
-                description="Análisis multimodal especializado, procesamiento de imágenes y diagramas.",
-                keywords=["leer imagen", "analizar gráfico", "ocr", "extraer texto de foto", "diagrama", "esquema visual", "infografia"]
-            ),
-            AgentProfile(
-                name="OPENROUTER",
-                description="Pre-Processing & File Fetcher. Ingesta de múltiples archivos.",
-                keywords=["traer archivos", "múltiples documentos", "consolidar fuentes", "parsear archivos", "ingesta masiva"]
-            ),
-            AgentProfile(
-                name="OLLAMA",
-                description="Local & Connection Fallback. Respaldo sin conexión.",
-                keywords=["fallback", "sin conexión", "backup", "respuesta básica económica", "chat económico", "offline", "local"]
-            )
-        ]
 
-    def route_task(self, output_format: str, task_description: str = "", is_offline: bool = False) -> str:
+    def __init__(self):
+        # Supported active providers in the platform
+        self.providers: Dict[str, AgentProfile] = {
+            "groq": AgentProfile(
+                key="groq",
+                name="GROQ",
+                description="Ultra-fast generation for highly structured formats (Flashcards, Quizzes).",
+                formats=["flashcards", "flashcard", "quiz", "cuestionario"],
+            ),
+            "gemini": AgentProfile(
+                key="gemini",
+                name="GEMINI",
+                description="Deep reasoning and extensive context for instructional tutorials and deep dives.",
+                formats=["tutorial", "guía práctica", "guia practica", "investigacion", "deep_research"],
+            ),
+            "openrouter": AgentProfile(
+                key="openrouter",
+                name="OPENROUTER",
+                description="Versatile open-weights models (Mistral) optimal for executive summaries and class scripts.",
+                formats=["resumen ejecutivo", "resumen", "executive_summary", "guion de clase", "guion", "script"],
+            ),
+        }
+
+        # Optimized fallback cascade by format
+        # E.g. Flashcards: Groq (ultra fast) -> Gemini (fallback) -> OpenRouter (secondary fallback)
+        self._format_cascade_map: Dict[str, List[str]] = {
+            "flashcards": ["groq", "gemini", "openrouter"],
+            "flashcard": ["groq", "gemini", "openrouter"],
+            "quiz": ["groq", "gemini", "openrouter"],
+            "tutorial": ["gemini", "openrouter", "groq"],
+            "resumen ejecutivo": ["openrouter", "groq", "gemini"],
+            "resumen": ["openrouter", "groq", "gemini"],
+            "executive_summary": ["openrouter", "groq", "gemini"],
+            "guion de clase": ["openrouter", "gemini", "groq"],
+            "guion": ["openrouter", "gemini", "groq"],
+            "class_script": ["openrouter", "gemini", "groq"],
+        }
+
+    def register_provider(self, key: str, name: str, description: str, formats: List[str]) -> None:
+        """Enables easy extension with new LLM providers (e.g. Ollama, Cerebras, DeepSeek)."""
+        self.providers[key.lower()] = AgentProfile(
+            key=key,
+            name=name,
+            description=description,
+            formats=formats,
+        )
+
+    def route_task(self, output_format: str, task_description: str = "") -> str:
         """
-        Retorna el nombre del agente (ej. 'GROQ', 'GEMINI') que mejor se adapta a la tarea.
+        Returns the preferred primary LLM provider key ('groq', 'gemini', 'openrouter').
         """
-        if is_offline:
-            return "OLLAMA"
-            
-        combined_text = f"{output_format} {task_description}".lower()
-        
-        best_agent = "GEMINI" # Fallback por defecto si no hay coincidencias (es el más capaz)
-        max_score = 0
-        
-        for agent in self.agents:
-            score = 0
-            for kw in agent.keywords:
-                # Usamos regex para buscar la palabra completa o simplemente contenida
-                if kw in combined_text:
-                    score += 1
-            
-            if score > max_score:
-                max_score = score
-                best_agent = agent.name
-                
-        return best_agent
+        fmt = (output_format or "").lower().strip()
+        desc = (task_description or "").lower()
+
+        for key, profile in self.providers.items():
+            for f in profile.formats:
+                if f in fmt or f in desc:
+                    return key
+
+        return "gemini"
+
+    def get_cascade_order(self, output_format: str) -> List[str]:
+        """
+        Returns an ordered list of provider keys for the fallback cascade.
+        """
+        fmt = (output_format or "").lower().strip()
+        for key, cascade in self._format_cascade_map.items():
+            if key in fmt:
+                return list(cascade)
+
+        # Default fallback cascade
+        return ["gemini", "groq", "openrouter"]
+

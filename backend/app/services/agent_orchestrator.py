@@ -33,6 +33,7 @@ from app.core.labels import (
     PROFILE_LABELS_ES,
     TITLE_TEMPLATES_ES,
     get_capacity_warning_es,
+    get_contextualized_intro,
 )
 from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
 from app.prompts.prompt_loader import load_prompt
@@ -77,8 +78,12 @@ class AgentOrchestrator:
         self.gemini_client = GeminiClient()
         self.groq_client = GroqClient()
         self.openrouter_client = OpenRouterClient()
-        # Ordered cascade: Gemini -> Groq -> OpenRouter (Mistral) -> fallback
-        self._llm_cascade = [self.gemini_client, self.groq_client, self.openrouter_client]
+        # Map of active providers
+        self._provider_map = {
+            "gemini": self.gemini_client,
+            "groq": self.groq_client,
+            "openrouter": self.openrouter_client,
+        }
         # Tracks the name of the LLM provider that last succeeded in the cascade
         self.last_provider: str = "fallback"
         self.router = MultiAgentRouter()
@@ -153,6 +158,7 @@ class AgentOrchestrator:
                 topics=topics,
                 needed=needed,
                 existing_items=verified_items,
+                target_language=target_language,
             )
             for extra in extra_items:
                 if len(verified_items) < effective_target:
@@ -168,6 +174,7 @@ class AgentOrchestrator:
             doc_title=doc_title,
             items=final_items,
             effective_count=items_generated,
+            target_language=target_language,
         )
         if tracer:
             tracer.end_stage("serializacion_respuesta")
@@ -252,12 +259,21 @@ class AgentOrchestrator:
         else:
             # Derive pedagogical concepts directly from passage section titles or breadcrumbs.
             extracted = []
+            meta_noise = {
+                "indice", "tabla de contenido", "table of contents", "introduccion", "introduction",
+                "referencias", "references", "bibliografia", "bibliography", "anexo", "apendice",
+                "glosario", "conclusion", "conclusiones", "portada", "resumen"
+            }
             for p in passages:
                 title = p.get("title") or p.get("metadata", {}).get("section_title")
                 breadcrumb = p.get("breadcrumb") or p.get("metadata", {}).get("breadcrumb")
                 cand = title or breadcrumb
-                if cand and cand not in extracted:
-                    extracted.append(cand)
+                if cand:
+                    # Clean candidate
+                    norm_cand = cand.strip().lower()
+                    if norm_cand not in meta_noise and not any(noise in norm_cand for noise in ["tabla de contenido", "table of content"]):
+                        if cand not in extracted:
+                            extracted.append(cand)
             base_concepts = extracted if extracted else [doc_title]
 
         num_topics = max(3, min(15, math.ceil(target / 4)))
@@ -352,8 +368,12 @@ class AgentOrchestrator:
             if tracer:
                 tracer.record_llm_call("generar")
 
+            # Dynamically resolve fallback cascade order based on format
+            cascade_keys = self.router.get_cascade_order(fmt_key)
+            llm_cascade = [self._provider_map[k] for k in cascade_keys if k in self._provider_map]
+
             # Cascade: attempt each LLM provider in order until one succeeds
-            for llm in self._llm_cascade:
+            for llm in llm_cascade:
                 if not llm.is_available:
                     continue
                 try:
@@ -376,6 +396,7 @@ class AgentOrchestrator:
                     topic=topic,
                     n_items=n_items,
                     offset=len(items),
+                    target_language=target_language,
                 )
 
             items.extend(parsed_batch)
@@ -449,6 +470,7 @@ class AgentOrchestrator:
         topics: List[Dict[str, Any]],
         needed: int,
         existing_items: List[Dict[str, Any]],
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         extra = []
         max_idx = len(existing_items)
@@ -458,7 +480,11 @@ class AgentOrchestrator:
             }
             extra.append(
                 self._generate_fallback_item(
-                    request=request, doc_title=doc_title, topic=topic, item_idx=max_idx + i + 1
+                    request=request,
+                    doc_title=doc_title,
+                    topic=topic,
+                    item_idx=max_idx + i + 1,
+                    target_language=target_language,
                 )
             )
         return extra
@@ -588,23 +614,48 @@ Return a valid JSON with:
         return None
 
     def _generate_fallback_batch(
-        self, request: AdaptationRequest, doc_title: str, topic: Dict[str, Any], n_items: int, offset: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        topic: Dict[str, Any],
+        n_items: int,
+        offset: int,
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         return [
-            self._generate_fallback_item(request, doc_title, topic, offset + i + 1)
+            self._generate_fallback_item(
+                request=request,
+                doc_title=doc_title,
+                topic=topic,
+                item_idx=offset + i + 1,
+                target_language=target_language,
+            )
             for i in range(n_items)
         ]
 
     def _generate_fallback_item(
-        self, request: AdaptationRequest, doc_title: str, topic: Dict[str, Any], item_idx: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        topic: Dict[str, Any],
+        item_idx: int,
+        target_language: str = "Spanish",
     ) -> Dict[str, Any]:
         fmt = request.output_format.lower()
         topic_name = topic["topic"]
         main_concept = topic.get("concept", topic_name.split("(")[0].strip())
         context = topic.get("context", "")
+        is_spanish = "es" in (target_language or "spanish").lower()
 
         sentences = [s.strip() for s in re.split(r"[.!?]", context) if len(s.strip()) > 15]
-        target_sentence = sentences[item_idx % len(sentences)] if sentences else f"Key definition of {main_concept}."
+        if sentences:
+            target_sentence = sentences[item_idx % len(sentences)]
+        else:
+            target_sentence = (
+                f"Definición clave y principios fundamentales de {main_concept}."
+                if is_spanish
+                else f"Key definition and fundamental principles of {main_concept}."
+            )
 
         fuente: Dict[str, Any] = {
             "chunk_id": topic.get("chunk_id", "chunk-001"),
@@ -620,6 +671,13 @@ Return a valid JSON with:
             fuente["pagina"] = page_val
 
         if "flashcard" in fmt:
+            if is_spanish:
+                return {
+                    "frente": f"¿Cuál es el propósito y la aplicación de '{main_concept}' en el contexto de {topic_name}?",
+                    "dorso": f"{target_sentence} Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de {request.niche}.",
+                    "pista_didactica": f"Pista: Evalúa el impacto operativo directo de {main_concept}.",
+                    "fuentes": [fuente],
+                }
             return {
                 "frente": f"What is the purpose and application of '{main_concept}' in {topic_name}?",
                 "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
@@ -627,6 +685,20 @@ Return a valid JSON with:
                 "fuentes": [fuente],
             }
         elif "quiz" in fmt:
+            if is_spanish:
+                return {
+                    "pregunta": f"Respecto a {main_concept} en {topic_name}, ¿cuál de las siguientes afirmaciones es correcta según la documentación?",
+                    "opciones": [
+                        f"{target_sentence}",
+                        f"Invalida las políticas técnicas y de seguridad estándar en {request.niche}.",
+                        f"Aplica únicamente a entornos heredados (legacy) en desuso.",
+                        f"Carece de relevancia para las funciones de {request.recipient_profile}.",
+                    ],
+                    "respuesta_correcta": f"{target_sentence}",
+                    "justificacion": f"Fundamentado directamente en el texto fuente: '{target_sentence[:120]}'",
+                    "justificacion_didactica": f"Concepto medular para el desarrollo de competencias en {request.recipient_profile}.",
+                    "fuentes": [fuente],
+                }
             return {
                 "pregunta": f"Regarding {main_concept} in {topic_name}, which of the following statements is correct?",
                 "opciones": [
@@ -641,6 +713,14 @@ Return a valid JSON with:
                 "fuentes": [fuente],
             }
         elif "tutorial" in fmt:
+            if is_spanish:
+                return {
+                    "paso": item_idx,
+                    "titulo": f"Paso {item_idx}: Configuración y aplicación de {main_concept}",
+                    "instruccion": f"Implementar {main_concept} siguiendo las directrices técnicas: {target_sentence}",
+                    "ejemplo": f"// Ejemplo de configuración práctica para {main_concept}\nejecutar_accion('{main_concept}')",
+                    "fuentes": [fuente],
+                }
             return {
                 "paso": item_idx,
                 "titulo": f"Step {item_idx}: Configuring {main_concept}",
@@ -649,6 +729,12 @@ Return a valid JSON with:
                 "fuentes": [fuente],
             }
         else:
+            if is_spanish:
+                return {
+                    "punto_clave": f"{main_concept}: {target_sentence}",
+                    "impacto_negocio": f"Garantiza la continuidad operativa y eficiencia técnica en el sector {request.niche}.",
+                    "fuentes": [fuente],
+                }
             return {
                 "punto_clave": f"{main_concept}: {target_sentence}",
                 "impacto_negocio": f"Ensures operational efficiency and strategic value in {request.niche}.",
@@ -656,26 +742,37 @@ Return a valid JSON with:
             }
 
     def _format_adapted_content(
-        self, request: AdaptationRequest, doc_title: str, items: List[Dict[str, Any]], effective_count: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        items: List[Dict[str, Any]],
+        effective_count: int,
+        target_language: str = "Spanish",
     ) -> AdaptedContent:
         fmt = request.output_format.lower()
-        intro = (
-            f"Adapted version of '{doc_title}' structured into {effective_count} elements "
-            f"for {request.recipient_profile} in the {request.niche} sector."
+        is_spanish = "es" in (target_language or "spanish").lower()
+
+        intro = get_contextualized_intro(
+            doc_title=doc_title,
+            effective_count=effective_count,
+            recipient_profile=request.recipient_profile,
+            niche=request.niche,
+            language=target_language,
         )
 
         title_template = TITLE_TEMPLATES_ES.get(
-            fmt, "Educational Content ({count} Items): {doc_title}"
+            fmt, "Contenido Educativo ({count} Elementos): {doc_title}" if is_spanish else "Educational Content ({count} Items): {doc_title}"
         )
         final_title = title_template.format(count=effective_count, doc_title=doc_title)
 
         if "quiz" in fmt:
+            default_justif = "Fundamento técnico verificado." if is_spanish else "Core technical foundation."
             quizzes = [
                 QuizItem(
                     question=it.get("pregunta", f"Pregunta #{i+1}"),
                     options=it.get("opciones", ["A", "B", "C", "D"]),
                     correct_answer=it.get("respuesta_correcta", "A"),
-                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or "Core technical foundation.",
+                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or default_justif,
                     sources=[RagFuente(**f) if isinstance(f, dict) else f for f in (it.get("fuentes") or [])],
                 )
                 for i, it in enumerate(items)
@@ -689,8 +786,12 @@ Return a valid JSON with:
         elif "tutorial" in fmt:
             sections = [
                 {
-                    "encabezado": f"Step {it.get('paso', i+1)}: {it.get('titulo', 'Module ' + str(i+1))}",
-                    "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}",
+                    "encabezado": (
+                        f"Paso {it.get('paso', i+1)}: {it.get('titulo', f'Módulo {i+1}')}"
+                        if is_spanish
+                        else f"Step {it.get('paso', i+1)}: {it.get('titulo', f'Module {i+1}')}"
+                    ),
+                    "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}".strip(),
                 }
                 for i, it in enumerate(items)
             ]
@@ -702,13 +803,14 @@ Return a valid JSON with:
             )
         elif "resumen" in fmt:
             summary_bullets = [
-                f"{i+1}. {it.get('punto_clave', 'Point ' + str(i+1))}: {it.get('impacto_negocio', '')}"
+                f"{i+1}. {it.get('punto_clave', 'Punto ' + str(i+1) if is_spanish else 'Point ' + str(i+1))}: {it.get('impacto_negocio', '')}"
                 for i, it in enumerate(items)
             ]
+            header = f"RESUMEN EJECUTIVO ({effective_count} PUNTOS):" if is_spanish else f"EXECUTIVE SUMMARY ({effective_count} POINTS):"
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
-                executive_summary=f"EXECUTIVE SUMMARY ({effective_count} POINTS):\n\n" + "\n".join(summary_bullets),
+                executive_summary=f"{header}\n\n" + "\n".join(summary_bullets),
                 items=items,
             )
         else:
