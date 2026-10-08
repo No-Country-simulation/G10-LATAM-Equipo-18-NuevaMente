@@ -144,8 +144,8 @@ class Settings(BaseModel):
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
-    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-bucket")
-    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-bucket")
+    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente")
+    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos")
 
     @property
     def OCI_ENABLED(self) -> bool:
