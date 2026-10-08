@@ -81,8 +81,11 @@ class AgentOrchestrator:
         # Tracks the name of the LLM provider that last succeeded in the cascade
         self.last_provider: str = "fallback"
         self.router = MultiAgentRouter()
-        self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
+
+    @property
+    def storage(self):
+        return get_document_storage()
 
     async def run_pipeline(
         self,

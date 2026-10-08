@@ -108,7 +108,7 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
         )
 
         # Upload original document to OCI Object Storage Always Free bucket
-        oci_doc_info = oci_storage_service.upload_document_source(
+        oci_doc_info = OCIStorageService().upload_document_source(
             bucket_name=settings.OCI_BUCKET_DOCS,
             object_name=filename,
             file_bytes=content_bytes,
