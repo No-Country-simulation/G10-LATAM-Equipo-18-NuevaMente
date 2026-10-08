@@ -7,7 +7,14 @@ import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.mode
   providedIn: 'root'
 })
 export class ApiService {
-  private baseUrl = 'http://localhost:8000/api/v1';
+  private get baseUrl(): string {
+    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
+      const host = window.location.hostname;
+      const protocol = window.location.protocol;
+      return `${protocol}//${host}:8000/api/v1`;
+    }
+    return 'http://localhost:8000/api/v1';
+  }
 
   constructor(private http: HttpClient) {}
 
