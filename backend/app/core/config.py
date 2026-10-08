@@ -143,9 +143,9 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
-    OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
-    OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
-    OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
+    OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
+    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-bucket")
+    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-bucket")
 
     @property
     def OCI_ENABLED(self) -> bool:
