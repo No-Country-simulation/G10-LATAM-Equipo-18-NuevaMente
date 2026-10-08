@@ -155,6 +155,8 @@ class Settings(BaseModel):
     MAX_TOP_K_CHUNKS: int = 5
     RRF_DENSE_WEIGHT: float = 0.6
     RRF_SPARSE_WEIGHT: float = 0.4
+    RAG_CONTEXT_SNIPPET_SIZE: int = 1500
+    RAG_RERANK_POOL_SIZE: int = 10
 
     # ── Ingestion Configuration ───────────────────────────────────────────────
     SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".md", ".markdown", ".txt"]

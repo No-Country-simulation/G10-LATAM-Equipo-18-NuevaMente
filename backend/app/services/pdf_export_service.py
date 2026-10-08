@@ -1,7 +1,9 @@
 from fpdf import FPDF
 from pathlib import Path
-from loguru import logger
+import logging
 from app.schemas.adaptation import AdaptedContent
+
+logger = logging.getLogger("pdf_export_service")
 
 class EducationalPDF(FPDF):
     def __init__(self, title: str):
@@ -50,10 +52,10 @@ class PDFExportService:
             self._create_content_pages(pdf, content)
             
             pdf.output(output_path)
-            logger.success(f"PDF generado exitosamente en: {output_path}")
+            logger.info("PDF generated successfully at: %s", output_path)
             return output_path
         except Exception as e:
-            logger.error(f"Error generando PDF: {e}")
+            logger.error("Error generating PDF: %s", e)
             raise
 
     def _create_cover(self, pdf: EducationalPDF, title: str):

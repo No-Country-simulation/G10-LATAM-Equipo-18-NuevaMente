@@ -17,7 +17,8 @@ INSTRUCTIONS FOR TUTORIAL:
 3. Provide clear, actionable instructions adapted to "{recipient_profile}". If the profile is technical, include code snippets or commands in the "ejemplo" field.
 4. All text MUST be written in {target_language}.
 5. Each item MUST include its source provenance:
-   "fuentes": [{{"chunk_id": "{chunk_id}", "extracto": "<relevant verbatim quote>", "pagina": {page_number}}}]
+   "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<section or chapter title>", "breadcrumb": "<doc > section path>", "extracto": "<relevant verbatim quote>"}}]
+   Include "pagina": {page_number} ONLY if the page_number shown in the excerpt header is a real numeric page (i.e., not "N/A").
 
 OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the exact fields:

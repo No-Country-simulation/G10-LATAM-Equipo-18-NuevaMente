@@ -49,6 +49,7 @@ from app.schemas.adaptation import (
 )
 from app.services.document_storage_service import get_document_storage
 from app.services.multi_agent_router import MultiAgentRouter
+from app.services.pdf_export_service import PDFExportService
 
 logger = logging.getLogger("AgentOrchestrator")
 
@@ -191,10 +192,11 @@ class AgentOrchestrator:
             llm_calls=tracer.llm_calls if tracer else {},
         )
 
-        evaluation = QualityEvaluation(
-            source_grounding_score=grounding_score,
-            pedagogical_clarity="Alta",
-            observations=f"Generación agéntica por lotes ({items_generated} items) anclada al documento fuente.",
+        evaluation = self._evaluate_quality_with_critic(
+            request=request,
+            generated_items=final_items,
+            passages=top_passages,
+            fallback_score=grounding_score,
         )
 
         object_name = (
@@ -245,7 +247,19 @@ class AgentOrchestrator:
         self, doc_title: str, key_concepts: List[str], passages: List[Dict[str, Any]], target: int
     ) -> List[Dict[str, Any]]:
         topics = []
-        base_concepts = key_concepts if key_concepts else [doc_title]
+        if key_concepts:
+            base_concepts = key_concepts
+        else:
+            # Derive pedagogical concepts directly from passage section titles or breadcrumbs.
+            extracted = []
+            for p in passages:
+                title = p.get("title") or p.get("metadata", {}).get("section_title")
+                breadcrumb = p.get("breadcrumb") or p.get("metadata", {}).get("breadcrumb")
+                cand = title or breadcrumb
+                if cand and cand not in extracted:
+                    extracted.append(cand)
+            base_concepts = extracted if extracted else [doc_title]
+
         num_topics = max(3, min(15, math.ceil(target / 4)))
         items_per_topic = math.ceil(target / num_topics)
 
@@ -253,8 +267,13 @@ class AgentOrchestrator:
             concept = base_concepts[i % len(base_concepts)]
             passage = passages[i % len(passages)] if passages else {}
             chunk_id = passage.get("id") or passage.get("metadata", {}).get("chunk_id", f"chunk-{i+1}")
-            page = passage.get("metadata", {}).get("page_number", 1)
-            context_snippet = (passage.get("content") or passage.get("text") or doc_title)[:250]
+            # Only carry page_number when the passage comes from a paged source (PDF);
+            # Markdown/TXT sections do not have physical pages.
+            raw_page = passage.get("metadata", {}).get("page_number")
+            page = raw_page if isinstance(raw_page, int) and raw_page > 0 else None
+            section = passage.get("title") or passage.get("metadata", {}).get("section_title")
+            breadcrumb = passage.get("breadcrumb") or passage.get("metadata", {}).get("breadcrumb")
+            context_snippet = (passage.get("content") or passage.get("text") or doc_title)[:settings.RAG_CONTEXT_SNIPPET_SIZE]
 
             topics.append({
                 "topic": f"{concept} (Parte {i+1})",
@@ -262,14 +281,13 @@ class AgentOrchestrator:
                 "target_items": items_per_topic,
                 "chunk_id": chunk_id,
                 "page": page,
+                "section": section,
+                "breadcrumb": breadcrumb,
                 "context": context_snippet,
             })
         return topics
 
-    # ---------------------------------------------------------------------------
-    # STAGE B: BATCH GENERATORS
-    # ---------------------------------------------------------------------------
-    async def _stage_batch_generators(
+    def _stage_batch_generators(
         self,
         request: AdaptationRequest,
         doc_title: str,
@@ -281,14 +299,35 @@ class AgentOrchestrator:
     ) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
         batch_size = 5 if target <= 10 else (8 if target <= 30 else 10)
-        template = load_prompt("batch_writer.md")
+
+        # Map output format to a specific prompt template file.
+        fmt_key = (request.output_format or "flashcards").lower()
+        format_prompt_map = {
+            "flashcards": "formats/flashcards.md",
+            "quiz": "formats/quiz.md",
+            "tutorial": "formats/tutorial.md",
+            "resumen ejecutivo": "formats/executive_summary.md",
+            "guion de clase": "formats/video_script.md",
+        }
+        prompt_file = format_prompt_map.get(fmt_key, "writer.md")
+        template = load_prompt(prompt_file)
 
         for topic_idx, topic in enumerate(topics):
             if len(items) >= target:
                 break
 
             n_items = min(batch_size, target - len(items))
-            chunk_info = f"CHUNK ID: {topic['chunk_id']} (Pág. {topic['page']}): {topic['context']}"
+
+            # Build structural reference line; include page only when available.
+            section_label = topic.get("section") or "Unknown section"
+            breadcrumb_label = topic.get("breadcrumb") or ""
+            page_val = topic.get("page")
+            page_label = f" | p.{page_val}" if page_val is not None else ""
+            chunk_info = (
+                f"[{topic['chunk_id']}] SECTION: {section_label}"
+                f"{(' | ' + breadcrumb_label) if breadcrumb_label else ''}"
+                f"{page_label}\n{topic['context']}"
+            )
 
             prompt = template.format(
                 niche=request.niche,
@@ -300,7 +339,7 @@ class AgentOrchestrator:
                 target_language=target_language,
                 chunk_info=chunk_info,
                 chunk_id=topic["chunk_id"],
-                page_number=topic["page"],
+                page_number=page_val if page_val is not None else "N/A",
             )
 
             system_instruction = (
@@ -368,18 +407,35 @@ class AgentOrchestrator:
         self, items: List[Dict[str, Any]], passages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
         verified = []
-        default_chunk_id = passages[0].get("id", "chunk-rag-001") if passages else "chunk-rag-001"
-        default_page = passages[0].get("metadata", {}).get("page_number", 1) if passages else 1
+        default_passage = passages[0] if passages else {}
+        default_chunk_id = default_passage.get("id", "chunk-rag-001")
+        default_section = default_passage.get("title") or default_passage.get("metadata", {}).get("section_title")
+        default_breadcrumb = default_passage.get("breadcrumb") or default_passage.get("metadata", {}).get("breadcrumb")
+        raw_default_page = default_passage.get("metadata", {}).get("page_number")
+        default_page = raw_default_page if isinstance(raw_default_page, int) and raw_default_page > 0 else None
 
         for item in items:
             sources = item.get("fuentes") or item.get("sources")
             if not sources or not isinstance(sources, list):
-                item["fuentes"] = [{
+                fallback_source: Dict[str, Any] = {
                     "chunk_id": default_chunk_id,
                     "extracto": self._get_item_text(item)[:100],
-                    "pagina": default_page,
                     "similitud_score": 0.95,
-                }]
+                }
+                if default_section:
+                    fallback_source["seccion"] = default_section
+                if default_breadcrumb:
+                    fallback_source["breadcrumb"] = default_breadcrumb
+                if default_page is not None:
+                    fallback_source["pagina"] = default_page
+                item["fuentes"] = [fallback_source]
+            else:
+                # Normalise existing sources: strip page when it is a sentinel (0 or None)
+                for src in sources:
+                    if isinstance(src, dict):
+                        p = src.get("pagina")
+                        if not isinstance(p, int) or p <= 0:
+                            src.pop("pagina", None)
             verified.append(item)
         return verified
 
@@ -416,8 +472,8 @@ class AgentOrchestrator:
         if not self.groq_client.is_available:
             return QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="Alta",
-                observations="Generación agéntica por lotes. (Evaluación por heurística; Groq no disponible)."
+                pedagogical_clarity="High",
+                observations="Batch agentic generation. (Heuristic evaluation; Groq not available.)"
             )
             
         system_instruction = "You are a pedagogical critic evaluating generated educational content."
@@ -433,9 +489,9 @@ Generated Items (sample):
 {items_str}
 
 Return a valid JSON with:
-- "anclaje_fuente_score": float between 0.0 and 1.0 (how well it reflects the source).
-- "claridad_pedagogica": string ("Alta", "Media", "Baja").
-- "observaciones": A short sentence justifying the evaluation.
+- "source_grounding_score": float between 0.0 and 1.0 (how well it reflects the source).
+- "pedagogical_clarity": string ("High", "Medium", "Low").
+- "observations": A short sentence justifying the evaluation.
 """
         try:
             raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
@@ -446,23 +502,23 @@ Return a valid JSON with:
             data = json.loads(text)
             
             return QualityEvaluation(
-                source_grounding_score=float(data.get("anclaje_fuente_score", fallback_score)),
-                pedagogical_clarity=data.get("claridad_pedagogica", "Alta"),
-                observations=data.get("observaciones", "Evaluado por agente crítico Groq.")
+                source_grounding_score=float(data.get("source_grounding_score", fallback_score)),
+                pedagogical_clarity=data.get("pedagogical_clarity", "High"),
+                observations=data.get("observations", "Evaluated by Groq critic agent.")
             )
         except Exception as e:
             logger.warning(f"Critic agent failed: {e}")
             return QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="Alta",
-                observations="Evaluación heurística de fallback por falla en agente crítico."
+                pedagogical_clarity="High",
+                observations="Heuristic fallback evaluation due to critic agent failure."
             )
 
     # ---------------------------------------------------------------------------
     # HELPERS & FORMATTING
     # ---------------------------------------------------------------------------
     def _clean_document_title(self, request: AdaptationRequest) -> str:
-        doc_title = request.title or getattr(request, "documento_titulo", "Documento Técnico")
+        doc_title = request.title or getattr(request, "documento_titulo", "Technical Document")
         doc_title = re.sub(r"\.(pdf|md|markdown|txt)$", "", doc_title.strip(), flags=re.IGNORECASE)
         doc_title = re.sub(r"[-_]", " ", doc_title).strip()
         if not doc_title or re.match(r"^\d+(\.\d+)?$", doc_title):
@@ -471,7 +527,7 @@ Return a valid JSON with:
                 for line in (request.content or "").split("\n")
                 if len(line.strip()) > 10 and not line.startswith("---")
             ]
-            doc_title = lines[0][:60] if lines else "Documento Técnico"
+            doc_title = lines[0][:60] if lines else "Technical Document"
         return doc_title
 
     def _compute_request_hash(self, request: AdaptationRequest, doc_title: str, language: str) -> str:
@@ -548,48 +604,54 @@ Return a valid JSON with:
         context = topic.get("context", "")
 
         sentences = [s.strip() for s in re.split(r"[.!?]", context) if len(s.strip()) > 15]
-        target_sentence = sentences[item_idx % len(sentences)] if sentences else f"Definición clave de {main_concept}."
+        target_sentence = sentences[item_idx % len(sentences)] if sentences else f"Key definition of {main_concept}."
 
-        fuente = {
+        fuente: Dict[str, Any] = {
             "chunk_id": topic.get("chunk_id", "chunk-001"),
             "extracto": target_sentence[:100],
-            "pagina": topic.get("page", 1),
             "similitud_score": 0.92,
         }
+        if topic.get("section"):
+            fuente["seccion"] = topic["section"]
+        if topic.get("breadcrumb"):
+            fuente["breadcrumb"] = topic["breadcrumb"]
+        page_val = topic.get("page")
+        if isinstance(page_val, int) and page_val > 0:
+            fuente["pagina"] = page_val
 
         if "flashcard" in fmt:
             return {
-                "frente": f"¿Cuál es el propósito y aplicación de '{main_concept}' en {topic_name}?",
-                "dorso": f"{target_sentence} Permite optimizar el rendimiento y robustez en {request.niche}.",
-                "pista_didactica": f"Pista: Evalúa el impacto operativo de {main_concept}.",
+                "frente": f"What is the purpose and application of '{main_concept}' in {topic_name}?",
+                "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
+                "pista_didactica": f"Hint: Assess the operational impact of {main_concept}.",
                 "fuentes": [fuente],
             }
         elif "quiz" in fmt:
             return {
-                "pregunta": f"Respecto a {main_concept} en {topic_name}, ¿cuál de las siguientes afirmaciones es correcta?",
+                "pregunta": f"Regarding {main_concept} in {topic_name}, which of the following statements is correct?",
                 "opciones": [
                     f"{target_sentence}",
-                    f"Invalida las políticas de {request.niche}.",
-                    f"Aplica únicamente a entornos obsoletos de {topic_name}.",
-                    f"No guarda relación con los requerimientos de {request.recipient_profile}.",
+                    f"Overrides {request.niche} policies.",
+                    f"Applies only to legacy {topic_name} environments.",
+                    f"Is unrelated to the requirements of {request.recipient_profile}.",
                 ],
                 "respuesta_correcta": f"{target_sentence}",
-                "justificacion": f"Respaldado directamente en el texto: '{target_sentence[:120]}'",
-                "justificacion_didactica": f"Fundamento técnico clave para {request.recipient_profile}.",
+                "justificacion": f"Directly supported by the source text: '{target_sentence[:120]}'",
+                "justificacion_didactica": f"Core technical foundation for {request.recipient_profile}.",
                 "fuentes": [fuente],
             }
         elif "tutorial" in fmt:
             return {
                 "paso": item_idx,
-                "titulo": f"Paso {item_idx}: Configuración de {main_concept}",
-                "instruccion": f"Implementa {main_concept} siguiendo las pautas de {topic_name}: {target_sentence}",
-                "ejemplo": f"// Ejemplo de configuración para {main_concept}\napply_rule('{main_concept}')",
+                "titulo": f"Step {item_idx}: Configuring {main_concept}",
+                "instruccion": f"Implement {main_concept} following the {topic_name} guidelines: {target_sentence}",
+                "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
                 "fuentes": [fuente],
             }
         else:
             return {
                 "punto_clave": f"{main_concept}: {target_sentence}",
-                "impacto_negocio": f"Asegura eficiencia operativa y valor estratégico en {request.niche}.",
+                "impacto_negocio": f"Ensures operational efficiency and strategic value in {request.niche}.",
                 "fuentes": [fuente],
             }
 
@@ -598,12 +660,12 @@ Return a valid JSON with:
     ) -> AdaptedContent:
         fmt = request.output_format.lower()
         intro = (
-            f"Versión adaptada de '{doc_title}' estructurada en {effective_count} elementos "
-            f"orientada a {request.recipient_profile} en el sector {request.niche}."
+            f"Adapted version of '{doc_title}' structured into {effective_count} elements "
+            f"for {request.recipient_profile} in the {request.niche} sector."
         )
 
         title_template = TITLE_TEMPLATES_ES.get(
-            fmt, "Contenido Educativo ({count} Elementos): {doc_title}"
+            fmt, "Educational Content ({count} Items): {doc_title}"
         )
         final_title = title_template.format(count=effective_count, doc_title=doc_title)
 
@@ -613,7 +675,7 @@ Return a valid JSON with:
                     question=it.get("pregunta", f"Pregunta #{i+1}"),
                     options=it.get("opciones", ["A", "B", "C", "D"]),
                     correct_answer=it.get("respuesta_correcta", "A"),
-                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or "Fundamento técnico.",
+                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or "Core technical foundation.",
                     sources=[RagFuente(**f) if isinstance(f, dict) else f for f in (it.get("fuentes") or [])],
                 )
                 for i, it in enumerate(items)
@@ -627,7 +689,7 @@ Return a valid JSON with:
         elif "tutorial" in fmt:
             sections = [
                 {
-                    "encabezado": f"Paso {it.get('paso', i+1)}: {it.get('titulo', 'Módulo ' + str(i+1))}",
+                    "encabezado": f"Step {it.get('paso', i+1)}: {it.get('titulo', 'Module ' + str(i+1))}",
                     "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}",
                 }
                 for i, it in enumerate(items)
@@ -640,13 +702,13 @@ Return a valid JSON with:
             )
         elif "resumen" in fmt:
             summary_bullets = [
-                f"{i+1}. {it.get('punto_clave', 'Punto ' + str(i+1))}: {it.get('impacto_negocio', '')}"
+                f"{i+1}. {it.get('punto_clave', 'Point ' + str(i+1))}: {it.get('impacto_negocio', '')}"
                 for i, it in enumerate(items)
             ]
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
-                executive_summary=f"SÍNTESIS EJECUTIVA ({effective_count} PUNTOS):\n\n" + "\n".join(summary_bullets),
+                executive_summary=f"EXECUTIVE SUMMARY ({effective_count} POINTS):\n\n" + "\n".join(summary_bullets),
                 items=items,
             )
         else:

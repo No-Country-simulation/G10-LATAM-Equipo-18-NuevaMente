@@ -45,7 +45,9 @@ class RagFuente(BaseModel):
 
     chunk_id: str
     extracto: str
-    pagina: Optional[int] = 1
+    seccion: Optional[str] = None
+    breadcrumb: Optional[str] = None
+    pagina: Optional[int] = None
     similitud_score: Optional[float] = 0.95
 
 
