@@ -52,6 +52,17 @@ def get_capacity_warning_es(effective_count: int, requested_count: int) -> str:
     )
 
 
+def get_capacity_warning(effective_count: int, requested_count: int, language: str = "Spanish") -> str:
+    """Generates warning message in target language when document density limits generation target."""
+    is_spanish = "es" in (language or "spanish").lower()
+    if is_spanish:
+        return get_capacity_warning_es(effective_count, requested_count)
+    return (
+        f"Your document supported {effective_count} verified items. "
+        f"With a longer document you can generate the {requested_count} requested items."
+    )
+
+
 def get_contextualized_intro(
     doc_title: str, effective_count: int, recipient_profile: str, niche: str, language: str = "Spanish"
 ) -> str:

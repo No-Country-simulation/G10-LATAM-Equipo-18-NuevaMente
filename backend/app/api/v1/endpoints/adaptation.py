@@ -197,7 +197,14 @@ async def adapt_content(request: AdaptationRequest):
 
         # 2. Hybrid RAG retrieval + Reranking
         tracer.start_stage("recuperacion_hybrid")
-        query_text = f"{request.recipient_profile} {request.output_format} {request.niche}"
+        # Build semantic query focusing on topical content and niche rather than pure metadata
+        topical_parts = [raw_title]
+        if key_concepts:
+            topical_parts.append(", ".join(key_concepts[:5]))
+        if request.niche and request.niche.lower() != "general":
+            topical_parts.append(f"nicho: {request.niche}")
+        query_text = " - ".join(topical_parts) if topical_parts else f"{raw_title} {request.niche}"
+
         top_passages = _retrieve_passages_inline(
             query=query_text,
             child_chunks=doc_data["child_chunks"],

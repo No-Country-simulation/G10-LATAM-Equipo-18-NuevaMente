@@ -32,6 +32,7 @@ from app.core.labels import (
     FORMAT_LABELS_ES,
     PROFILE_LABELS_ES,
     TITLE_TEMPLATES_ES,
+    get_capacity_warning,
     get_capacity_warning_es,
     get_contextualized_intro,
 )
@@ -55,17 +56,23 @@ from app.services.pdf_export_service import PDFExportService
 logger = logging.getLogger("AgentOrchestrator")
 
 QUANTITY_TABLE: Dict[str, Dict[str, int]] = {
-    "flashcards": {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80},
-    "quiz": {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30},
-    "tutorial": {"breve": 4, "estandar": 8, "amplio": 15, "exhaustivo": 25},
-    "resumen ejecutivo": {"breve": 3, "estandar": 5, "amplio": 10, "exhaustivo": 15},
-    "guion de clase": {"breve": 3, "estandar": 5, "amplio": 8, "exhaustivo": 12},
+    settings.FORMAT_FLASHCARDS: {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80, "brief": 10, "standard": 20, "wide": 40, "comprehensive": 80},
+    settings.FORMAT_QUIZ: {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30, "brief": 5, "standard": 10, "wide": 20, "comprehensive": 30},
+    settings.FORMAT_TUTORIAL: {"breve": 4, "estandar": 8, "amplio": 15, "exhaustivo": 25, "brief": 4, "standard": 8, "wide": 15, "comprehensive": 25},
+    settings.FORMAT_SUMMARY: {"breve": 3, "estandar": 5, "amplio": 10, "exhaustivo": 15, "brief": 3, "standard": 5, "wide": 10, "comprehensive": 15},
+    settings.FORMAT_CLASS_SCRIPT: {"breve": 3, "estandar": 5, "amplio": 8, "exhaustivo": 12, "brief": 3, "standard": 5, "wide": 8, "comprehensive": 12},
+    # Spanish aliases
+    "resumen ejecutivo": {"breve": 3, "estandar": 5, "amplio": 10, "exhaustivo": 15, "brief": 3, "standard": 5, "wide": 10, "comprehensive": 15},
+    "guion de clase": {"breve": 3, "estandar": 5, "amplio": 8, "exhaustivo": 12, "brief": 3, "standard": 5, "wide": 8, "comprehensive": 12},
 }
 
 FORMAT_CAPACITY_FACTOR: Dict[str, int] = {
-    "flashcards": 8,
-    "quiz": 4,
-    "tutorial": 3,
+    settings.FORMAT_FLASHCARDS: 8,
+    settings.FORMAT_QUIZ: 4,
+    settings.FORMAT_TUTORIAL: 3,
+    settings.FORMAT_SUMMARY: 2,
+    settings.FORMAT_CLASS_SCRIPT: 2,
+    # Spanish aliases
     "resumen ejecutivo": 2,
     "guion de clase": 2,
 }
@@ -114,12 +121,18 @@ class AgentOrchestrator:
             return cached_resp
 
         target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
-            request=request, passages_count=len(top_passages)
+            request=request, passages_count=len(top_passages), language=target_language
         )
 
         if tracer:
             tracer.start_stage("planificador")
-        topics = self._stage_planner(doc_title, key_concepts, top_passages, effective_target)
+        topics = self._stage_planner(
+            doc_title=doc_title,
+            key_concepts=key_concepts,
+            passages=top_passages,
+            target=effective_target,
+            target_language=target_language,
+        )
         if tracer:
             tracer.end_stage("planificador")
             tracer.record_llm_call("planificar")
@@ -150,21 +163,33 @@ class AgentOrchestrator:
         if tracer:
             tracer.end_stage("verificacion_anclaje")
 
-        if len(verified_items) < effective_target:
-            needed = effective_target - len(verified_items)
+        # Evaluate quality and factual grounding with the critic/auditor
+        grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
+        preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
+
+        evaluation, audited_items = self._evaluate_quality_with_critic(
+            request=request,
+            generated_items=verified_items,
+            passages=top_passages,
+            fallback_score=preliminary_score,
+        )
+
+        # If items were dropped due to lack of grounding, complete target with fallback items
+        if len(audited_items) < effective_target:
+            needed = effective_target - len(audited_items)
             extra_items = self._stage_completion(
                 request=request,
                 doc_title=doc_title,
                 topics=topics,
                 needed=needed,
-                existing_items=verified_items,
+                existing_items=audited_items,
                 target_language=target_language,
             )
             for extra in extra_items:
-                if len(verified_items) < effective_target:
-                    verified_items.append(extra)
+                if len(audited_items) < effective_target:
+                    audited_items.append(extra)
 
-        final_items = verified_items[:effective_target]
+        final_items = audited_items[:effective_target]
         items_generated = len(final_items)
 
         if tracer:
@@ -179,8 +204,10 @@ class AgentOrchestrator:
         if tracer:
             tracer.end_stage("serializacion_respuesta")
 
-        verified_citations = sum(1 for it in final_items if it.get("fuentes") or it.get("sources"))
+        # True grounding score reflects genuinely supported items
+        verified_citations = sum(1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or [])))
         grounding_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        evaluation.source_grounding_score = grounding_score
 
         metadata = ResponseMetadata(
             profile_applied=request.recipient_profile,
@@ -197,13 +224,6 @@ class AgentOrchestrator:
             llm_provider=self.last_provider,
             timings=tracer.timings if tracer else {},
             llm_calls=tracer.llm_calls if tracer else {},
-        )
-
-        evaluation = self._evaluate_quality_with_critic(
-            request=request,
-            generated_items=final_items,
-            passages=top_passages,
-            fallback_score=grounding_score,
         )
 
         object_name = (
@@ -251,7 +271,12 @@ class AgentOrchestrator:
     # STAGE A: PLANNER
     # ---------------------------------------------------------------------------
     def _stage_planner(
-        self, doc_title: str, key_concepts: List[str], passages: List[Dict[str, Any]], target: int
+        self,
+        doc_title: str,
+        key_concepts: List[str],
+        passages: List[Dict[str, Any]],
+        target: int,
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         topics = []
         if key_concepts:
@@ -260,24 +285,30 @@ class AgentOrchestrator:
             # Derive pedagogical concepts directly from passage section titles or breadcrumbs.
             extracted = []
             meta_noise = {
-                "indice", "tabla de contenido", "table of contents", "introduccion", "introduction",
-                "referencias", "references", "bibliografia", "bibliography", "anexo", "apendice",
-                "glosario", "conclusion", "conclusiones", "portada", "resumen"
+                # Spanish
+                "indice", "tabla de contenido", "tabla de contenidos", "introduccion",
+                "referencias", "bibliografia", "anexo", "apendice", "glosario",
+                "conclusion", "conclusiones", "portada", "resumen",
+                # English
+                "table of contents", "contents", "introduction", "references", "bibliography",
+                "appendix", "annex", "glossary", "conclusion", "conclusions", "summary", "overview",
+                # Portuguese / Others
+                "sumario", "indice geral", "referencias bibliograficas"
             }
             for p in passages:
                 title = p.get("title") or p.get("metadata", {}).get("section_title")
                 breadcrumb = p.get("breadcrumb") or p.get("metadata", {}).get("breadcrumb")
                 cand = title or breadcrumb
                 if cand:
-                    # Clean candidate
                     norm_cand = cand.strip().lower()
-                    if norm_cand not in meta_noise and not any(noise in norm_cand for noise in ["tabla de contenido", "table of content"]):
+                    if norm_cand not in meta_noise and not any(noise in norm_cand for noise in ["table of content", "tabla de contenido"]):
                         if cand not in extracted:
                             extracted.append(cand)
             base_concepts = extracted if extracted else [doc_title]
 
         num_topics = max(3, min(15, math.ceil(target / 4)))
         items_per_topic = math.ceil(target / num_topics)
+        is_spanish = "es" in (target_language or "spanish").lower()
 
         for i in range(num_topics):
             concept = base_concepts[i % len(base_concepts)]
@@ -291,8 +322,9 @@ class AgentOrchestrator:
             breadcrumb = passage.get("breadcrumb") or passage.get("metadata", {}).get("breadcrumb")
             context_snippet = (passage.get("content") or passage.get("text") or doc_title)[:settings.RAG_CONTEXT_SNIPPET_SIZE]
 
+            topic_label = f"{concept} (Parte {i+1})" if is_spanish else f"{concept} (Part {i+1})"
             topics.append({
-                "topic": f"{concept} (Parte {i+1})",
+                "topic": topic_label,
                 "concept": concept,
                 "target_items": items_per_topic,
                 "chunk_id": chunk_id,
@@ -358,10 +390,11 @@ class AgentOrchestrator:
                 page_number=page_val if page_val is not None else "N/A",
             )
 
-            system_instruction = (
-                f"ROLE: Senior instructional designer expert in {request.niche}. "
-                f"Writing for profile '{request.recipient_profile}'. "
-                "OUTPUT FORMAT: Return strictly a valid JSON array of objects."
+            writer_system_tmpl = load_prompt("writer_system.md")
+            system_instruction = writer_system_tmpl.format(
+                niche=request.niche,
+                recipient_profile=request.recipient_profile,
+                target_language=target_language,
             )
 
             raw = None
@@ -427,37 +460,67 @@ class AgentOrchestrator:
     def _stage_verify_grounding(
         self, items: List[Dict[str, Any]], passages: List[Dict[str, Any]]
     ) -> List[Dict[str, Any]]:
+        """
+        Verifies that each item's citations genuinely correspond to the injected passages.
+        Does not fabricate artificial sources or scores when grounding is absent.
+        """
         verified = []
-        default_passage = passages[0] if passages else {}
-        default_chunk_id = default_passage.get("id", "chunk-rag-001")
-        default_section = default_passage.get("title") or default_passage.get("metadata", {}).get("section_title")
-        default_breadcrumb = default_passage.get("breadcrumb") or default_passage.get("metadata", {}).get("breadcrumb")
-        raw_default_page = default_passage.get("metadata", {}).get("page_number")
-        default_page = raw_default_page if isinstance(raw_default_page, int) and raw_default_page > 0 else None
+        passage_map = {
+            p.get("id") or p.get("metadata", {}).get("chunk_id", ""): (
+                p.get("content") or p.get("text") or ""
+            ).lower()
+            for p in passages
+        }
 
         for item in items:
-            sources = item.get("fuentes") or item.get("sources")
-            if not sources or not isinstance(sources, list):
-                fallback_source: Dict[str, Any] = {
-                    "chunk_id": default_chunk_id,
-                    "extracto": self._get_item_text(item)[:100],
-                    "similitud_score": 0.95,
-                }
-                if default_section:
-                    fallback_source["seccion"] = default_section
-                if default_breadcrumb:
-                    fallback_source["breadcrumb"] = default_breadcrumb
-                if default_page is not None:
-                    fallback_source["pagina"] = default_page
-                item["fuentes"] = [fallback_source]
-            else:
-                # Normalise existing sources: strip page when it is a sentinel (0 or None)
-                for src in sources:
-                    if isinstance(src, dict):
-                        p = src.get("pagina")
-                        if not isinstance(p, int) or p <= 0:
-                            src.pop("pagina", None)
+            raw_sources = item.get("fuentes") or item.get("sources")
+            if not raw_sources or not isinstance(raw_sources, list):
+                # Do not assign fake sources or fabricated similarity scores
+                item["fuentes"] = []
+                item["grounded"] = False
+                verified.append(item)
+                continue
+
+            valid_sources = []
+            for src in raw_sources:
+                if not isinstance(src, dict):
+                    continue
+
+                chunk_id = src.get("chunk_id", "")
+                passage_text = passage_map.get(chunk_id, "")
+                extract = (src.get("extracto") or "").strip().lower()
+
+                # Genuine verification: check if excerpt exists in or substantially overlaps the passage
+                is_supported = False
+                if passage_text:
+                    if extract and (extract in passage_text or passage_text in extract):
+                        is_supported = True
+                    else:
+                        # Check lexical word-set overlap
+                        extract_words = set(re.findall(r"\w{4,}", extract))
+                        passage_words = set(re.findall(r"\w{4,}", passage_text))
+                        if extract_words and len(extract_words & passage_words) / len(extract_words) >= 0.5:
+                            is_supported = True
+                        elif not extract:
+                            # If no explicit extract was given but chunk_id matched, verify topic words
+                            item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                            if item_words and len(item_words & passage_words) / len(item_words) >= 0.3:
+                                is_supported = True
+
+                # Clean page numbers
+                clean_src = dict(src)
+                p = clean_src.get("pagina")
+                if not isinstance(p, int) or p <= 0:
+                    clean_src.pop("pagina", None)
+
+                # Set verified flag on source
+                clean_src["verificado"] = is_supported
+                valid_sources.append(clean_src)
+
+            item["fuentes"] = valid_sources
+            item["grounded"] = any(s.get("verificado", False) for s in valid_sources)
             verified.append(item)
+
         return verified
 
     # ---------------------------------------------------------------------------
@@ -490,55 +553,91 @@ class AgentOrchestrator:
         return extra
 
     # ---------------------------------------------------------------------------
-    # STAGE F: CRITIC EVALUATION
+    # STAGE F: CRITIC EVALUATION & AUDITING
     # ---------------------------------------------------------------------------
     def _evaluate_quality_with_critic(
-        self, request: AdaptationRequest, generated_items: List[Dict[str, Any]], passages: List[Dict[str, Any]], fallback_score: float
-    ) -> QualityEvaluation:
-        if not self.groq_client.is_available:
-            return QualityEvaluation(
+        self,
+        request: AdaptationRequest,
+        generated_items: List[Dict[str, Any]],
+        passages: List[Dict[str, Any]],
+        fallback_score: float,
+    ) -> Tuple[QualityEvaluation, List[Dict[str, Any]]]:
+        """
+        Uses auditor prompt template to evaluate generated educational items individually,
+        identifying grounding issues and unverified claims.
+        """
+        if not self.groq_client.is_available or not generated_items:
+            evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
                 pedagogical_clarity="High",
-                observations="Batch agentic generation. (Heuristic evaluation; Groq not available.)"
+                observations="Heuristic quality verification; critic provider unavailable."
             )
-            
-        system_instruction = "You are a pedagogical critic evaluating generated educational content."
-        context_str = "\n".join([str(p.get("content", p.get("text", "")))[:300] for p in passages[:3]])
-        items_str = json.dumps([self._get_item_text(i) for i in generated_items[:3]], ensure_ascii=False)
-        
-        prompt = f"""
-Evaluate the following educational content generated for the profile '{request.recipient_profile}'.
-Source Context excerpts:
-{context_str}
+            return evaluation, generated_items
 
-Generated Items (sample):
-{items_str}
-
-Return a valid JSON with:
-- "source_grounding_score": float between 0.0 and 1.0 (how well it reflects the source).
-- "pedagogical_clarity": string ("High", "Medium", "Low").
-- "observations": A short sentence justifying the evaluation.
-"""
         try:
+            auditor_template = load_prompt("auditor.md")
+            source_facts = "\n\n".join(
+                f"[{p.get('id') or p.get('metadata', {}).get('chunk_id', f'chunk-{i+1}')}] "
+                f"{(p.get('content') or p.get('text') or '')[:400]}"
+                for i, p in enumerate(passages[:6])
+            )
+            items_to_audit = [
+                {
+                    "index": i,
+                    "text": self._get_item_text(it),
+                    "sources": [s.get("chunk_id") for s in (it.get("fuentes") or []) if isinstance(s, dict)],
+                }
+                for i, it in enumerate(generated_items)
+            ]
+
+            prompt = auditor_template.format(
+                recipient_profile=request.recipient_profile,
+                source_facts=source_facts,
+                generated_items=json.dumps(items_to_audit, ensure_ascii=False, indent=2),
+            )
+            system_instruction = (
+                "ROLE: Impartial educational auditor and fact-checker. "
+                "OUTPUT FORMAT: Return strictly valid JSON object."
+            )
+
             raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
             text = raw.strip() if raw else "{}"
             text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
             text = re.sub(r"^```\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
             data = json.loads(text)
-            
-            return QualityEvaluation(
-                source_grounding_score=float(data.get("source_grounding_score", fallback_score)),
-                pedagogical_clarity=data.get("pedagogical_clarity", "High"),
-                observations=data.get("observations", "Evaluated by Groq critic agent.")
+
+            item_evals = data.get("item_evaluations", [])
+            flagged_indices = {
+                e.get("index") for e in item_evals if e.get("is_grounded") is False
+            }
+
+            accepted_items = []
+            for i, it in enumerate(generated_items):
+                if i in flagged_indices and it.get("grounded") is False:
+                    logger.info("Critic rejected ungrounded item %d: %s", i, self._get_item_text(it)[:60])
+                else:
+                    accepted_items.append(it)
+
+            if not accepted_items:
+                accepted_items = generated_items
+
+            overall_score = float(data.get("overall_grounding_score", fallback_score))
+            evaluation = QualityEvaluation(
+                source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
+                pedagogical_clarity=str(data.get("pedagogical_clarity", "High")),
+                observations=str(data.get("observations", "Evaluated by educational auditor agent."))
             )
+            return evaluation, accepted_items
+
         except Exception as e:
-            logger.warning(f"Critic agent failed: {e}")
-            return QualityEvaluation(
+            logger.warning(f"Critic auditor failed: {e}")
+            evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
                 pedagogical_clarity="High",
-                observations="Heuristic fallback evaluation due to critic agent failure."
+                observations="Heuristic fallback evaluation due to critic agent error."
             )
+            return evaluation, generated_items
 
     # ---------------------------------------------------------------------------
     # HELPERS & FORMATTING
@@ -565,23 +664,30 @@ Return a valid JSON with:
         return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
     def _calculate_target_quantity(
-        self, request: AdaptationRequest, passages_count: int
+        self, request: AdaptationRequest, passages_count: int, language: str = "Spanish"
     ) -> Tuple[int, int, Optional[str]]:
         fmt_key = (request.output_format or "flashcards").lower()
         lvl_key = (request.quantity_level or "estandar").lower()
 
-        base_target = QUANTITY_TABLE.get(fmt_key, {}).get(lvl_key, 20)
+        # Map Spanish format names to canonical keys if needed
+        format_canonical_map = {
+            "resumen ejecutivo": settings.FORMAT_SUMMARY,
+            "guion de clase": settings.FORMAT_CLASS_SCRIPT,
+        }
+        lookup_fmt = format_canonical_map.get(fmt_key, fmt_key)
+
+        base_target = QUANTITY_TABLE.get(lookup_fmt, {}).get(lvl_key, 20)
         target_quantity = request.target_quantity if request.target_quantity is not None else (
             base_target if request.quantity_level else (request.quantity or base_target)
         )
 
-        cap_factor = FORMAT_CAPACITY_FACTOR.get(fmt_key, 4)
+        cap_factor = FORMAT_CAPACITY_FACTOR.get(lookup_fmt, 4)
         max_capacity = max(5, max(1, passages_count) * cap_factor)
         effective_target = min(target_quantity, max_capacity)
 
         warning = None
         if effective_target < target_quantity:
-            warning = get_capacity_warning_es(effective_target, target_quantity)
+            warning = get_capacity_warning(effective_target, target_quantity, language=language)
         return target_quantity, effective_target, warning
 
     def _get_item_text(self, item: Dict[str, Any]) -> str:
@@ -657,10 +763,12 @@ Return a valid JSON with:
                 else f"Key definition and fundamental principles of {main_concept}."
             )
 
+        # Provide reference citation but clearly mark provenance without fabricating similarity scores
         fuente: Dict[str, Any] = {
             "chunk_id": topic.get("chunk_id", "chunk-001"),
             "extracto": target_sentence[:100],
-            "similitud_score": 0.92,
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": True,
         }
         if topic.get("section"):
             fuente["seccion"] = topic["section"]
