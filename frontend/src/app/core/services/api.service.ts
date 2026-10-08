@@ -8,10 +8,11 @@ import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.mode
 })
 export class ApiService {
   private get baseUrl(): string {
-    if (typeof window !== 'undefined' && window.location && window.location.hostname) {
-      const host = window.location.hostname;
-      const protocol = window.location.protocol;
-      return `${protocol}//${host}:8000/api/v1`;
+    if (typeof window !== 'undefined' && window.location) {
+      if (window.location.port === '4200') {
+        return 'http://localhost:8000/api/v1';
+      }
+      return '/api/v1';
     }
     return 'http://localhost:8000/api/v1';
   }
