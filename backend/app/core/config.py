@@ -38,6 +38,10 @@ from pydantic import BaseModel
 
 try:
     from dotenv import load_dotenv
+    from pathlib import Path
+    _base_dir = Path(__file__).resolve().parent.parent.parent
+    load_dotenv(_base_dir / ".env")
+    load_dotenv(_base_dir / "backend" / ".env")
     load_dotenv()
 except ImportError:
     pass
