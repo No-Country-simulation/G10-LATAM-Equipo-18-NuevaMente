@@ -132,12 +132,25 @@ class AgentOrchestrator:
                 cached_resp.metadata.llm_calls = tracer.llm_calls
             return cached_resp
 
+        # Resolve intended target quantity considering quantity level and explicit overrides
+        fmt_key = (request.output_format or "flashcards").lower()
+        lvl_key = (request.quantity_level or "estandar").lower()
+        format_canonical_map = {
+            "resumen ejecutivo": settings.FORMAT_SUMMARY,
+            "guion de clase": settings.FORMAT_CLASS_SCRIPT,
+        }
+        lookup_fmt = format_canonical_map.get(fmt_key, fmt_key)
+        base_target = QUANTITY_TABLE.get(lookup_fmt, {}).get(lvl_key, 20)
+        requested_count = request.target_quantity if request.target_quantity is not None else (
+            base_target if request.quantity_level else (request.quantity or base_target)
+        )
+
         # Build document coverage plan using full parent chunk set when available
         chunks_for_planning = all_parent_chunks or top_passages
         coverage_plan = CoveragePlanner().plan(
             parent_chunks=chunks_for_planning,
             output_format=request.output_format or "flashcards",
-            requested_items=request.target_quantity or request.quantity or 20,
+            requested_items=requested_count,
             language=target_language,
         )
 
@@ -317,9 +330,11 @@ class AgentOrchestrator:
             # Use key_concepts to enrich topic label when available
             concept = self._best_concept_for_section(sp.section_title, key_concepts)
 
+            # Clean raw section titles of leading numbers (e.g. "1.2 Componentes" -> "Componentes")
+            clean_section = re.sub(r"^[\d\.\-\)\s]+", "", sp.section_title).strip()
             topic_label = (
-                f"{concept}" if concept != sp.section_title
-                else sp.section_title
+                f"{concept}" if concept != sp.section_title and concept != clean_section
+                else (clean_section if clean_section else sp.section_title)
             )
 
             topics.append({

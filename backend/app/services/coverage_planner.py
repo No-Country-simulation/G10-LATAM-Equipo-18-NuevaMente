@@ -157,17 +157,26 @@ class CoveragePlanner:
             len(ch.get("content", "")) for ch in substantive
         )
 
-        chars_per_item = _CAPACITY_CHARS_PER_ITEM.get(fmt, 500)
-        total_capacity = max(1, total_chars // chars_per_item)
+        # Baseline substantive threshold: only cap if the requested quantity is
+        # grossly disproportionate to the actual text available (e.g. 50 items from 200 chars).
+        # A single substantive paragraph (~300-500 chars) easily supports 5-10 pedagogical items
+        # through reasoning (definitions, application, edge cases, cause-effect).
+        min_chars_per_item = 50 if "flashcard" in fmt else (80 if "quiz" in fmt else 120)
+        max_viable = max(3, total_chars // min_chars_per_item)
 
-        viable_target = min(requested_items, total_capacity)
-        warning = None
-        if viable_target < requested_items:
+        # Cap only when requested quantity exceeds the realistic substantive threshold
+        if requested_items > max_viable and total_chars < 800:
+            total_capacity = max_viable
+            viable_target = max(1, min(requested_items, total_capacity))
             warning = self._capacity_warning(viable_target, requested_items, language)
             logger.info(
-                "CoveragePlanner: capping %d → %d items (content: %d chars, format: %s)",
+                "CoveragePlanner: disproportionate request capped %d → %d (content: %d chars, format: %s)",
                 requested_items, viable_target, total_chars, fmt,
             )
+        else:
+            total_capacity = max(requested_items, max_viable)
+            viable_target = requested_items
+            warning = None
 
         if fmt in _HOLISTIC_FORMATS:
             strategy = "holistic"

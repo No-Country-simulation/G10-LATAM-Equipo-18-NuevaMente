@@ -319,6 +319,11 @@ def handle_agent_generation(
     if not top_passages:
         return "⚠️ No se encontraron fragmentos relevantes en el índice para esta consulta.", ""
 
+    # Full parent chunk set for coverage planning. Without it the planner only
+    # sees the top-5 retrieved passages and caps the request to a few items.
+    store = get_store(clean_id)
+    all_parent_chunks = list(store.parent_documents.values()) if store else []
+
     # 2. Build AdaptationRequest
     request = AdaptationRequest(
         title=doc_record.title,
@@ -329,6 +334,7 @@ def handle_agent_generation(
         quantity_level=quantity_level,
         target_quantity=int(target_quantity) if target_quantity else None,
         language=language,
+        force_regenerate=True,
     )
 
     # 3. Execute multi-stage agents
@@ -343,6 +349,7 @@ def handle_agent_generation(
                     top_passages=top_passages,
                     key_concepts=[],
                     prerequisites=[],
+                    all_parent_chunks=all_parent_chunks,
                 )
             )
         finally:
