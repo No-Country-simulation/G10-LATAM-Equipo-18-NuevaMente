@@ -3,13 +3,14 @@ agent_orchestrator.py
 
 Purpose:
     Multi-stage agentic pipeline for educational content adaptation.
-    Orchestrates topic planning, batch content generation with LLMs,
+    Orchestrates document coverage planning, batch content generation with LLMs,
     deduplication, source citation verification, and capacity capping.
     Integrates external prompt templates and multilingual output support.
 
 Input:
     - request (AdaptationRequest): user customization preferences and constraints.
     - top_passages (List[Dict[str, Any]]): RAG-retrieved document parent/child context.
+    - all_parent_chunks (List[Dict[str, Any]]): full set of parent chunks for coverage planning.
     - key_concepts (List[str]): extracted key domain concepts.
     - prerequisites (List[str]): detected concept dependencies.
     - tracer (Optional[PipelineTracer]): execution telemetry and stage timing.
@@ -49,11 +50,21 @@ from app.schemas.adaptation import (
     RagFuente,
     ResponseMetadata,
 )
+from app.services.coverage_planner import CoveragePlan, CoveragePlanner, SectionPlan
 from app.services.document_storage_service import get_document_storage
 from app.services.multi_agent_router import MultiAgentRouter
 from app.services.pdf_export_service import PDFExportService
 
 logger = logging.getLogger("AgentOrchestrator")
+
+
+def _is_spanish(target_language: Optional[str]) -> bool:
+    """Returns True if the target language is Spanish (default), False otherwise."""
+    if not target_language:
+        return True
+    lang = target_language.strip().lower()
+    return lang.startswith("es") or "span" in lang
+
 
 QUANTITY_TABLE: Dict[str, Dict[str, int]] = {
     settings.FORMAT_FLASHCARDS: {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80, "brief": 10, "standard": 20, "wide": 40, "comprehensive": 80},
@@ -104,8 +115,9 @@ class AgentOrchestrator:
         key_concepts: List[str],
         prerequisites: List[str],
         tracer: Optional[Any] = None,
+        all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> AdaptationResponse:
-        """Executes full multi-stage pipeline with batching, deduplication, and RAG grounding."""
+        """Executes full multi-stage pipeline with coverage planning, batching, deduplication, and RAG grounding."""
         doc_title = self._clean_document_title(request)
         target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
 
@@ -120,8 +132,19 @@ class AgentOrchestrator:
                 cached_resp.metadata.llm_calls = tracer.llm_calls
             return cached_resp
 
+        # Build document coverage plan using full parent chunk set when available
+        chunks_for_planning = all_parent_chunks or top_passages
+        coverage_plan = CoveragePlanner().plan(
+            parent_chunks=chunks_for_planning,
+            output_format=request.output_format or "flashcards",
+            requested_items=request.target_quantity or request.quantity or 20,
+            language=target_language,
+        )
+
         target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
-            request=request, passages_count=len(top_passages), language=target_language
+            request=request,
+            coverage_plan=coverage_plan,
+            language=target_language,
         )
 
         if tracer:
@@ -129,7 +152,7 @@ class AgentOrchestrator:
         topics = self._stage_planner(
             doc_title=doc_title,
             key_concepts=key_concepts,
-            passages=top_passages,
+            coverage_plan=coverage_plan,
             target=effective_target,
             target_language=target_language,
         )
@@ -174,8 +197,9 @@ class AgentOrchestrator:
             fallback_score=preliminary_score,
         )
 
-        # If items were dropped due to lack of grounding, complete target with fallback items
-        if len(audited_items) < effective_target:
+        # If items were dropped by the auditor, attempt completion only when the
+        # coverage plan confirmed sufficient capacity — otherwise skip to avoid fabrication.
+        if len(audited_items) < effective_target and coverage_plan.total_capacity > len(audited_items):
             needed = effective_target - len(audited_items)
             extra_items = self._stage_completion(
                 request=request,
@@ -274,66 +298,67 @@ class AgentOrchestrator:
         self,
         doc_title: str,
         key_concepts: List[str],
-        passages: List[Dict[str, Any]],
+        coverage_plan: CoveragePlan,
         target: int,
         target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
-        topics = []
-        if key_concepts:
-            base_concepts = key_concepts
-        else:
-            # Derive pedagogical concepts directly from passage section titles or breadcrumbs.
-            extracted = []
-            meta_noise = {
-                # Spanish
-                "indice", "tabla de contenido", "tabla de contenidos", "introduccion",
-                "referencias", "bibliografia", "anexo", "apendice", "glosario",
-                "conclusion", "conclusiones", "portada", "resumen",
-                # English
-                "table of contents", "contents", "introduction", "references", "bibliography",
-                "appendix", "annex", "glossary", "conclusion", "conclusions", "summary", "overview",
-                # Portuguese / Others
-                "sumario", "indice geral", "referencias bibliograficas"
-            }
-            for p in passages:
-                title = p.get("title") or p.get("metadata", {}).get("section_title")
-                breadcrumb = p.get("breadcrumb") or p.get("metadata", {}).get("breadcrumb")
-                cand = title or breadcrumb
-                if cand:
-                    norm_cand = cand.strip().lower()
-                    if norm_cand not in meta_noise and not any(noise in norm_cand for noise in ["table of content", "tabla de contenido"]):
-                        if cand not in extracted:
-                            extracted.append(cand)
-            base_concepts = extracted if extracted else [doc_title]
-
-        num_topics = max(3, min(15, math.ceil(target / 4)))
-        items_per_topic = math.ceil(target / num_topics)
+        """
+        Converts CoveragePlan sections into ordered topic descriptors.
+        Each SectionPlan becomes one or more topic entries with the section's
+        allocated item count and context snippet.
+        """
         is_spanish = "es" in (target_language or "spanish").lower()
+        topics: List[Dict[str, Any]] = []
 
-        for i in range(num_topics):
-            concept = base_concepts[i % len(base_concepts)]
-            passage = passages[i % len(passages)] if passages else {}
-            chunk_id = passage.get("id") or passage.get("metadata", {}).get("chunk_id", f"chunk-{i+1}")
-            # Only carry page_number when the passage comes from a paged source (PDF);
-            # Markdown/TXT sections do not have physical pages.
-            raw_page = passage.get("metadata", {}).get("page_number")
-            page = raw_page if isinstance(raw_page, int) and raw_page > 0 else None
-            section = passage.get("title") or passage.get("metadata", {}).get("section_title")
-            breadcrumb = passage.get("breadcrumb") or passage.get("metadata", {}).get("breadcrumb")
-            context_snippet = (passage.get("content") or passage.get("text") or doc_title)[:settings.RAG_CONTEXT_SNIPPET_SIZE]
+        for sp in coverage_plan.sections:
+            if sp.allocated_items <= 0:
+                continue
 
-            topic_label = f"{concept} (Parte {i+1})" if is_spanish else f"{concept} (Part {i+1})"
+            # Use key_concepts to enrich topic label when available
+            concept = self._best_concept_for_section(sp.section_title, key_concepts)
+
+            topic_label = (
+                f"{concept}" if concept != sp.section_title
+                else sp.section_title
+            )
+
             topics.append({
                 "topic": topic_label,
                 "concept": concept,
-                "target_items": items_per_topic,
-                "chunk_id": chunk_id,
-                "page": page,
-                "section": section,
-                "breadcrumb": breadcrumb,
-                "context": context_snippet,
+                "target_items": sp.allocated_items,
+                "chunk_id": sp.primary_chunk_id,
+                "page": sp.page_number,
+                "section": sp.section_title,
+                "breadcrumb": sp.parent_chunks[0].get("breadcrumb") if sp.parent_chunks else "",
+                "context": sp.context_snippet[:settings.RAG_CONTEXT_SNIPPET_SIZE],
             })
+
+        if not topics:
+            # Fallback: single topic from document title
+            topics.append({
+                "topic": doc_title,
+                "concept": doc_title,
+                "target_items": target,
+                "chunk_id": "chunk-001",
+                "page": None,
+                "section": doc_title,
+                "breadcrumb": "",
+                "context": doc_title,
+            })
+
         return topics
+
+    @staticmethod
+    def _best_concept_for_section(section_title: str, key_concepts: List[str]) -> str:
+        """Returns the key concept most lexically similar to the section title,
+        or the section title itself if no key concepts are available."""
+        if not key_concepts:
+            return section_title
+        title_lower = section_title.lower()
+        for concept in key_concepts:
+            if concept.lower() in title_lower or title_lower in concept.lower():
+                return concept
+        return section_title
 
     def _stage_batch_generators(
         self,
@@ -364,7 +389,9 @@ class AgentOrchestrator:
             if len(items) >= target:
                 break
 
-            n_items = min(batch_size, target - len(items))
+            # Respect section-level allocation from the coverage plan when present
+            section_cap = topic.get("target_items", batch_size)
+            n_items = min(section_cap, batch_size, target - len(items))
 
             # Build structural reference line; include page only when available.
             section_label = topic.get("section") or "Unknown section"
@@ -664,7 +691,11 @@ class AgentOrchestrator:
         return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
     def _calculate_target_quantity(
-        self, request: AdaptationRequest, passages_count: int, language: str = "Spanish"
+        self,
+        request: AdaptationRequest,
+        language: str = "Spanish",
+        coverage_plan: Optional[CoveragePlan] = None,
+        passages_count: int = 0,
     ) -> Tuple[int, int, Optional[str]]:
         fmt_key = (request.output_format or "flashcards").lower()
         lvl_key = (request.quantity_level or "estandar").lower()
@@ -681,13 +712,19 @@ class AgentOrchestrator:
             base_target if request.quantity_level else (request.quantity or base_target)
         )
 
-        cap_factor = FORMAT_CAPACITY_FACTOR.get(lookup_fmt, 4)
-        max_capacity = max(5, max(1, passages_count) * cap_factor)
-        effective_target = min(target_quantity, max_capacity)
+        if coverage_plan is not None:
+            # Use the planner's capacity estimate, which is based on total content
+            effective_target = min(target_quantity, coverage_plan.viable_target)
+            warning = coverage_plan.capacity_warning if effective_target < target_quantity else None
+        else:
+            # Legacy fallback when no plan is available
+            cap_factor = FORMAT_CAPACITY_FACTOR.get(lookup_fmt, 4)
+            max_capacity = max(5, max(1, passages_count) * cap_factor)
+            effective_target = min(target_quantity, max_capacity)
+            warning = None
+            if effective_target < target_quantity:
+                warning = get_capacity_warning(effective_target, target_quantity, language=language)
 
-        warning = None
-        if effective_target < target_quantity:
-            warning = get_capacity_warning(effective_target, target_quantity, language=language)
         return target_quantity, effective_target, warning
 
     def _get_item_text(self, item: Dict[str, Any]) -> str:
@@ -707,16 +744,34 @@ class AgentOrchestrator:
         text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"^```\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
-        start = text.find("[")
-        end = text.rfind("]")
-        if start != -1 and end != -1:
-            text = text[start : end + 1]
+
+        # First attempt parsing raw JSON directly (handles objects or arrays)
         try:
             parsed = json.loads(text)
             if isinstance(parsed, list):
                 return parsed
+            if isinstance(parsed, dict):
+                # Check for common wrapper keys like "items", "quiz", "flashcards", etc.
+                for key in ("items", "elementos", "quiz", "flashcards", "preguntas", "data"):
+                    if isinstance(parsed.get(key), list):
+                        return parsed[key]
+                # If any dict value is a list of dicts, return the first one found
+                for val in parsed.values():
+                    if isinstance(val, list) and (not val or isinstance(val[0], dict)):
+                        return val
         except Exception:
             pass
+
+        # Fallback to extracting array substring between '[' and ']'
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1:
+            try:
+                parsed = json.loads(text[start : end + 1])
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                pass
         return None
 
     def _generate_fallback_batch(
@@ -751,7 +806,17 @@ class AgentOrchestrator:
         topic_name = topic["topic"]
         main_concept = topic.get("concept", topic_name.split("(")[0].strip())
         context = topic.get("context", "")
-        is_spanish = "es" in (target_language or "spanish").lower()
+        is_spanish = _is_spanish(target_language)
+
+        # Avoid redundant phrasing when topic and concept share the same text
+        topic_clean = topic_name.strip()
+        concept_clean = main_concept.strip()
+        if not topic_clean or topic_clean.lower() == concept_clean.lower() or concept_clean.lower() in topic_clean.lower():
+            topic_context_es = ""
+            topic_context_en = ""
+        else:
+            topic_context_es = f" en el marco de {topic_clean}"
+            topic_context_en = f" in the context of {topic_clean}"
 
         sentences = [s.strip() for s in re.split(r"[.!?]", context) if len(s.strip()) > 15]
         if sentences:
@@ -781,13 +846,13 @@ class AgentOrchestrator:
         if "flashcard" in fmt:
             if is_spanish:
                 return {
-                    "frente": f"¿Cuál es el propósito y la aplicación de '{main_concept}' en el contexto de {topic_name}?",
+                    "frente": f"¿Cuál es el propósito y la aplicación de '{main_concept}'{topic_context_es}?",
                     "dorso": f"{target_sentence} Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de {request.niche}.",
                     "pista_didactica": f"Pista: Evalúa el impacto operativo directo de {main_concept}.",
                     "fuentes": [fuente],
                 }
             return {
-                "frente": f"What is the purpose and application of '{main_concept}' in {topic_name}?",
+                "frente": f"What is the purpose and application of '{main_concept}'{topic_context_en}?",
                 "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
                 "pista_didactica": f"Hint: Assess the operational impact of {main_concept}.",
                 "fuentes": [fuente],
@@ -795,7 +860,7 @@ class AgentOrchestrator:
         elif "quiz" in fmt:
             if is_spanish:
                 return {
-                    "pregunta": f"Respecto a {main_concept} en {topic_name}, ¿cuál de las siguientes afirmaciones es correcta según la documentación?",
+                    "pregunta": f"Respecto a {main_concept}{topic_context_es}, ¿cuál de las siguientes afirmaciones es correcta según la documentación?",
                     "opciones": [
                         f"{target_sentence}",
                         f"Invalida las políticas técnicas y de seguridad estándar en {request.niche}.",
@@ -808,7 +873,7 @@ class AgentOrchestrator:
                     "fuentes": [fuente],
                 }
             return {
-                "pregunta": f"Regarding {main_concept} in {topic_name}, which of the following statements is correct?",
+                "pregunta": f"Regarding {main_concept}{topic_context_en}, which of the following statements is correct?",
                 "opciones": [
                     f"{target_sentence}",
                     f"Overrides {request.niche} policies.",
@@ -832,7 +897,7 @@ class AgentOrchestrator:
             return {
                 "paso": item_idx,
                 "titulo": f"Step {item_idx}: Configuring {main_concept}",
-                "instruccion": f"Implement {main_concept} following the {topic_name} guidelines: {target_sentence}",
+                "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
                 "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
                 "fuentes": [fuente],
             }
@@ -858,7 +923,7 @@ class AgentOrchestrator:
         target_language: str = "Spanish",
     ) -> AdaptedContent:
         fmt = request.output_format.lower()
-        is_spanish = "es" in (target_language or "spanish").lower()
+        is_spanish = _is_spanish(target_language)
 
         intro = get_contextualized_intro(
             doc_title=doc_title,

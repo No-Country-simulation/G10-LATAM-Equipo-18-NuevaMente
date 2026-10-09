@@ -85,7 +85,9 @@ class GroqClient(BaseLLMClient):
             messages.append({"role": "system", "content": system_instruction})
         messages.append({"role": "user", "content": prompt})
 
-        response_format = {"type": "json_object"} if json_output else None
+        # Only apply response_format if explicitly provided in kwargs,
+        # avoiding json_object restriction that rejects top-level JSON arrays.
+        response_format = kwargs.get("response_format")
 
         response = self._client.chat.completions.create(
             model=model,

@@ -221,6 +221,7 @@ async def adapt_content(request: AdaptationRequest):
             key_concepts=key_concepts,
             prerequisites=prerequisites,
             tracer=tracer,
+            all_parent_chunks=doc_data["parent_chunks"],
         )
 
         return response

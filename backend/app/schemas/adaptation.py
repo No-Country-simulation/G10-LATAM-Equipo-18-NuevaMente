@@ -48,7 +48,7 @@ class RagFuente(BaseModel):
     seccion: Optional[str] = None
     breadcrumb: Optional[str] = None
     pagina: Optional[int] = None
-    similitud_score: Optional[float] = 0.95
+    similitud_score: Optional[float] = None
 
 
 class FlashcardItem(BaseModel):
