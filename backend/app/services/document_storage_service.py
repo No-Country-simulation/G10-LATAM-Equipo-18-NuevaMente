@@ -133,12 +133,15 @@ class OCIStorageAdapter(BaseDocumentStorage):
         from app.services.oci_storage_service import OCIStorageService
 
         self.service = OCIStorageService()
+        self.service.ensure_bucket(settings.OCI_BUCKET_DOCS)
+        self.service.ensure_bucket(settings.OCI_BUCKET_ARTIFACTS)
 
     def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
         path = Path(local_path)
         extension = path.suffix.lower()
         owner_prefix = user_id or "anonymous"
-        object_key = f"{owner_prefix}/{document_id}{extension}"
+        # Matches security.get_user_storage_prefix() so trash purges find the blob.
+        object_key = f"usuarios/{owner_prefix}/documentos/{document_id}{extension}"
 
         info = self.service.upload_document_source(
             bucket_name=settings.OCI_BUCKET_DOCS,
@@ -149,12 +152,10 @@ class OCIStorageAdapter(BaseDocumentStorage):
         return info["objeto_id"]
 
     def download_document(self, object_key: str, destination_path: str) -> str:
+        file_bytes = self.service.download_object(settings.OCI_BUCKET_DOCS, object_key)
         destination = Path(destination_path)
         destination.parent.mkdir(parents=True, exist_ok=True)
-        base_dir = Path.cwd() / "storage_mock" / settings.OCI_BUCKET_DOCS
-        file_path = base_dir / object_key
-        if file_path.exists():
-            destination.write_bytes(file_path.read_bytes())
+        destination.write_bytes(file_bytes)
         return str(destination)
 
     def upload_json_artifact(self, object_name: str, json_data: dict) -> dict:
@@ -166,9 +167,10 @@ class OCIStorageAdapter(BaseDocumentStorage):
 
 
 def get_document_storage() -> BaseDocumentStorage:
-    """Factory choosing the storage backend by settings.STORAGE_METHOD."""
-    if settings.STORAGE_METHOD == "supabase":
-        return SupabaseStorageService()
-    elif settings.STORAGE_METHOD == "oci":
+    """Factory choosing the backend via settings.resolve_storage_backend()."""
+    backend = settings.resolve_storage_backend()
+    if backend in ("oci", "local"):   # local = OCIStorageService on local disk
         return OCIStorageAdapter()
-    raise ValueError(f"Unsupported STORAGE_METHOD: '{settings.STORAGE_METHOD}'.")
+    if backend == "supabase":
+        return SupabaseStorageService()
+    raise ValueError(f"Unresolved storage backend: '{backend}'.")

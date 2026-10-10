@@ -130,10 +130,13 @@ class Settings(BaseModel):
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
 
     # ── Document Storage Configuration (original uploaded files) ──────────────
-    # STORAGE_METHOD: "supabase" (Supabase Storage) or "oci" (pending an OCI
-    # adapter behind the same BaseDocumentStorage interface).
-    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "supabase")
- 
+    # STORAGE_METHOD: "oci" (default) or "supabase". The effective backend is
+    # decided by resolve_storage_backend(); this field only sets the preference.
+    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "oci")
+
+    # Local disk fallback used when neither OCI nor Supabase is available.
+    LOCAL_STORAGE_DIR: str = os.getenv("STORAGE_LOCAL_DIR", "storage_mock")
+
     # Supabase project credentials. SUPABASE_KEY must be the service_role key
     # (backend-only, bypasses Row Level Security) — never the anon/public key,
     # and never committed; it belongs in .env only.
@@ -143,13 +146,30 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
-    OCI_CONFIG_FILE: str = os.path.expanduser("~/.oci/config")
-    OCI_BUCKET_DOCS: str = "nuevamente-documentos-fuente"
-    OCI_BUCKET_ARTIFACTS: str = "nuevamente-contenidos-educativos"
+    OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
+    OCI_NAMESPACE: str = os.getenv("OCI_NAMESPACE", "")
+    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente")
+    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos")
+
+    @property
+    def supabase_configured(self) -> bool:
+        return bool(self.SUPABASE_URL and self.SUPABASE_KEY)
 
     @property
     def OCI_ENABLED(self) -> bool:
-        return os.path.exists(self.OCI_CONFIG_FILE)
+        from app.infrastructure.oci_client import get_oci_client
+        return get_oci_client() is not None
+
+    def resolve_storage_backend(self) -> str:
+        """Effective backend decided by availability: oci -> supabase -> local.
+        STORAGE_METHOD only sets the preference; it never forces a broken one."""
+        if self.STORAGE_METHOD == "supabase" and self.supabase_configured:
+            return "supabase"
+        if self.OCI_ENABLED:
+            return "oci"
+        if self.supabase_configured:
+            return "supabase"
+        return "local"
 
     # ── RAG Configuration ─────────────────────────────────────────────────────
     MAX_TOP_K_CHUNKS: int = 5
