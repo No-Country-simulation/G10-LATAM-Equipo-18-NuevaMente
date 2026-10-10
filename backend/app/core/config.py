@@ -45,7 +45,7 @@ except ImportError:
 # Module-level constants used inside the class to avoid cross-field references.
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 _JINA_EMBED_MODEL = "jina-embeddings-v3"
-_LOCAL_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_LOCAL_EMBED_MODEL = "sentence-transformers/multilingual-e5-base"
 
 
 class Settings(BaseModel):
