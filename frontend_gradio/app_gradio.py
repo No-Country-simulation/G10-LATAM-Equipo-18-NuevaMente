@@ -195,13 +195,8 @@ def format_gen_progress_line(event: Dict[str, Any]) -> str:
         return f"{icon} {msg}  `{'█' * filled}{'░' * (10 - filled)}` {pct}%"
     return f"{icon} {msg}"
 
-
 def render_gen_status(lines: List[str], working: bool) -> str:
-    """Shows only the CURRENT generation step (replaces the previous line in place).
-
-    Unlike render_progress(), which accumulates a full history, this keeps the
-    progress panel to a single changing line so it never mixes with the result.
-    """
+    """Shows only the CURRENT generation step (replaces the previous line in place)."""
     header = "### ⏳ Generando contenido educativo…" if working else "### 🧾 Estado de generación"
     current = lines[-1] if lines else "⏳ Iniciando generación agéntica…"
     return header + "\n\n" + current
@@ -382,6 +377,7 @@ def handle_agent_generation(
                         key_concepts=[],
                         prerequisites=[],
                         all_parent_chunks=all_parent_chunks,
+                        document_id=clean_id,
                     )
                 )
             finally:
@@ -422,12 +418,12 @@ def handle_agent_generation(
     if outcome.get("no_context"):
         yield progress_log_final, "⚠️ No se encontraron fragmentos relevantes en el índice para esta consulta.", ""
         return
-
+    
     if "error" in outcome:
         err = outcome["error"]
         yield progress_log_final, f"❌ **Error durante la generación con agentes:**\n\n{err}", ""
         return
-
+    
     response = outcome.get("response")
     if response is None:
         yield progress_log_final, "❌ No se recibió respuesta del orquestador.", ""

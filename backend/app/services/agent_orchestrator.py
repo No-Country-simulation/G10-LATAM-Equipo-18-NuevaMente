@@ -117,6 +117,7 @@ class AgentOrchestrator:
         prerequisites: List[str],
         tracer: Optional[Any] = None,
         all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
+        document_id: Optional[str] = None,
     ) -> AdaptationResponse:
         """Executes full multi-stage pipeline with coverage planning, batching, deduplication, and RAG grounding."""
         doc_title = self._clean_document_title(request)
@@ -253,9 +254,7 @@ class AgentOrchestrator:
         try:
             from app.services.vector_store_service import get_store
 
-            store = get_store(getattr(request, "document_id", None)) if hasattr(request, "document_id") else None
-            if store is None and 'clean_id' in locals():
-                store = get_store(clean_id)
+            store = get_store(document_id)
             if store and store.model_name:
                 embedding_model_name = store.model_name
                 lower_em = embedding_model_name.lower()
@@ -263,7 +262,7 @@ class AgentOrchestrator:
                     embedding_provider = "gemini"
                 elif "jina" in lower_em:
                     embedding_provider = "jina"
-                elif "sentence" in lower_em or "mpnet" in lower_em or "minilm" in lower_em:
+                else:
                     embedding_provider = "local"
         except Exception:
             pass
