@@ -103,6 +103,7 @@ class ResponseMetadata(BaseModel):
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
     llm_model: Optional[str] = Field(None, alias="modelo_llm")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
+    embedding_model: Optional[str] = Field(None, alias="modelo_embeddings")
     degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
     retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")
     fallback_used: Optional[bool] = Field(False, alias="fallback_usado")

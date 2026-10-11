@@ -104,6 +104,7 @@ class AgentOrchestrator:
         }
         # Tracks the name of the LLM provider that last succeeded in the cascade
         self.last_provider: str = "fallback"
+        self.last_model: Optional[str] = None
         self.router = MultiAgentRouter()
         self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
@@ -246,6 +247,27 @@ class AgentOrchestrator:
         grounding_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
         evaluation.source_grounding_score = grounding_score
 
+        # Try to infer embedding model from vector store if available
+        embedding_provider = "gemini"
+        embedding_model_name = None
+        try:
+            from app.services.vector_store_service import get_store
+
+            store = get_store(getattr(request, "document_id", None)) if hasattr(request, "document_id") else None
+            if store is None and 'clean_id' in locals():
+                store = get_store(clean_id)
+            if store and store.model_name:
+                embedding_model_name = store.model_name
+                lower_em = embedding_model_name.lower()
+                if "gemini" in lower_em:
+                    embedding_provider = "gemini"
+                elif "jina" in lower_em:
+                    embedding_provider = "jina"
+                elif "sentence" in lower_em or "mpnet" in lower_em or "minilm" in lower_em:
+                    embedding_provider = "local"
+        except Exception:
+            pass
+
         metadata = ResponseMetadata(
             profile_applied=request.recipient_profile,
             format_generated=request.output_format,
@@ -259,6 +281,9 @@ class AgentOrchestrator:
             key_concepts=key_concepts[:8],
             prerequisites=prerequisites[:5],
             llm_provider=self.last_provider,
+            llm_model=self.last_model,
+            embedding_provider=embedding_provider,
+            retrieval_mode="hibrido_rrf_reranker",
             timings=tracer.timings if tracer else {},
             llm_calls=tracer.llm_calls if tracer else {},
         )
@@ -458,7 +483,20 @@ class AgentOrchestrator:
                         json_output=True,
                     )
                     if raw:
-                        self.last_provider = type(llm).__name__.lower().replace("client", "")
+                        # Infer provider key
+                        cls_name = type(llm).__name__.lower()
+                        if "gemini" in cls_name:
+                            self.last_provider = "gemini"
+                            self.last_model = getattr(settings, "GEMINI_LLM_MODEL", None)
+                        elif "groq" in cls_name:
+                            self.last_provider = "groq"
+                            self.last_model = getattr(settings, "DEFAULT_GROQ_MODEL", None)
+                        elif "openrouter" in cls_name:
+                            self.last_provider = "openrouter"
+                            self.last_model = getattr(settings, "DEFAULT_OPENROUTER_MODEL", None)
+                        else:
+                            self.last_provider = cls_name.replace("client", "")
+                            self.last_model = None
                         break
                 except Exception as exc:
                     logger.warning("%s generation failed: %s", type(llm).__name__, exc)

@@ -184,6 +184,27 @@ def render_progress(lines: List[str], working: bool) -> str:
     header = "### ⏳ Procesando documento…" if working else "### 🧾 Registro del proceso"
     return header + "\n\n" + "\n\n".join(lines)
 
+def format_gen_progress_line(event: Dict[str, Any]) -> str:
+    """Formats generation events for Tab 3."""
+    icon = STAGE_ICONS.get(event.get("stage", ""), "•")
+    msg = event.get("message", "")
+    current, total = event.get("current"), event.get("total")
+    if event.get("stage") == "generating_batches" and current is not None and total:
+        filled = round(10 * current / total)
+        pct = round(100 * current / total)
+        return f"{icon} {msg}  `{'█' * filled}{'░' * (10 - filled)}` {pct}%"
+    return f"{icon} {msg}"
+
+
+def render_gen_status(lines: List[str], working: bool) -> str:
+    """Shows only the CURRENT generation step (replaces the previous line in place).
+
+    Unlike render_progress(), which accumulates a full history, this keeps the
+    progress panel to a single changing line so it never mixes with the result.
+    """
+    header = "### ⏳ Generando contenido educativo…" if working else "### 🧾 Estado de generación"
+    current = lines[-1] if lines else "⏳ Iniciando generación agéntica…"
+    return header + "\n\n" + current
 
 def handle_upload(file_path: str, title: str):
     """Runs the ingestion pipeline in a worker thread and yields live progress, then the final report."""
@@ -282,18 +303,23 @@ def handle_agent_generation(
     language: str,
     quantity_level: str,
     target_quantity: Optional[int],
-) -> Tuple[str, str]:
-    """Retrieves document context with RAG and generates educational content with multi-stage agents."""
+):
+    """Retrieves document context with RAG and generates educational content with multi-stage agents.
+    Yields: (progress_md, visual_md, json_str)
+    """
     if not doc_id or not doc_id.strip():
-        return "⚠️ Ingrese un `document_id` válido.", ""
+        yield "⏳ Esperando...", "⚠️ Ingrese un `document_id` válido.", ""
+        return
 
     clean_id = doc_id.strip()
     repo = get_document_repository()
     doc_record = repo.get_document(clean_id)
     if not doc_record:
-        return f"❌ No se encontró ningún documento con ID `{clean_id}` en la base de datos.", ""
+        yield "⏳ Esperando...", f"❌ No se encontró ningún documento con ID `{clean_id}` en la base de datos.", ""
+        return
     if doc_record.status != "ready":
-        return f"⚠️ El documento está en estado `{doc_record.status}`. Debe estar en estado `ready` para consultar.", ""
+        yield "⏳ Esperando...", f"⚠️ El documento está en estado `{doc_record.status}`. Debe estar en estado `ready` para consultar.", ""
+        return
 
     # Reverse lookup from label to internal key
     profile_rev = {v: k for k, v in PROFILE_LABELS_ES.items()}
@@ -306,58 +332,108 @@ def handle_agent_generation(
 
     query = f"{profile_label} {format_label} {niche_label}"
 
-    try:
-        # 1. Retrieve RAG context (dense + BM25 + RRF + reranker)
-        top_passages = retrieve_context(
-            document_id=clean_id,
-            query=query,
-            top_k=5,
-        )
-    except Exception as exc:
-        return f"❌ Error en la etapa de recuperación RAG: {exc}", ""
+    events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
+    outcome: Dict[str, Any] = {}
 
-    if not top_passages:
-        return "⚠️ No se encontraron fragmentos relevantes en el índice para esta consulta.", ""
-
-    # Full parent chunk set for coverage planning. Without it the planner only
-    # sees the top-5 retrieved passages and caps the request to a few items.
-    store = get_store(clean_id)
-    all_parent_chunks = list(store.parent_documents.values()) if store else []
-
-    # 2. Build AdaptationRequest
-    request = AdaptationRequest(
-        title=doc_record.title,
-        content="\n\n".join(p.get("content", "") for p in top_passages),
-        recipient_profile=profile_label,
-        output_format=format_key,
-        niche=niche_label,
-        quantity_level=quantity_level,
-        target_quantity=int(target_quantity) if target_quantity else None,
-        language=language,
-        force_regenerate=True,
-    )
-
-    # 3. Execute multi-stage agents
-    try:
-        import asyncio
-        orchestrator = AgentOrchestrator()
-        loop = asyncio.new_event_loop()
+    def run_gen() -> None:
         try:
-            response = loop.run_until_complete(
-                orchestrator.run_pipeline(
-                    request=request,
-                    top_passages=top_passages,
-                    key_concepts=[],
-                    prerequisites=[],
-                    all_parent_chunks=all_parent_chunks,
-                )
+            events.put({"stage": "retrieving", "message": "Recuperando contexto RAG (dense + BM25 + RRF + reranker)…"})
+            top_passages = retrieve_context(
+                document_id=clean_id,
+                query=query,
+                top_k=5,
             )
-        finally:
-            loop.close()
-    except Exception as exc:
-        return f"❌ Error durante la generación con agentes: {exc}", ""
+            outcome["top_passages"] = top_passages
 
-    # 4. Format Visual Output
+            if not top_passages:
+                events.put({"stage": "failed", "message": "No se encontraron fragmentos relevantes."})
+                outcome["no_context"] = True
+                events.put(None)
+                return
+
+            events.put({"stage": "planning", "message": "Construyendo plan de cobertura por secciones…"})
+            store = get_store(clean_id)
+            all_parent_chunks = list(store.parent_documents.values()) if store else []
+
+            request = AdaptationRequest(
+                title=doc_record.title,
+                content="\n\n".join(p.get("content", "") for p in top_passages),
+                recipient_profile=profile_label,
+                output_format=format_key,
+                niche=niche_label,
+                quantity_level=quantity_level,
+                target_quantity=int(target_quantity) if target_quantity else None,
+                language=language,
+                force_regenerate=True,
+            )
+            outcome["request"] = request
+            outcome["all_parent_chunks"] = all_parent_chunks
+
+            events.put({"stage": "generating", "message": "Ejecutando pipeline agéntico (planificador → lotes → deduplicación → verificación)…"})
+            import asyncio
+
+            orchestrator = AgentOrchestrator()
+            loop = asyncio.new_event_loop()
+            try:
+                response = loop.run_until_complete(
+                    orchestrator.run_pipeline(
+                        request=request,
+                        top_passages=top_passages,
+                        key_concepts=[],
+                        prerequisites=[],
+                        all_parent_chunks=all_parent_chunks,
+                    )
+                )
+            finally:
+                loop.close()
+
+            outcome["response"] = response
+            events.put({"stage": "ready", "message": "Generación completada. Formateando resultado…"})
+        except Exception as exc:
+            outcome["error"] = exc
+            events.put({"stage": "failed", "message": f"Error: {exc}"})
+        finally:
+            events.put(None)
+
+    threading.Thread(target=run_gen, daemon=True).start()
+
+    progress_lines: List[str] = []
+    last_stage: Optional[str] = None
+
+    # Yield initial state
+    yield render_gen_status(["⏳ Iniciando generación agéntica…"], working=True), "", ""
+
+    while True:
+        ev = events.get()
+        if ev is None:
+            break
+        line = format_gen_progress_line(ev)
+        if ev.get("stage") == "generating" and last_stage == "generating":
+            progress_lines[-1] = line
+        elif ev.get("stage") == "generating_batches" and last_stage == "generating_batches":
+            progress_lines[-1] = line
+        else:
+            progress_lines.append(line)
+        last_stage = ev.get("stage")
+        yield render_gen_status(progress_lines, working=True), "", ""
+
+    progress_log_final = render_gen_status(progress_lines, working=False)
+
+    if outcome.get("no_context"):
+        yield progress_log_final, "⚠️ No se encontraron fragmentos relevantes en el índice para esta consulta.", ""
+        return
+
+    if "error" in outcome:
+        err = outcome["error"]
+        yield progress_log_final, f"❌ **Error durante la generación con agentes:**\n\n{err}", ""
+        return
+
+    response = outcome.get("response")
+    if response is None:
+        yield progress_log_final, "❌ No se recibió respuesta del orquestador.", ""
+        return
+
+    # Format output (igual que antes) + mostrar modelos
     meta = response.metadata
     adapted = response.adapted_content
     eval_info = response.quality_evaluation
@@ -368,7 +444,10 @@ def handle_agent_generation(
         "",
         "| Métrica | Valor |",
         "| :--- | :--- |",
-        f"| **Proveedor LLM** | `{meta.llm_provider}` |",
+        f"| **Proveedor LLM** | `{meta.llm_provider or 'N/A'}` |",
+        f"| **Modelo LLM** | `{meta.llm_model or 'No registrado'}` |",
+        f"| **Proveedor Embeddings** | `{getattr(meta, 'embedding_provider', 'N/A') or 'N/A'}` |",
+        f"| **Modelo Embeddings** | `{getattr(meta, 'embedding_model', 'N/A') or 'No registrado'}` |",
         f"| **Items Generados** | `{meta.generated_items}` (solicitados: `{meta.requested_items}`) |",
         f"| **Score de Anclaje RAG** | `{eval_info.source_grounding_score * 100:.0f}%` (Citas verificadas) |",
         f"| **Tiempo de Estudio Estimado** | `{meta.estimated_study_time_minutes} minutos` |",
@@ -515,8 +594,7 @@ def handle_agent_generation(
             md_lines.append("\n---\n")
 
     json_str = json.dumps(response.model_dump(), ensure_ascii=False, indent=2)
-    return "\n".join(md_lines), json_str
-
+    yield progress_log_final, "\n".join(md_lines), json_str
 
 with gr.Blocks(title="NuevaMente — Suite de Ingestión y Agentes") as demo:
     gr.Markdown(
@@ -602,6 +680,9 @@ with gr.Blocks(title="NuevaMente — Suite de Ingestión y Agentes") as demo:
 
         generate_button = gr.Button("🚀 Iniciar Generación Agéntica", variant="primary")
 
+        gr.Markdown("### Progreso de generación")
+        agent_progress_output = gr.Markdown(value="⏳ Listo para generar...")
+
         with gr.Tabs():
             with gr.TabItem("Visualización Didáctica"):
                 agent_visual_output = gr.Markdown()
@@ -619,7 +700,7 @@ with gr.Blocks(title="NuevaMente — Suite de Ingestión y Agentes") as demo:
                 quantity_radio,
                 target_qty_input,
             ],
-            outputs=[agent_visual_output, agent_json_output],
+            outputs=[agent_progress_output, agent_visual_output, agent_json_output],
         )
 
 

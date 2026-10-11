@@ -544,7 +544,11 @@ class EmbeddingService:
         if model is None:
             return False, _local_load_error or "Local embedding model is unavailable."
 
-        model_dimension = model.get_sentence_embedding_dimension()
+        if hasattr(model, "get_embedding_dimension"):
+            model_dimension = model.get_embedding_dimension()
+        else:
+            model_dimension = model.get_sentence_embedding_dimension()
+            
         if model_dimension != self.dimensions:
             message = (
                 f"Local model produces {model_dimension} dimensions but EMBEDDING_DIMENSIONS "
