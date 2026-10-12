@@ -20,7 +20,7 @@ from typing import Dict, Optional
 
 logger = logging.getLogger("LlmRateGuard")
 
-INTERVAL_SECONDS = 6.0      # Gemini flash free tier is ~10 req/min
+INTERVAL_SECONDS = 3.5      # Gemini flash tier allows ~15 req/min (4s gap); Groq is faster
 COOLDOWN_SECONDS = 60.0     # skip an unhealthy model for 1 min
 FAILURE_THRESHOLD = 2       # consecutive failures before cooling down
 

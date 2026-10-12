@@ -444,6 +444,88 @@ class AgentOrchestrator:
         prompt_file = format_prompt_map.get(fmt_key, "writer.md")
         template = load_prompt(prompt_file)
 
+        # Pre-format writer system instruction once for the entire batch stage
+        writer_system_tmpl = load_prompt("writer_system.md")
+        system_instruction = writer_system_tmpl.format(
+            niche=request.niche,
+            recipient_profile=request.recipient_profile,
+            target_language=target_language,
+        )
+
+        cascade = self.router.get_model_cascade(fmt_key)
+        if not cascade:
+            cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
+        guard = get_llm_guard()
+
+        # Optimization: for compact requests (target <= 10) with multiple topics,
+        # consolidate all topics into a single LLM prompt call instead of multiple sequential round-trips.
+        if target <= 10 and len(topics) > 1:
+            consolidated_chunks = []
+            topic_names = []
+            for t in topics:
+                s_lbl = t.get("section") or "Unknown section"
+                b_lbl = t.get("breadcrumb") or ""
+                p_val = t.get("page")
+                p_lbl = f" | p.{p_val}" if p_val is not None else ""
+                consolidated_chunks.append(
+                    f"[{t['chunk_id']}] SECTION: {s_lbl}"
+                    f"{(' | ' + b_lbl) if b_lbl else ''}"
+                    f"{p_lbl}\n{t['context']}"
+                )
+                if t.get("topic"):
+                    topic_names.append(t["topic"])
+
+            combined_chunk_info = "\n\n---\n\n".join(consolidated_chunks)
+            combined_topic = ", ".join(dict.fromkeys(topic_names))
+            first_topic = topics[0]
+            first_page_val = first_topic.get("page")
+
+            prompt = template.format(
+                niche=request.niche,
+                recipient_profile=request.recipient_profile,
+                detail_level=request.detail_level,
+                output_format=request.output_format,
+                topic=combined_topic,
+                item_count=target,
+                target_language=target_language,
+                chunk_info=combined_chunk_info,
+                chunk_id=first_topic["chunk_id"],
+                page_number=first_page_val if first_page_val is not None else "N/A",
+            )
+
+            raw = None
+            if tracer:
+                tracer.record_llm_call("generar")
+
+            for entry in cascade:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                    continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
+                try:
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
+                        model_name=entry.get("model"),
+                    )
+                    if raw:
+                        self.last_provider = entry["provider"]
+                        self.last_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Lote consolidado (%d ítems) generado con %s/%s", target, entry["provider"], entry.get("model"))
+                        break
+                except Exception as exc:
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("%s/%s generation failed: %s", entry["provider"], entry.get("model"), exc)
+
+            parsed_batch = self._parse_json_batch(raw)
+            if parsed_batch:
+                items.extend(parsed_batch[:target])
+                return items
+            logger.info("Consolidated batch parsing failed or returned empty; falling back to per-topic generation.")
+
         for topic_idx, topic in enumerate(topics):
             if len(items) >= target:
                 break
@@ -476,24 +558,10 @@ class AgentOrchestrator:
                 page_number=page_val if page_val is not None else "N/A",
             )
 
-            writer_system_tmpl = load_prompt("writer_system.md")
-            system_instruction = writer_system_tmpl.format(
-                niche=request.niche,
-                recipient_profile=request.recipient_profile,
-                target_language=target_language,
-            )
-
             raw = None
             if tracer:
                 tracer.record_llm_call("generar")
 
-            # Cascade by (provider, model) from settings; fall back to the legacy
-            # provider-only order for formats without a configured model cascade.
-            cascade = self.router.get_model_cascade(fmt_key)
-            if not cascade:
-                cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
-
-            guard = get_llm_guard()
             for entry in cascade:
                 llm = self._provider_map.get(entry["provider"])
                 if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
@@ -855,6 +923,8 @@ class AgentOrchestrator:
                     logger.warning("Critic %s/%s failed: %s", entry["provider"], entry.get("model"), exc)
             if not raw:
                 logger.warning("Todos los providers del crítico fallaron; usando score automático.")
+                self.critic_provider = "evaluador_heuristico"
+                self.critic_model = "analizador_anclaje_rag"
 
             text = raw.strip() if raw else "{}"
             text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
@@ -887,6 +957,8 @@ class AgentOrchestrator:
 
         except Exception as e:
             logger.warning(f"Critic auditor failed: {e}")
+            self.critic_provider = "evaluador_heuristico"
+            self.critic_model = "analizador_anclaje_rag"
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
                 pedagogical_clarity="High",

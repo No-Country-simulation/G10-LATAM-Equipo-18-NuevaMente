@@ -60,58 +60,50 @@ class Settings(BaseModel):
     DEFAULT_OUTPUT_LANGUAGE: str = os.getenv("DEFAULT_OUTPUT_LANGUAGE", "Spanish")
 
     # LLM model identifiers
-    GEMINI_LLM_MODEL: str = "gemini-3.6-flash"
-    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
     DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.6-flash"
     DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-20b"
     DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
 
     LLM_CASCADES: Dict[str, List[Dict[str, str]]] = {
         "flashcards": [
-            {"provider": "gemini", "model": "gemini-3.8-flash"},
-            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
-            {"provider": "openrouter", "model": "openrouter/free"},
+            {"provider": "openrouter", "model": "mistralai/mistral-small-3.2-24b-instruct"},
         ],
         "quiz": [
-            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
             {"provider": "gemini", "model": "gemini-3.7-flash"},
-            {"provider": "gemini", "model": "gemini-3.6-flash"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "tutorial": [
             {"provider": "gemini", "model": "gemini-3.8-flash"},
             {"provider": "gemini", "model": "gemini-3.7-flash"},
-            {"provider": "gemini", "model": "gemini-3.6-flash"},
-            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "executive_summary": [
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
-            {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
             {"provider": "gemini", "model": "gemini-3.7-flash"},
-            {"provider": "gemini", "model": "gemini-3.8-flash"},
-            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
         ],
         "class_script": [
             {"provider": "gemini", "model": "gemini-3.8-flash"},
-            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
-            {"provider": "gemini", "model": "gemini-3.6-flash"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
-            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
         ],
     }
 
     CRITIC_CASCADE: List[Dict[str, str]] = [
-        {"provider": "groq", "model": "llama-3.1-70b-versatile"},
-        {"provider": "gemini", "model": DEFAULT_GEMINI_MODEL_PRO},
-        {"provider": "openrouter", "model": "openrouter/free"},
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+        {"provider": "gemini", "model": "gemini-3.7-flash"},
+        {"provider": "gemini", "model": "gemini-3.6-flash"},
+        {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
     ]
 
     # ── Embedding Configuration ───────────────────────────────────────────────
