@@ -59,12 +59,44 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     DEFAULT_OUTPUT_LANGUAGE: str = os.getenv("DEFAULT_OUTPUT_LANGUAGE", "Spanish")
 
-    # LLM model identifiers - defined here, not in .env (which is only for API keys)
-    GEMINI_LLM_MODEL: str = "gemini-3.5-flash"
-    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-3.5-pro"
-    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
+    # LLM model identifiers
+    GEMINI_LLM_MODEL: str = "gemini-3.6-flash"
+    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-2.5-pro"
+    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.6-flash"
     DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-20b"
     DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
+
+    LLM_CASCADES: Dict[str, List[Dict[str, str]]] = {
+        "flashcards": [
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "openrouter", "model": "openrouter/free"},
+        ],
+        "quiz": [
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+        ],
+        "tutorial": [
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+        ],
+        "executive_summary": [
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+        ],
+        "class_script": [
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+        ],
+    }
+
+    CRITIC_CASCADE: List[Dict[str, str]] = [
+        {"provider": "groq", "model": None},  # model=None = default model of the client
+        {"provider": "gemini", "model": DEFAULT_GEMINI_MODEL_PRO},
+        {"provider": "openrouter", "model": "openrouter/free"},
+    ]
 
     # ── Embedding Configuration ───────────────────────────────────────────────
     EMBEDDING_METHOD: str = os.getenv("EMBEDDING_METHOD", "api")

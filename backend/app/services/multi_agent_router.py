@@ -17,7 +17,7 @@ Outputs:
 """
 
 from typing import Dict, List, Optional
-
+from app.core.config import settings
 
 class AgentProfile:
     """Represents a supported LLM provider and its pedagogical specialization."""
@@ -108,3 +108,10 @@ class MultiAgentRouter:
         # Default fallback cascade
         return ["gemini", "groq", "openrouter"]
 
+    def get_model_cascade(self, output_format: str) -> List[Dict[str, str]]:
+        """Returns the (provider, model) cascade from settings for a format."""
+        fmt = (output_format or "").lower().strip()
+        for key, cascade in settings.LLM_CASCADES.items():
+            if key in fmt:
+                return [dict(entry) for entry in cascade]
+        return []

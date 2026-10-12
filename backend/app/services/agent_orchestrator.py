@@ -27,6 +27,7 @@ import math
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from app.services.rate_guard import get_llm_guard
 
 from app.core.config import settings
 from app.core.labels import (
@@ -105,9 +106,13 @@ class AgentOrchestrator:
         # Tracks the name of the LLM provider that last succeeded in the cascade
         self.last_provider: str = "fallback"
         self.last_model: Optional[str] = None
+        self.critic_provider: str = "fallback"
+        self.critic_model: Optional[str] = None
+        self._models_used: Dict[str, set] = {}
         self.router = MultiAgentRouter()
         self.storage = get_document_storage()
         self._response_cache: Dict[str, AdaptationResponse] = {}
+        
 
     async def run_pipeline(
         self,
@@ -133,6 +138,9 @@ class AgentOrchestrator:
                 cached_resp.metadata.timings = {"cache": tracer.total_elapsed_ms()}
                 cached_resp.metadata.llm_calls = tracer.llm_calls
             return cached_resp
+
+        # Reset per-run model usage tracking (cached responses never call any model)
+        self._models_used = {}
 
         # Resolve intended target quantity considering quantity level and explicit overrides
         fmt_key = (request.output_format or "flashcards").lower()
@@ -256,7 +264,7 @@ class AgentOrchestrator:
 
             store = get_store(document_id)
             if store and store.model_name:
-                embedding_model_name = store.model_name
+                embedding_model_name = store.model_name.split("@")[0].replace("models/", "")
                 lower_em = embedding_model_name.lower()
                 if "gemini" in lower_em:
                     embedding_provider = "gemini"
@@ -281,7 +289,11 @@ class AgentOrchestrator:
             prerequisites=prerequisites[:5],
             llm_provider=self.last_provider,
             llm_model=self.last_model,
+            models_used=self._format_models_used(),
+            critic_provider=self.critic_provider,
+            critic_model=self.critic_model,
             embedding_provider=embedding_provider,
+            embedding_model=embedding_model_name,
             retrieval_mode="hibrido_rrf_reranker",
             timings=tracer.timings if tracer else {},
             llm_calls=tracer.llm_calls if tracer else {},
@@ -467,38 +479,35 @@ class AgentOrchestrator:
             if tracer:
                 tracer.record_llm_call("generar")
 
-            # Dynamically resolve fallback cascade order based on format
-            cascade_keys = self.router.get_cascade_order(fmt_key)
-            llm_cascade = [self._provider_map[k] for k in cascade_keys if k in self._provider_map]
+            # Cascade by (provider, model) from settings; fall back to the legacy
+            # provider-only order for formats without a configured model cascade.
+            cascade = self.router.get_model_cascade(fmt_key)
+            if not cascade:
+                cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
 
-            # Cascade: attempt each LLM provider in order until one succeeds
-            for llm in llm_cascade:
-                if not llm.is_available:
+            guard = get_llm_guard()
+            for entry in cascade:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
                     continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
                 try:
                     raw = llm.generate(
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True,
+                        model_name=entry.get("model"),
                     )
                     if raw:
-                        # Infer provider key
-                        cls_name = type(llm).__name__.lower()
-                        if "gemini" in cls_name:
-                            self.last_provider = "gemini"
-                            self.last_model = getattr(settings, "GEMINI_LLM_MODEL", None)
-                        elif "groq" in cls_name:
-                            self.last_provider = "groq"
-                            self.last_model = getattr(settings, "DEFAULT_GROQ_MODEL", None)
-                        elif "openrouter" in cls_name:
-                            self.last_provider = "openrouter"
-                            self.last_model = getattr(settings, "DEFAULT_OPENROUTER_MODEL", None)
-                        else:
-                            self.last_provider = cls_name.replace("client", "")
-                            self.last_model = None
+                        self.last_provider = entry["provider"]
+                        self.last_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Lote generado con %s/%s", entry["provider"], entry.get("model"))
                         break
                 except Exception as exc:
-                    logger.warning("%s generation failed: %s", type(llm).__name__, exc)
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("%s/%s generation failed: %s", entry["provider"], entry.get("model"), exc)
 
             parsed_batch = self._parse_json_batch(raw)
             if not parsed_batch:
@@ -645,11 +654,11 @@ class AgentOrchestrator:
         Uses auditor prompt template to evaluate generated educational items individually,
         identifying grounding issues and unverified claims.
         """
-        if not self.groq_client.is_available or not generated_items:
+        if not generated_items:
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
                 pedagogical_clarity="High",
-                observations="Heuristic quality verification; critic provider unavailable."
+                observations="Heuristic quality verification; no items to audit."
             )
             return evaluation, generated_items
 
@@ -679,7 +688,35 @@ class AgentOrchestrator:
                 "OUTPUT FORMAT: Return strictly valid JSON object."
             )
 
-            raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
+            raw = None
+            guard = get_llm_guard()
+            for entry in settings.CRITIC_CASCADE:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                    continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
+                try:
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
+                        model_name=entry.get("model"),
+                    )
+                    if raw:
+                        # Critic runs after the writer: keep last_provider/last_model
+                        # pointing at the content generator; log the critic separately.
+                        self.critic_provider = entry["provider"]
+                        self.critic_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Crítico respondió con %s/%s", entry["provider"], entry.get("model"))
+                        break
+                except Exception as exc:
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("Critic %s/%s failed: %s", entry["provider"], entry.get("model"), exc)
+            if not raw:
+                raise RuntimeError("All critic providers failed.")
+
             text = raw.strip() if raw else "{}"
             text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
             text = re.sub(r"^```\s*", "", text)
@@ -1044,6 +1081,19 @@ class AgentOrchestrator:
                 contextualized_introduction=intro,
                 items=items,
             )
+
+    _PROVIDER_SHORT = {"gemini": "google", "groq": "groq", "openrouter": "openrouter"}
+
+    def _track_model(self, provider: str, model: Optional[str]) -> None:
+        if model:
+            self._models_used.setdefault(provider, set()).add(model)
+
+    def _format_models_used(self) -> str:
+        parts = []
+        for provider in sorted(self._models_used):
+            label = self._PROVIDER_SHORT.get(provider, provider)
+            parts.append(f"{label}({len(self._models_used[provider])})")
+        return ", ".join(parts)
 
     @staticmethod
     def _slugify(text: str) -> str:
