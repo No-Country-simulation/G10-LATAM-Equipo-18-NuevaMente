@@ -68,32 +68,48 @@ class Settings(BaseModel):
 
     LLM_CASCADES: Dict[str, List[Dict[str, str]]] = {
         "flashcards": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
             {"provider": "openrouter", "model": "openrouter/free"},
         ],
         "quiz": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "tutorial": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
         ],
         "executive_summary": [
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
         ],
         "class_script": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
             {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "groq", "model": "llama-3.1-70b-versatile"},
         ],
     }
 
     CRITIC_CASCADE: List[Dict[str, str]] = [
-        {"provider": "groq", "model": None},  # model=None = default model of the client
+        {"provider": "groq", "model": "llama-3.1-70b-versatile"},
         {"provider": "gemini", "model": DEFAULT_GEMINI_MODEL_PRO},
         {"provider": "openrouter", "model": "openrouter/free"},
     ]

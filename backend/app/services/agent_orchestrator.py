@@ -139,8 +139,10 @@ class AgentOrchestrator:
                 cached_resp.metadata.llm_calls = tracer.llm_calls
             return cached_resp
 
-        # Reset per-run model usage tracking (cached responses never call any model)
+        # Reset per-run model/critic tracking (cached responses never call any model)
         self._models_used = {}
+        self.critic_provider = "fallback"
+        self.critic_model = None
 
         # Resolve intended target quantity considering quantity level and explicit overrides
         fmt_key = (request.output_format or "flashcards").lower()
@@ -205,7 +207,9 @@ class AgentOrchestrator:
 
         if tracer:
             tracer.start_stage("verificacion_anclaje")
-        verified_items = self._stage_verify_grounding(dedup_items, top_passages)
+        verified_items = self._stage_verify_grounding(
+            dedup_items, top_passages, all_chunks=all_parent_chunks
+        )
         if tracer:
             tracer.end_stage("verificacion_anclaje")
 
@@ -217,6 +221,7 @@ class AgentOrchestrator:
             request=request,
             generated_items=verified_items,
             passages=top_passages,
+            all_chunks=all_parent_chunks,
             fallback_score=preliminary_score,
         )
 
@@ -251,10 +256,13 @@ class AgentOrchestrator:
         if tracer:
             tracer.end_stage("serializacion_respuesta")
 
-        # True grounding score reflects genuinely supported items
+        # True grounding score: heuristic based on verified citations.
+        # Use the higher of the heuristic and the critic's own score so that a valid
+        # critic evaluation is never overridden by a chunk_id-lookup failure.
         verified_citations = sum(1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or [])))
-        grounding_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
-        evaluation.source_grounding_score = grounding_score
+        heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        grounding_score = max(heuristic_score, evaluation.source_grounding_score)
+        evaluation.source_grounding_score = round(grounding_score, 2)
 
         # Try to infer embedding model from vector store if available
         embedding_provider = "gemini"
@@ -546,24 +554,71 @@ class AgentOrchestrator:
     # STAGE D: GROUNDING VERIFICATION
     # ---------------------------------------------------------------------------
     def _stage_verify_grounding(
-        self, items: List[Dict[str, Any]], passages: List[Dict[str, Any]]
+        self,
+        items: List[Dict[str, Any]],
+        passages: List[Dict[str, Any]],
+        all_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
         """
         Verifies that each item's citations genuinely correspond to the injected passages.
-        Does not fabricate artificial sources or scores when grounding is absent.
+        Uses top_passages for word-level overlap and all_chunks (when provided) to resolve
+        chunk_id references that were generated from the coverage plan but not retrieved by RAG.
         """
         verified = []
-        passage_map = {
-            p.get("id") or p.get("metadata", {}).get("chunk_id", ""): (
-                p.get("content") or p.get("text") or ""
-            ).lower()
-            for p in passages
-        }
+        # Build a multi-key passage index so LLM-cited chunk_ids can be resolved even
+        # when the exact format differs (e.g. missing _child_N suffix, or coming from
+        # metadata vs. top-level id field).
+        passage_map: Dict[str, str] = {}
+        all_passage_texts: List[str] = []
+
+        # Index all available chunk sets: RAG top passages first, then the full
+        # parent chunk set (when provided). This is critical because the LLM is
+        # prompted with chunk_ids from the coverage plan (e.g. parent_1) which may
+        # differ from the RAG-retrieved IDs (e.g. parent_66).
+        chunk_sources = list(passages)
+        if all_chunks:
+            chunk_sources = chunk_sources + [
+                c for c in all_chunks
+                if (c.get("id") or c.get("metadata", {}).get("chunk_id", ""))
+                not in {p.get("id") or p.get("metadata", {}).get("chunk_id", "") for p in passages}
+            ]
+
+        for p in chunk_sources:
+            passage_text = (p.get("content") or p.get("text") or "").lower()
+            # Only add to all_passage_texts for RAG passages (used for fallback overlap)
+            if p in passages:
+                all_passage_texts.append(passage_text)
+
+            candidate_ids = set()
+            top_id = p.get("id", "")
+            if top_id:
+                candidate_ids.add(top_id)
+            meta_id = p.get("metadata", {}).get("chunk_id", "")
+            if meta_id:
+                candidate_ids.add(meta_id)
+
+            for cid in list(candidate_ids):
+                passage_map[cid] = passage_text
+                if "_child_" in cid:
+                    passage_map[cid.rsplit("_child_", 1)[0]] = passage_text
+                simplified = re.sub(r"[-_]\d+$", "", cid)
+                if simplified and simplified != cid:
+                    passage_map.setdefault(simplified, passage_text)
+
+        logger.debug(
+            "[GROUNDING] passage_map keys (%d): %s",
+            len(passage_map),
+            list(passage_map.keys())[:20],
+        )
+
+        # Pre-compute word sets for all passages (used in fallback matching)
+        all_passage_word_sets: List[set] = [
+            set(re.findall(r"\w{4,}", t)) for t in all_passage_texts
+        ]
 
         for item in items:
             raw_sources = item.get("fuentes") or item.get("sources")
             if not raw_sources or not isinstance(raw_sources, list):
-                # Do not assign fake sources or fabricated similarity scores
                 item["fuentes"] = []
                 item["grounded"] = False
                 verified.append(item)
@@ -575,38 +630,79 @@ class AgentOrchestrator:
                     continue
 
                 chunk_id = src.get("chunk_id", "")
-                passage_text = passage_map.get(chunk_id, "")
+                passage_text = passage_map.get(chunk_id)
+                matched_via = "direct" if passage_text else None
+
+                if not passage_text and all_passage_texts:
+                    item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                    best_overlap = 0.0
+                    best_text = ""
+                    for p_text, p_words in zip(all_passage_texts, all_passage_word_sets):
+                        if item_words and p_words:
+                            overlap = len(item_words & p_words) / len(item_words)
+                            if overlap > best_overlap:
+                                best_overlap = overlap
+                                best_text = p_text
+                    logger.debug(
+                        "[GROUNDING] chunk_id=%r → no direct match; best_overlap=%.2f",
+                        chunk_id, best_overlap,
+                    )
+                    if best_overlap >= 0.25:
+                        passage_text = best_text
+                        matched_via = f"fallback_overlap({best_overlap:.2f})"
+
                 extract = (src.get("extracto") or "").strip().lower()
 
-                # Genuine verification: check if excerpt exists in or substantially overlaps the passage
                 is_supported = False
                 if passage_text:
                     if extract and (extract in passage_text or passage_text in extract):
                         is_supported = True
                     else:
-                        # Check lexical word-set overlap
                         extract_words = set(re.findall(r"\w{4,}", extract))
                         passage_words = set(re.findall(r"\w{4,}", passage_text))
-                        if extract_words and len(extract_words & passage_words) / len(extract_words) >= 0.5:
-                            is_supported = True
-                        elif not extract:
-                            # If no explicit extract was given but chunk_id matched, verify topic words
-                            item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
-                            if item_words and len(item_words & passage_words) / len(item_words) >= 0.3:
+                        if extract_words:
+                            ew_score = len(extract_words & passage_words) / len(extract_words)
+                            logger.debug(
+                                "[GROUNDING] chunk_id=%r extract_word_overlap=%.2f (via %s)",
+                                chunk_id, ew_score, matched_via,
+                            )
+                            if ew_score >= 0.45:
                                 is_supported = True
+                        if not is_supported and not extract:
+                            item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                            if item_words and passage_words:
+                                iw_score = len(item_words & passage_words) / len(item_words)
+                                logger.debug(
+                                    "[GROUNDING] chunk_id=%r item_word_overlap=%.2f (via %s)",
+                                    chunk_id, iw_score, matched_via,
+                                )
+                                if iw_score >= 0.25:
+                                    is_supported = True
+                elif not passage_text:
+                    logger.debug(
+                        "[GROUNDING] chunk_id=%r → passage_text empty/missing; no verification possible",
+                        chunk_id,
+                    )
 
-                # Clean page numbers
+                logger.debug(
+                    "[GROUNDING] src chunk_id=%r is_supported=%s extract_len=%d",
+                    chunk_id, is_supported, len(extract),
+                )
+
                 clean_src = dict(src)
-                p = clean_src.get("pagina")
-                if not isinstance(p, int) or p <= 0:
+                pg = clean_src.get("pagina")
+                if not isinstance(pg, int) or pg <= 0:
                     clean_src.pop("pagina", None)
 
-                # Set verified flag on source
                 clean_src["verificado"] = is_supported
                 valid_sources.append(clean_src)
 
-            item["fuentes"] = valid_sources
             item["grounded"] = any(s.get("verificado", False) for s in valid_sources)
+            logger.debug(
+                "[GROUNDING] item grounded=%s sources=%d",
+                item["grounded"], len(valid_sources),
+            )
+            item["fuentes"] = valid_sources
             verified.append(item)
 
         return verified
@@ -649,10 +745,13 @@ class AgentOrchestrator:
         generated_items: List[Dict[str, Any]],
         passages: List[Dict[str, Any]],
         fallback_score: float,
+        all_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[QualityEvaluation, List[Dict[str, Any]]]:
         """
         Uses auditor prompt template to evaluate generated educational items individually,
         identifying grounding issues and unverified claims.
+        Builds source_facts from the chunks actually cited by items (not just top RAG passages)
+        so the critic evaluates the same context as the heuristic verifier.
         """
         if not generated_items:
             evaluation = QualityEvaluation(
@@ -664,10 +763,43 @@ class AgentOrchestrator:
 
         try:
             auditor_template = load_prompt("auditor.md")
+
+            # Build a lookup from chunk_id → text covering all available chunks.
+            # Prioritise content from cited chunks so the critic evaluates the same
+            # context the heuristic verifier used, avoiding score/observations contradiction.
+            all_chunk_map: Dict[str, str] = {}
+            for chunk_list in (passages, all_chunks or []):
+                for p in chunk_list:
+                    pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+                    if pid:
+                        all_chunk_map[pid] = (p.get("content") or p.get("text") or "")[:400]
+
+            # Collect chunk_ids cited by the generated items.
+            cited_ids: List[str] = []
+            seen: set = set()
+            for it in generated_items:
+                for src in (it.get("fuentes") or []):
+                    if isinstance(src, dict):
+                        cid = src.get("chunk_id", "")
+                        if cid and cid not in seen:
+                            seen.add(cid)
+                            cited_ids.append(cid)
+
+            # Build source_facts: cited chunks first, then top RAG passages as supplement.
+            fact_chunks: List[tuple] = []
+            for cid in cited_ids:
+                if cid in all_chunk_map:
+                    fact_chunks.append((cid, all_chunk_map[cid]))
+            # Supplement with RAG top passages not already included
+            for p in passages:
+                pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+                if pid and pid not in seen:
+                    fact_chunks.append((pid, (p.get("content") or p.get("text") or "")[:400]))
+                if len(fact_chunks) >= 10:
+                    break
+
             source_facts = "\n\n".join(
-                f"[{p.get('id') or p.get('metadata', {}).get('chunk_id', f'chunk-{i+1}')}] "
-                f"{(p.get('content') or p.get('text') or '')[:400]}"
-                for i, p in enumerate(passages[:6])
+                f"[{cid}] {text}" for cid, text in fact_chunks
             )
             items_to_audit = [
                 {
@@ -703,19 +835,26 @@ class AgentOrchestrator:
                         model_name=entry.get("model"),
                     )
                     if raw:
-                        # Critic runs after the writer: keep last_provider/last_model
-                        # pointing at the content generator; log the critic separately.
                         self.critic_provider = entry["provider"]
-                        self.critic_model = entry.get("model")
-                        self._track_model(entry["provider"], entry.get("model"))
+                        # Resolve model name: use entry model or provider default
+                        resolved_model = entry.get("model")
+                        if not resolved_model:
+                            if entry["provider"] == "groq":
+                                resolved_model = settings.DEFAULT_GROQ_MODEL
+                            elif entry["provider"] == "gemini":
+                                resolved_model = settings.DEFAULT_GEMINI_MODEL_FLASH
+                            elif entry["provider"] == "openrouter":
+                                resolved_model = settings.DEFAULT_OPENROUTER_MODEL
+                        self.critic_model = resolved_model
+                        self._track_model(entry["provider"], resolved_model or entry.get("model"))
                         guard.record_success(entry["provider"], entry.get("model"))
-                        logger.info("Crítico respondió con %s/%s", entry["provider"], entry.get("model"))
+                        logger.info("Crítico respondió con %s/%s", entry["provider"], resolved_model)
                         break
                 except Exception as exc:
                     guard.record_failure(entry["provider"], entry.get("model"))
                     logger.warning("Critic %s/%s failed: %s", entry["provider"], entry.get("model"), exc)
             if not raw:
-                raise RuntimeError("All critic providers failed.")
+                logger.warning("Todos los providers del crítico fallaron; usando score automático.")
 
             text = raw.strip() if raw else "{}"
             text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)

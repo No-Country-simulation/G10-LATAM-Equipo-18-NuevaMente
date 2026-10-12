@@ -39,6 +39,16 @@ from app.services.agent_orchestrator import AgentOrchestrator
 from app.schemas.adaptation import AdaptationRequest
 from app.core.labels import PROFILE_LABELS_ES, FORMAT_LABELS_ES, NICHE_LABELS_ES
 
+import logging
+
+# Show DEBUG-level logs from the grounding verification stage to trace chunk_id matching.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+)
+logging.getLogger("AgentOrchestrator").setLevel(logging.DEBUG)
+
+
 DOCUMENT_TABLE_HEADERS = [
     "document_id", "title", "status", "total_parents", "total_children", "created_at",
 ]
