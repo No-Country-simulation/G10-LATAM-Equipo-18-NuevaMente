@@ -200,8 +200,8 @@ def init_auth_tables():
     cursor.execute("SELECT COUNT(*) FROM users")
     if cursor.fetchone()[0] == 0:
         demo_users = [
-            ("usr_ana_001", "ana.martinez@empresa.com", "Ana Martinez", hash_password("password123"), "Instructor", "Educacion Corp", "A", 1, 0, None, None, time.time()),
-            ("usr_fer_002", "fernando.garcia@empresa.com", "Fernando Garcia", hash_password("securepassword"), "Dev", "Tech Solutions", "F", 1, 0, None, None, time.time())
+            ("usr_ana_001", "ana.martinez@empresa.com", "Ana Martinez", hash_password("Password123!"), "Instructor", "Educacion Corp", "A", 1, 0, None, None, time.time()),
+            ("usr_fer_002", "fernando.garcia@empresa.com", "Fernando Garcia", hash_password("SecurePassword123!"), "Dev", "Tech Solutions", "F", 1, 0, None, None, time.time())
         ]
         cursor.executemany("""
             INSERT INTO users (id, email, name, password_hash, role, organization, avatar_letter, is_verified, mfa_enabled, mfa_secret, mfa_backup_codes, created_at)

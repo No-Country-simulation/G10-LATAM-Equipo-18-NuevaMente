@@ -8,7 +8,22 @@ import { environment } from '../../../environments/environment';
   providedIn: 'root'
 })
 export class HttpAuthApiService extends AuthApi {
-  private baseUrl = `${environment.apiUrl || 'http://localhost:8000'}/api/v1/auth`;
+  private get baseUrl(): string {
+    if (typeof window !== 'undefined' && window.location && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return '/api/v1/auth';
+    }
+    const api = environment.apiUrl ? environment.apiUrl.replace(/\/+$/, '') : '';
+    if (api.endsWith('/v1')) {
+      return `${api}/auth`;
+    }
+    if (api.endsWith('/api')) {
+      return `${api}/v1/auth`;
+    }
+    if (api.startsWith('http://') || api.startsWith('https://')) {
+      return `${api}/api/v1/auth`;
+    }
+    return '/api/v1/auth';
+  }
 
   constructor(private http: HttpClient) {
     super();

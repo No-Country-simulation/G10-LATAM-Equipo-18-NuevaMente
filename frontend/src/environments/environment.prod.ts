@@ -1,6 +1,6 @@
 export const environment = {
   production: true,
-  enableDemoLogin: false,
+  enableDemoLogin: true,
   enableSocialLogin: false,
   showPipelineDetails: false,
   showDeveloperTools: false,

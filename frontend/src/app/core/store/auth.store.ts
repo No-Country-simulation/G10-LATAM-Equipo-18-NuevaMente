@@ -12,9 +12,9 @@ export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated
 })
 export class AuthStore {
   private router = inject(Router);
-  private authApi: AuthApi = environment.enableDemoLogin ? inject(MockAuthApiService) : inject(HttpAuthApiService);
+  private authApi: AuthApi = environment.useMock ? inject(MockAuthApiService) : inject(HttpAuthApiService);
 
-  // Core Signals - Access Token is stored ONLY in memory here
+  // Core Signals - Access Token is stored in memory and synchronized with localStorage
   readonly user = signal<User | null>(null);
   readonly accessToken = signal<string | null>(null);
   readonly status = signal<AuthStatus>('idle');
@@ -32,7 +32,25 @@ export class AuthStore {
   private broadcastChannel: BroadcastChannel | null = null;
 
   constructor() {
+    this.restoreLocalSession();
     this.initBroadcastChannel();
+  }
+
+  private restoreLocalSession() {
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        const token = localStorage.getItem('nuevamente_jwt_token');
+        const userStr = localStorage.getItem('nuevamente_user');
+        if (token && userStr) {
+          const user = JSON.parse(userStr);
+          this.accessToken.set(token);
+          this.user.set(user);
+          this.status.set('authenticated');
+        }
+      } catch (e) {
+        console.warn('[AuthStore] Error restaurando sesión:', e);
+      }
+    }
   }
 
   private initBroadcastChannel() {
@@ -50,6 +68,10 @@ export class AuthStore {
   // Session Initialization via HttpOnly Refresh Cookie
   initSession(): Promise<boolean> {
     return new Promise((resolve) => {
+      if (this.isAuthenticated()) {
+        resolve(true);
+        return;
+      }
       this.status.set('loading');
       this.authApi.refreshToken().subscribe({
         next: (res) => {
@@ -139,6 +161,12 @@ export class AuthStore {
     this.status.set('authenticated');
     this.error.set(null);
     this.showSessionExpiredModal.set(false);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.setItem('nuevamente_jwt_token', token);
+        localStorage.setItem('nuevamente_user', JSON.stringify(user));
+      } catch (e) {}
+    }
   }
 
   logout() {
@@ -168,6 +196,12 @@ export class AuthStore {
     this.accessToken.set(null);
     this.status.set('unauthenticated');
     this.error.set(null);
+    if (typeof window !== 'undefined' && window.localStorage) {
+      try {
+        localStorage.removeItem('nuevamente_jwt_token');
+        localStorage.removeItem('nuevamente_user');
+      } catch (e) {}
+    }
   }
 
   triggerSessionExpired() {
