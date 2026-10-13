@@ -12,6 +12,9 @@ import { RecentProject } from '../services/state.service';
 })
 export class HttpNuevaMenteApiService implements NuevaMenteApi {
   private get baseUrl(): string {
+    if (typeof window !== 'undefined' && window.location && window.location.hostname !== 'localhost' && window.location.hostname !== '127.0.0.1') {
+      return '/api';
+    }
     return environment.apiUrl ? environment.apiUrl.replace(/\/+$/, '') : '/api';
   }
 
