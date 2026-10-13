@@ -494,4 +494,20 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
       }
     };
   }
+
+  getStorageStatus(contentId: string): Observable<{ status: string; status_upload: string; bucket: string; objeto_id?: string; error?: string }> {
+    return of({
+      status: 'exito',
+      status_upload: 'completado',
+      bucket: 'nuevamente-contenidos-educativos',
+      objeto_id: `usuarios/anonimo/contenidos/${contentId}/v1.json`
+    });
+  }
+
+  retryStorageJob(contentId: string): Observable<{ status: string; mensaje: string }> {
+    return of({
+      status: 'encolado',
+      mensaje: `Reintento encolado para ${contentId}`
+    });
+  }
 }

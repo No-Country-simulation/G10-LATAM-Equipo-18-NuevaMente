@@ -257,7 +257,7 @@ class AgentOrchestrator:
             from app.services.pdf_export_service import PDFExportService
             os.makedirs("scratch", exist_ok=True)
             pdf_service = PDFExportService()
-            output_name = f"scratch/{object_name.replace('.json', '.pdf')}"
+            output_name = os.path.join("scratch", f"{content_id}.pdf")
             pdf_path = pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
         except Exception as e:
             logger.warning(f"Error generando PDF: {e}")

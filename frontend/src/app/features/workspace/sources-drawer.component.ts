@@ -7,14 +7,14 @@ import { RagFuente } from '../../core/models/adaptation.model';
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="drawer-overlay" *ngIf="isOpen" (click)="close()">
+    <div class="drawer-overlay" *ngIf="isOpen" (click)="onClose()">
       <div class="drawer-content glass-card" (click)="$event.stopPropagation()">
         <div class="drawer-header">
           <div class="title-with-icon">
             <span class="icon">🔍</span>
             <h3>Anclaje a la Fuente (RAG Vectorial)</h3>
           </div>
-          <button class="btn-close" (click)="close()">✕</button>
+          <button class="btn-close" (click)="onClose()">✕</button>
         </div>
 
         <div class="drawer-body" *ngIf="fuente">
@@ -158,11 +158,16 @@ import { RagFuente } from '../../core/models/adaptation.model';
   `]
 })
 export class SourcesDrawerComponent {
-  @Input() isOpen = false;
+  @Input() isOpen = true;
   @Input() fuente?: RagFuente;
+  @Input() set selectedFuente(val: RagFuente | undefined) {
+    if (val) this.fuente = val;
+  }
   @Output() closeDrawer = new EventEmitter<void>();
+  @Output() close = new EventEmitter<void>();
 
-  close(): void {
+  onClose(): void {
+    this.close.emit();
     this.closeDrawer.emit();
   }
 }

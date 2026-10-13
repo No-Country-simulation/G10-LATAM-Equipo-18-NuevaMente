@@ -1,6 +1,7 @@
-import { Component, Input, Output, EventEmitter, signal, computed, HostListener, ChangeDetectionStrategy } from '@angular/core';
+import { Component, Input, Output, EventEmitter, signal, computed, HostListener, ChangeDetectionStrategy, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { AdaptationResponse } from '../../core/models/adaptation.model';
+import { NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { environment } from '../../../environments/environment';
 
 @Component({
@@ -27,15 +28,15 @@ import { environment } from '../../../environments/environment';
           <button 
             type="button" 
             class="btn-close" 
-            (click)="closeDrawer.emit()" 
+            (click)="closePanel()" 
             aria-label="Cerrar panel de datos JSON"
           >
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
 
-        <!-- DRAWER NAVIGATION TABS (OCI Tab only shown if environment.showDeveloperTools is true) -->
-        <div class="drawer-tabs" *ngIf="showDeveloperTools">
+        <!-- DRAWER NAVIGATION TABS (Always visible) -->
+        <div class="drawer-tabs">
           <button 
             type="button" 
             class="tab-btn" 
@@ -50,12 +51,18 @@ import { environment } from '../../../environments/environment';
             [class.active]="activeTab() === 'oci'"
             (click)="activeTab.set('oci')"
           >
-            Almacenamiento (OCI)
+            Persistencia OCI
+            <span 
+              class="tab-dot" 
+              [class.completado]="uploadStatus() === 'completado'" 
+              [class.pendiente]="uploadStatus() === 'pendiente'"
+              [class.error]="uploadStatus() === 'error'"
+            ></span>
           </button>
         </div>
 
         <!-- TAB CONTENT 1: JSON PAYLOAD -->
-        <div class="drawer-content" *ngIf="activeTab() === 'json' || !showDeveloperTools">
+        <div class="drawer-content" *ngIf="activeTab() === 'json'">
           <div class="actions-bar">
             <span class="info-tag">Estructura estricta API</span>
             <div class="btn-group">
@@ -75,35 +82,66 @@ import { environment } from '../../../environments/environment';
           </div>
         </div>
 
-        <!-- TAB CONTENT 2: OCI STORAGE (Developer Mode Only) -->
-        <div class="drawer-content" *ngIf="activeTab() === 'oci' && showDeveloperTools">
+        <!-- TAB CONTENT 2: OCI STORAGE -->
+        <div class="drawer-content" *ngIf="activeTab() === 'oci'">
           <div class="oci-info-card" *ngIf="data?.almacenamiento_oci">
-            <div class="oci-badge">OCI ALWAYS FREE</div>
+            <div class="oci-badge">OCI ALWAYS FREE (mx-monterrey-1)</div>
             <h4>Persistencia en Oracle Cloud Object Storage</h4>
             
             <div class="oci-details-grid">
               <div class="detail-row">
                 <span class="detail-label">Estado de Carga:</span>
-                <span class="status-pill">{{ data?.almacenamiento_oci?.status_upload }}</span>
+                <span 
+                  class="status-pill"
+                  [class.completado]="uploadStatus() === 'completado'"
+                  [class.pendiente]="uploadStatus() === 'pendiente'"
+                  [class.error]="uploadStatus() === 'error'"
+                  [class.guardado_localmente]="uploadStatus() === 'guardado_localmente'"
+                >
+                  {{ uploadStatus() | uppercase }}
+                </span>
               </div>
               <div class="detail-row">
-                <span class="detail-label">Bucket:</span>
-                <code>{{ data?.almacenamiento_oci?.bucket }}</code>
+                <span class="detail-label">Bucket OCI:</span>
+                <code>{{ currentBucket() }}</code>
               </div>
               <div class="detail-row">
-                <span class="detail-label">ID del Objeto:</span>
+                <span class="detail-label">Clave Canónica del Objeto:</span>
                 <div class="code-copy-wrapper">
-                  <code>{{ data?.almacenamiento_oci?.objeto_id }}</code>
+                  <code>{{ currentObjectId() }}</code>
                   <button type="button" class="btn-mini-copy" (click)="copyObjectId()">
                     {{ copiedId() ? '✓' : 'Copiar' }}
                   </button>
                 </div>
               </div>
             </div>
+
+            <div class="oci-actions-row">
+              <button 
+                type="button" 
+                class="btn-action" 
+                (click)="refreshStorageStatus()" 
+                [disabled]="isCheckingStatus()"
+              >
+                {{ isCheckingStatus() ? 'Consultando OCI...' : '🔄 Actualizar Estado OCI' }}
+              </button>
+              <button 
+                type="button" 
+                class="btn-action btn-retry" 
+                *ngIf="uploadStatus() === 'error'" 
+                (click)="retryStorage()"
+              >
+                ⚠️ Reintentar Subida
+              </button>
+            </div>
+
+            <div class="status-feedback" *ngIf="statusFeedback()">
+              <small>{{ statusFeedback() }}</small>
+            </div>
           </div>
 
           <div class="no-oci-fallback" *ngIf="!data?.almacenamiento_oci">
-            <p>No se encontraron datos de almacenamiento OCI para esta respuesta.</p>
+            <p>No se encontraron metadatos de almacenamiento OCI para esta respuesta.</p>
           </div>
         </div>
       </div>
@@ -314,6 +352,53 @@ import { environment } from '../../../environments/environment';
       width: fit-content;
     }
 
+    .status-pill.pendiente {
+      color: #FBBF24;
+      background: rgba(251, 191, 36, 0.15);
+    }
+
+    .status-pill.error {
+      color: #F87171;
+      background: rgba(248, 113, 113, 0.15);
+    }
+
+    .status-pill.guardado_localmente {
+      color: #60A5FA;
+      background: rgba(96, 165, 250, 0.15);
+    }
+
+    .tab-dot {
+      display: inline-block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: #64748B;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
+    .tab-dot.completado { background: #34D399; box-shadow: 0 0 6px rgba(52, 211, 153, 0.6); }
+    .tab-dot.pendiente { background: #FBBF24; box-shadow: 0 0 6px rgba(251, 191, 36, 0.6); }
+    .tab-dot.error { background: #F87171; box-shadow: 0 0 6px rgba(248, 113, 113, 0.6); }
+
+    .oci-actions-row {
+      display: flex;
+      gap: 0.75rem;
+      margin-top: 1.25rem;
+      flex-wrap: wrap;
+    }
+
+    .btn-retry {
+      background: rgba(239, 68, 68, 0.15) !important;
+      border-color: rgba(239, 68, 68, 0.3) !important;
+      color: #FCA5A5 !important;
+    }
+
+    .status-feedback {
+      margin-top: 0.75rem;
+      color: #94A3B8;
+      font-size: 0.8rem;
+    }
+
     .code-copy-wrapper {
       display: flex;
       align-items: center;
@@ -355,15 +440,36 @@ import { environment } from '../../../environments/environment';
   `]
 })
 export class JsonDrawerComponent {
-  @Input() isOpen = false;
+  @Input() isOpen = true;
   @Input() data: AdaptationResponse | null = null;
+  @Output() close = new EventEmitter<void>();
   @Output() closeDrawer = new EventEmitter<void>();
+
+  private api = inject(NUEVAMENTE_API, { optional: true });
 
   activeTab = signal<'json' | 'oci'>('json');
   copied = signal<boolean>(false);
   copiedId = signal<boolean>(false);
+  isCheckingStatus = signal<boolean>(false);
+  statusFeedback = signal<string | null>(null);
+
+  private overrideStatus = signal<string | null>(null);
+  private overrideBucket = signal<string | null>(null);
+  private overrideObjectId = signal<string | null>(null);
 
   showDeveloperTools = environment.showDeveloperTools;
+
+  uploadStatus = computed(() => {
+    return this.overrideStatus() || this.data?.almacenamiento_oci?.status_upload || 'desconocido';
+  });
+
+  currentBucket = computed(() => {
+    return this.overrideBucket() || this.data?.almacenamiento_oci?.bucket || 'nuevamente-contenidos-educativos';
+  });
+
+  currentObjectId = computed(() => {
+    return this.overrideObjectId() || this.data?.almacenamiento_oci?.objeto_id || 'N/A';
+  });
 
   formattedJson = computed(() => {
     return this.data ? JSON.stringify(this.data, null, 2) : '{}';
@@ -372,14 +478,19 @@ export class JsonDrawerComponent {
   @HostListener('document:keydown.escape')
   onEscapePress(): void {
     if (this.isOpen) {
-      this.closeDrawer.emit();
+      this.closePanel();
     }
   }
 
   onBackdropClick(event: MouseEvent): void {
     if (event.target === event.currentTarget) {
-      this.closeDrawer.emit();
+      this.closePanel();
     }
+  }
+
+  closePanel(): void {
+    this.close.emit();
+    this.closeDrawer.emit();
   }
 
   copyJson(): void {
@@ -399,11 +510,62 @@ export class JsonDrawerComponent {
   }
 
   copyObjectId(): void {
-    const objId = this.data?.almacenamiento_oci?.objeto_id;
-    if (objId) {
+    const objId = this.currentObjectId();
+    if (objId && objId !== 'N/A') {
       navigator.clipboard.writeText(objId);
       this.copiedId.set(true);
       setTimeout(() => this.copiedId.set(false), 2000);
     }
+  }
+
+  private extractContentId(): string | null {
+    const objId = this.currentObjectId();
+    if (!objId || objId === 'N/A') return null;
+    const match = objId.match(/contenidos\/([^\/]+)/);
+    if (match) return match[1];
+    return objId;
+  }
+
+  refreshStorageStatus(): void {
+    const cid = this.extractContentId();
+    if (!cid || !this.api?.getStorageStatus) {
+      this.statusFeedback.set('No se dispone de identificador de contenido o servicio OCI.');
+      return;
+    }
+
+    this.isCheckingStatus.set(true);
+    this.statusFeedback.set('Consultando estado en OCI Object Storage...');
+    this.api.getStorageStatus(cid).subscribe({
+      next: (res) => {
+        this.isCheckingStatus.set(false);
+        if (res.status_upload) this.overrideStatus.set(res.status_upload);
+        if (res.bucket) this.overrideBucket.set(res.bucket);
+        if (res.objeto_id) this.overrideObjectId.set(res.objeto_id);
+        this.statusFeedback.set(`Estado OCI: ${res.status_upload}. Bucket: ${res.bucket}`);
+      },
+      error: (err) => {
+        this.isCheckingStatus.set(false);
+        this.statusFeedback.set(`Error al consultar estado OCI: ${err?.message || 'Inalcanzable'}`);
+      }
+    });
+  }
+
+  retryStorage(): void {
+    const cid = this.extractContentId();
+    if (!cid || !this.api?.retryStorageJob) {
+      this.statusFeedback.set('No se puede reintentar: ID de contenido no disponible.');
+      return;
+    }
+
+    this.statusFeedback.set('Encolando reintento de subida a OCI Object Storage...');
+    this.api.retryStorageJob(cid).subscribe({
+      next: (res) => {
+        this.overrideStatus.set('pendiente');
+        this.statusFeedback.set(res.mensaje || 'Reintento encolado correctamente.');
+      },
+      error: (err) => {
+        this.statusFeedback.set(`Error reintentando: ${err?.message || 'Fallo de red'}`);
+      }
+    });
   }
 }

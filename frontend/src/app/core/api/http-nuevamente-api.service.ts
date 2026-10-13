@@ -1,6 +1,7 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, catchError, of } from 'rxjs';
+import { Observable, catchError, of, throwError } from 'rxjs';
+import { environment } from '../../../environments/environment';
 import { NuevaMenteApi } from './nuevamente-api';
 import { MockNuevaMenteApiService } from './mock-nuevamente-api.service';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
@@ -10,7 +11,9 @@ import { RecentProject } from '../services/state.service';
   providedIn: 'root'
 })
 export class HttpNuevaMenteApiService implements NuevaMenteApi {
-  private baseUrl = 'http://localhost:8000/api/v1';
+  private get baseUrl(): string {
+    return environment.apiUrl ? environment.apiUrl.replace(/\/+$/, '') : '/api';
+  }
 
   constructor(
     private http: HttpClient,
@@ -30,8 +33,12 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
     return this.http.post<AdaptationResponse>(`${this.baseUrl}/adapt-content`, request, { headers: this.getHeaders() })
       .pipe(
         catchError(err => {
-          console.warn('[HttpNuevaMenteApi] Backend request failed or unreachable. Falling back to Mock API:', err);
-          return this.mockApi.adaptContent(request);
+          console.error('[HttpNuevaMenteApi] Error en adaptContent:', err);
+          if (environment.useMock) {
+            console.warn('[HttpNuevaMenteApi] environment.useMock activo: cayendo a Mock API');
+            return this.mockApi.adaptContent(request);
+          }
+          return throwError(() => err);
         })
       );
   }
@@ -46,8 +53,12 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
     return this.http.post<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>(url, formData, { headers })
       .pipe(
         catchError(err => {
-          console.warn('[HttpNuevaMenteApi] Parse PDF failed. Falling back to mock:', err);
-          return this.mockApi.parsePdf(file, useLlm);
+          console.error('[HttpNuevaMenteApi] Error en parsePdf:', err);
+          if (environment.useMock) {
+            console.warn('[HttpNuevaMenteApi] environment.useMock activo: cayendo a Mock API');
+            return this.mockApi.parsePdf(file, useLlm);
+          }
+          return throwError(() => err);
         })
       );
   }
@@ -55,7 +66,10 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
   checkHealth(): Observable<{ status: string; service: string }> {
     return this.http.get<{ status: string; service: string }>(`${this.baseUrl}/health`)
       .pipe(
-        catchError(() => of({ status: 'offline', service: 'FastAPI Backend unreachable (Mock Mode Active)' }))
+        catchError((err) => {
+          console.warn('[HttpNuevaMenteApi] checkHealth failed:', err);
+          return of({ status: 'offline', service: 'FastAPI Backend unreachable' });
+        })
       );
   }
 
@@ -99,5 +113,20 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
 
   getTrashCount(): Observable<number> {
     return this.mockApi.getTrashCount();
+  }
+
+  getStorageStatus(contentId: string): Observable<{ status: string; status_upload: string; bucket: string; objeto_id?: string; error?: string }> {
+    return this.http.get<{ status: string; status_upload: string; bucket: string; objeto_id?: string; error?: string }>(
+      `${this.baseUrl}/almacenamiento/estado/${encodeURIComponent(contentId)}`,
+      { headers: this.getHeaders() }
+    );
+  }
+
+  retryStorageJob(contentId: string): Observable<{ status: string; mensaje: string }> {
+    return this.http.post<{ status: string; mensaje: string }>(
+      `${this.baseUrl}/almacenamiento/reintentar/${encodeURIComponent(contentId)}`,
+      {},
+      { headers: this.getHeaders() }
+    );
   }
 }

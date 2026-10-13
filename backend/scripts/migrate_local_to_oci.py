@@ -34,9 +34,12 @@ def migrate_storage_mock(dry_run: bool = False) -> int:
         return 0
 
     backend = get_storage_backend()
-    if not isinstance(backend, OciStorageBackend):
-        print("[ERROR] El backend configurado no es OciStorageBackend. Active OCI_ENABLED=true.")
+    is_oci = isinstance(backend, OciStorageBackend)
+    if not is_oci and not dry_run:
+        print("[ERROR] El backend configurado no es OciStorageBackend. Active OCI_ENABLED=true y verifique Instance Principals / credenciales.")
         return 1
+    elif not is_oci:
+        print("[AVISO] OCI no conectado localmente en modo desarrollo. Mostrando archivos que se migrarán al ejecutar en la VM con Instance Principals.")
 
     total_scanned = 0
     total_migrated = 0
@@ -74,7 +77,7 @@ def migrate_storage_mock(dry_run: bool = False) -> int:
                     target_key = StorageBackend.build_content_key("migracion", file_path.stem)
 
             # Verificar si ya existe en OCI con el mismo hash
-            existing_head = backend.head_object(target_bucket, target_key)
+            existing_head = backend.head_object(target_bucket, target_key) if is_oci else None
             if existing_head and existing_head.get("opc-meta-sha256") == sha256_hash:
                 print(f"    [SKIP] {rel_name} ({size_kb:.1f} KB) ya existe en OCI con hash idéntico.")
                 total_skipped += 1

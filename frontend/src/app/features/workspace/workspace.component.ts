@@ -320,6 +320,16 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
+          <!-- Error banner if pipeline failed -->
+          <div class="pipeline-error-alert" *ngIf="pipelineErrorMessage()">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#EF4444" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            <div class="err-text">
+              <strong>Error al procesar:</strong>
+              <span>{{ pipelineErrorMessage() }}</span>
+            </div>
+            <button type="button" class="btn-close-err" (click)="pipelineErrorMessage.set(null)">✕</button>
+          </div>
+
           <!-- Live Configuration Summary Chips & Primary CTA -->
           <div class="submit-bar">
             <div class="summary-chips">
@@ -537,19 +547,38 @@ import { AppDocument } from '../../core/models/document.model';
       <!-- DRAWERS -->
       <app-sources-drawer 
         *ngIf="isSourcesDrawerOpen()"
-        [fuentes]="currentResponse()?.evaluacion_calidad?.fuentes_consultadas || []"
+        [isOpen]="isSourcesDrawerOpen()"
+        [fuente]="selectedFuente()"
         [selectedFuente]="selectedFuente()"
         (close)="isSourcesDrawerOpen.set(false)"
+        (closeDrawer)="isSourcesDrawerOpen.set(false)"
       ></app-sources-drawer>
 
       <app-json-drawer 
         *ngIf="isJsonDrawerOpen()"
+        [isOpen]="isJsonDrawerOpen()"
         [data]="currentResponse()"
         (close)="isJsonDrawerOpen.set(false)"
+        (closeDrawer)="isJsonDrawerOpen.set(false)"
       ></app-json-drawer>
     </div>
   `,
   styles: [`
+    .pipeline-error-alert {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.35);
+      padding: 0.85rem 1.25rem;
+      border-radius: 12px;
+      color: #F87171;
+      font-size: 0.88rem;
+      margin-bottom: 1.25rem;
+      animation: fadeIn 0.2s ease-in;
+    }
+    .pipeline-error-alert .err-text { display: flex; flex-direction: column; gap: 0.2rem; }
+    .btn-close-err { margin-left: auto; background: transparent; border: none; color: #F87171; cursor: pointer; font-size: 1.1rem; }
     .workspace-layout { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
     .workspace-header h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.4rem; color: var(--text-primary); }
     .value-prop-tag { font-size: 0.75rem; font-weight: 800; color: #6366F1; letter-spacing: 0.08em; margin-bottom: 0.25rem; display: block; }
@@ -732,6 +761,7 @@ export class WorkspaceComponent implements OnInit {
   pickerTypeFilter = signal<string>('all');
 
   isPipelineRunning = signal<boolean>(false);
+  pipelineErrorMessage = signal<string | null>(null);
   currentResponse = signal<AdaptationResponse | null>(null);
 
   isExportMenuOpen = signal<boolean>(false);
@@ -1032,6 +1062,7 @@ export class WorkspaceComponent implements OnInit {
   runPipeline(): void {
     if (this.adaptForm.invalid) return;
 
+    this.pipelineErrorMessage.set(null);
     this.isPipelineRunning.set(true);
     const formVal = this.adaptForm.value;
 
@@ -1054,6 +1085,8 @@ export class WorkspaceComponent implements OnInit {
       },
       error: (err) => {
         console.error('Error en pipeline RAG:', err);
+        const detail = err?.error?.detail || err?.message || 'Error de procesamiento en backend';
+        this.pipelineErrorMessage.set(typeof detail === 'string' ? detail : JSON.stringify(detail));
         this.isPipelineRunning.set(false);
       }
     });
@@ -1078,6 +1111,7 @@ export class WorkspaceComponent implements OnInit {
 
   resetForm(): void {
     this.currentResponse.set(null);
+    this.pipelineErrorMessage.set(null);
     this.isPipelineRunning.set(false);
     this.feedbackSubmitted.set(false);
     this.userVote.set(null);

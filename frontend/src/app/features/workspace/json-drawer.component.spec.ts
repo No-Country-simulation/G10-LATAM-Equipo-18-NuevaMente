@@ -63,13 +63,31 @@ describe('JsonDrawerComponent', () => {
     expect(component.closeDrawer.emit).toHaveBeenCalled();
   });
 
-  it('should emit closeDrawer on Escape key press', () => {
+  it('should emit closeDrawer and close on Escape key press', () => {
     fixture.componentRef.setInput('isOpen', true);
     fixture.detectChanges();
 
     spyOn(component.closeDrawer, 'emit');
+    spyOn(component.close, 'emit');
     component.onEscapePress();
 
     expect(component.closeDrawer.emit).toHaveBeenCalled();
+    expect(component.close.emit).toHaveBeenCalled();
+  });
+
+  it('should default isOpen to true', () => {
+    expect(component.isOpen).toBeTrue();
+  });
+
+  it('should switch to OCI tab and show bucket info', () => {
+    fixture.componentRef.setInput('data', mockResponse);
+    fixture.detectChanges();
+
+    component.activeTab.set('oci');
+    fixture.detectChanges();
+
+    expect(component.currentBucket()).toBe('test-bucket');
+    expect(component.currentObjectId()).toBe('obj-123');
+    expect(component.uploadStatus()).toBe('completado');
   });
 });

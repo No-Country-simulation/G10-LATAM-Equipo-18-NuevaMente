@@ -17,7 +17,9 @@ export interface NuevaMenteApi {
   restore(id: string): Observable<void>;
   deletePermanently(id: string): Observable<void>;
   emptyTrash(): Observable<void>;
-  getTrashCount(): Observable<number>;
+  // OCI Storage management
+  getStorageStatus?(contentId: string): Observable<{ status: string; status_upload: string; bucket: string; objeto_id?: string; error?: string }>;
+  retryStorageJob?(contentId: string): Observable<{ status: string; mensaje: string }>;
 }
 
 export const NUEVAMENTE_API = new InjectionToken<NuevaMenteApi>('NUEVAMENTE_API');
