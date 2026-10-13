@@ -22,6 +22,7 @@ from app.core.config import settings
 from app.core.timer import PipelineTracer
 from app.schemas.adaptation import AdaptationRequest, AdaptationResponse
 from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
 from app.services.document_index_cache import DocumentIndexCache
 from app.services.embedding_service import EmbeddingService
 from app.services.ingester_service import IngesterService
@@ -36,6 +37,7 @@ router = APIRouter()
 ingester_service = IngesterService()
 embedding_service = EmbeddingService()
 agent_orchestrator = AgentOrchestrator()
+langgraph_orchestrator = LangGraphOrchestrator(base_orchestrator=agent_orchestrator)
 index_cache = DocumentIndexCache()
 
 
@@ -214,15 +216,39 @@ async def adapt_content(request: AdaptationRequest):
         )
         tracer.end_stage("recuperacion_hybrid")
 
-        # 3. Agentic Orchestration with Planner, Writer, Auditor
-        response = await agent_orchestrator.run_pipeline(
-            request=request,
-            top_passages=top_passages,
-            key_concepts=key_concepts,
-            prerequisites=prerequisites,
-            tracer=tracer,
-            all_parent_chunks=doc_data["parent_chunks"],
-        )
+        # 3. Agentic Multi-Agent Orchestration with LangGraph (Planner, Writer, Deduplicator, Grounding Verifier, Critic, Refiner, Formatter)
+        if settings.ENABLE_LANGGRAPH:
+            try:
+                response = await langgraph_orchestrator.run_pipeline(
+                    request=request,
+                    top_passages=top_passages,
+                    key_concepts=key_concepts,
+                    prerequisites=prerequisites,
+                    tracer=tracer,
+                    all_parent_chunks=doc_data["parent_chunks"],
+                )
+            except Exception as graph_err:
+                logger.warning(
+                    "LangGraph execution encountered an error (%s). Falling back to classical agent orchestrator.",
+                    graph_err,
+                )
+                response = await agent_orchestrator.run_pipeline(
+                    request=request,
+                    top_passages=top_passages,
+                    key_concepts=key_concepts,
+                    prerequisites=prerequisites,
+                    tracer=tracer,
+                    all_parent_chunks=doc_data["parent_chunks"],
+                )
+        else:
+            response = await agent_orchestrator.run_pipeline(
+                request=request,
+                top_passages=top_passages,
+                key_concepts=key_concepts,
+                prerequisites=prerequisites,
+                tracer=tracer,
+                all_parent_chunks=doc_data["parent_chunks"],
+            )
 
         return response
 
