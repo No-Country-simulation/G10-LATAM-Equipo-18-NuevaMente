@@ -116,6 +116,9 @@ class ResponseMetadata(BaseModel):
     origin: Optional[str] = Field("llm", alias="origen")
     timings: Optional[Dict[str, float]] = Field(default_factory=dict, alias="timings")
     llm_calls: Optional[Dict[str, Any]] = Field(default_factory=dict, alias="llm_calls")
+    graph_orchestration: Optional[bool] = Field(False, alias="orquestacion_grafo")
+    graph_nodes_executed: Optional[List[str]] = Field(default_factory=list, alias="nodos_grafo_ejecutados")
+    graph_revision_count: Optional[int] = Field(0, alias="revisiones_grafo")
 
 
 class QualityEvaluation(BaseModel):
