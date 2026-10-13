@@ -35,6 +35,11 @@ except ImportError:
 # Inserción de ruta raíz del backend para importaciones relativas si es necesario
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
+try:
+    from app.core.config import settings
+except Exception:
+    settings = None
+
 # Configuración básica de logging
 logging.basicConfig(level=logging.ERROR)
 
@@ -373,7 +378,8 @@ def print_health_table(report: Dict[str, Any]):
     
     llm = report["llm_gemini"]
     llm_status = "SUCCESS" if llm["status"] == "ok" else "FAIL"
-    print(f"| LLM Gemini (`{settings.DEFAULT_GEMINI_MODEL_FLASH}`) | **{llm_status}** | {llm['message']} ({llm['latency_ms']} ms) |")
+    model_label = settings.DEFAULT_GEMINI_MODEL_FLASH if settings else os.getenv("DEFAULT_GEMINI_MODEL_FLASH", "gemini-flash-lite-latest")
+    print(f"| LLM Gemini (`{model_label}`) | **{llm_status}** | {llm['message']} ({llm['latency_ms']} ms) |")
     
     emb = report["embeddings"]
     emb_status = "SUCCESS" if emb["status"] == "ok" else "FAIL"
