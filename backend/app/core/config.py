@@ -153,7 +153,7 @@ class Settings(BaseModel):
     STORAGE_SOFT_LIMIT_GIB: int = int(os.getenv("STORAGE_SOFT_LIMIT_GIB", "15"))
 
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
-    OCI_AUTH_MODE: str = os.getenv("OCI_AUTH_MODE", "instance_principal")
+    OCI_AUTH_MODE: str = os.getenv("OCI_AUTH_MODE", "auto")
     OCI_REGION: str = os.getenv("OCI_REGION", "mx-monterrey-1")
     OCI_NAMESPACE: Optional[str] = os.getenv("OCI_NAMESPACE", None)
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
@@ -167,7 +167,7 @@ class Settings(BaseModel):
         env_val = os.getenv("OCI_ENABLED")
         if env_val is not None:
             return env_val.lower() == "true"
-        if self.OCI_AUTH_MODE == "instance_principal":
+        if self.OCI_AUTH_MODE in ("auto", "instance_principal"):
             return True
         return os.path.exists(self.OCI_CONFIG_FILE)
 

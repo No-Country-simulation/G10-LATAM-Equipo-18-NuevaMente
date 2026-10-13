@@ -30,68 +30,141 @@ class OciStorageBackend(StorageBackend):
         self.auth_mode = settings.OCI_AUTH_MODE
         self.config_path = os.path.expanduser(settings.OCI_CONFIG_FILE)
         self.region = settings.OCI_REGION
+        self.active_auth_mode = "none"
         self.is_connected = False
+        self._last_error: Optional[str] = None
         self._initialize_client()
 
     def _initialize_client(self) -> None:
-        """Inicializa el cliente de OCI con Instance Principals o Config File."""
+        """
+        Inicializa el cliente de OCI.
+        Soporta modos:
+          - 'auto': intenta Instance Principals; si falla y existe ~/.oci/config, usa config_file.
+          - 'instance_principal': usa únicamente Instance Principals.
+          - 'config_file': usa únicamente el archivo de configuración local.
+        """
         try:
             import oci
 
-            # Configurar estrategia de reintento estándar de OCI
+            # Configurar estrategia de reintento estándar de OCI y timeouts estrictos
             retry_strategy = oci.retry.DEFAULT_RETRY_STRATEGY
 
-            use_instance_principals = (self.auth_mode == "instance_principal" and os.name != "nt")
+            mode = (self.auth_mode or "auto").lower()
+            initialized = False
 
-            if use_instance_principals:
-                try:
-                    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
-                    client = oci.object_storage.ObjectStorageClient(
-                        config={"region": self.region},
-                        signer=signer,
-                        retry_strategy=retry_strategy,
-                        timeout=(10.0, 60.0),
-                    )
-                    # Verificar conectividad real de Instance Principals
-                    self._namespace = settings.OCI_NAMESPACE or client.get_namespace().data
-                    self._client = client
-                    logger.info("OCI Object Storage inicializado mediante Instance Principals (Región: %s).", self.region)
-                except Exception as ip_err:
-                    logger.warning("No se pudo autenticar con Instance Principals: %s. Verificando config_file.", ip_err)
-                    if os.path.exists(self.config_path):
+            # 1. Intento con Instance Principals (en modo 'auto' o 'instance_principal')
+            if mode in ("auto", "instance_principal"):
+                # En Windows NT no se contacta el endpoint IMDS 169.254.169.254 para evitar bloqueos
+                if os.name != "nt":
+                    try:
+                        signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                        client = oci.object_storage.ObjectStorageClient(
+                            config={"region": self.region},
+                            signer=signer,
+                            retry_strategy=retry_strategy,
+                            timeout=(10.0, 60.0),
+                        )
+                        # Validar conectividad efectiva
+                        self._namespace = settings.OCI_NAMESPACE or client.get_namespace().data
+                        self._client = client
+                        self.active_auth_mode = "instance_principal"
+                        self.is_connected = True
+                        initialized = True
+                        logger.info("OCI Object Storage conectado vía Instance Principals (Región: %s).", self.region)
+                    except Exception as ip_err:
+                        self._last_error = f"InstancePrincipals fallo: {str(ip_err)[:120]}"
+                        logger.warning("Instance Principals no disponible: %s", ip_err)
+                        if mode == "instance_principal":
+                            raise ip_err
+                elif mode == "instance_principal":
+                    raise RuntimeError("Instance Principals solo es soportado en instancias de cómputo OCI (Linux).")
+
+            # 2. Intento con Config File (en modo 'auto' como fallback, o explícito 'config_file')
+            if not initialized and mode in ("auto", "config_file"):
+                if os.path.exists(self.config_path):
+                    try:
                         config = oci.config.from_file(self.config_path)
-                        self._client = oci.object_storage.ObjectStorageClient(
+                        client = oci.object_storage.ObjectStorageClient(
                             config=config,
                             retry_strategy=retry_strategy,
                             timeout=(10.0, 60.0),
                         )
-                        self._namespace = settings.OCI_NAMESPACE or self._client.get_namespace().data
-                        logger.info("Fallback exitoso a ~/.oci/config local.")
-                    else:
-                        raise ip_err
-            else:
-                if os.path.exists(self.config_path):
-                    config = oci.config.from_file(self.config_path)
-                    self._client = oci.object_storage.ObjectStorageClient(
-                        config=config,
-                        retry_strategy=retry_strategy,
-                        timeout=(10.0, 60.0),
-                    )
-                    self._namespace = settings.OCI_NAMESPACE or self._client.get_namespace().data
-                    logger.info("OCI Object Storage inicializado con archivo de configuración local.")
-                else:
+                        self._namespace = settings.OCI_NAMESPACE or client.get_namespace().data
+                        self._client = client
+                        self.active_auth_mode = "config_file"
+                        self.is_connected = True
+                        initialized = True
+                        logger.info("OCI Object Storage conectado vía archivo config local (%s).", self.config_path)
+                    except Exception as cfg_err:
+                        self._last_error = f"config_file fallo: {str(cfg_err)[:120]}"
+                        logger.warning("Fallo al conectar con config_file: %s", cfg_err)
+                        if mode == "config_file":
+                            raise cfg_err
+                elif mode == "config_file":
                     raise FileNotFoundError(f"Archivo de configuración OCI no encontrado en: {self.config_path}")
 
-            self.is_connected = True
+            if not initialized:
+                raise RuntimeError(
+                    f"No se pudo inicializar OCI Object Storage en modo '{mode}'. "
+                    f"Último error: {self._last_error or 'Sin credenciales válidas'}"
+                )
 
         except Exception as exc:
             self.is_connected = False
             self._client = None
+            self.active_auth_mode = "none"
+            self._last_error = str(exc)
             if settings.APP_ENV == "production" and not settings.ALLOW_LOCAL_STORAGE:
                 logger.critical("CRITICAL: Error conectando a OCI Object Storage en producción: %s", exc)
                 raise RuntimeError(f"Fallo de conexión a OCI Object Storage en producción: {exc}")
             else:
                 logger.warning("OCI Object Storage no disponible en desarrollo: %s.", exc)
+
+    def self_check(self) -> Dict[str, Any]:
+        """
+        Autochequeo de OCI Object Storage:
+          - Modo de autenticación activo
+          - Conectividad a ambos buckets (fuentes y contenidos)
+          - Verificación de acceso privado (NoPublicAccess) y tier Standard
+        """
+        report: Dict[str, Any] = {
+            "status": "caido",
+            "auth_mode": self.active_auth_mode,
+            "region": self.region,
+            "namespace": bool(self._namespace and self._namespace != "mock-namespace"),
+            "buckets": {},
+            "error": None,
+        }
+
+        if not self.is_connected or not self._client:
+            report["error"] = self._last_error or "Cliente OCI no conectado."
+            return report
+
+        buckets_to_verify = [
+            ("fuentes", settings.OCI_BUCKET_SOURCES),
+            ("contenidos", settings.OCI_BUCKET_CONTENT),
+        ]
+
+        all_ok = True
+        for key_label, bucket_name in buckets_to_verify:
+            b_status: Dict[str, Any] = {"alcanzable": False, "tier": "Desconocido", "privado": False}
+            try:
+                b_info = self._client.get_bucket(self.namespace, bucket_name).data
+                b_status["alcanzable"] = True
+                tier = getattr(b_info, "storage_tier", "Standard")
+                b_status["tier"] = tier
+                public_access = getattr(b_info, "public_access_type", "NoPublicAccess")
+                b_status["privado"] = (public_access == "NoPublicAccess")
+
+                if tier != "Standard" or public_access != "NoPublicAccess":
+                    all_ok = False
+            except Exception as b_exc:
+                all_ok = False
+                b_status["error"] = str(b_exc)
+            report["buckets"][bucket_name] = b_status
+
+        report["status"] = "operativo" if all_ok else "degradado"
+        return report
 
     @property
     def namespace(self) -> str:
