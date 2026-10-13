@@ -124,3 +124,12 @@ class OCIStorageService:
         Elimina un documento de OCI de forma idempotente.
         """
         return self.backend.delete_object(bucket_name, object_name)
+
+    def delete_file(self, object_name: str, bucket_name: Optional[str] = None) -> bool:
+        """
+        Elimina un archivo u objeto de OCI de forma idempotente (usado por trash_service y purga).
+        """
+        target_bucket = bucket_name or (
+            settings.OCI_BUCKET_DOCS if "documentos" in object_name else settings.OCI_BUCKET_ARTIFACTS
+        )
+        return self.backend.delete_object(target_bucket, object_name)

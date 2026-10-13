@@ -17,8 +17,32 @@ app = FastAPI(
 
 @app.on_event("startup")
 async def startup_event():
-    if not settings.OCI_ENABLED:
-        logger.warning("WARNING: OCI desactivado: almacenamiento local de desarrollo")
+    try:
+        from app.core.security import init_auth_tables
+        init_auth_tables()
+        logger.info("Base de datos SQLite y tablas de autenticación/jobs inicializadas.")
+    except Exception as exc:
+        logger.error("Error inicializando tablas en startup: %s", exc)
+
+    try:
+        from app.services.storage import get_storage_backend
+        from app.services.storage.oci_backend import OciStorageBackend
+        backend = get_storage_backend()
+        if isinstance(backend, OciStorageBackend):
+            check_rep = backend.self_check()
+            logger.info("OCI Object Storage autochequeo al arrancar: %s", check_rep)
+        elif not settings.OCI_ENABLED:
+            logger.warning("WARNING: OCI desactivado: operando con almacenamiento local de desarrollo")
+    except Exception as exc:
+        logger.warning("Aviso en chequeo inicial de OCI: %s", exc)
+
+    try:
+        from app.services.storage_queue_service import StorageQueueService
+        processed = StorageQueueService.get_instance().process_pending_jobs(limit=20)
+        if processed > 0:
+            logger.info("Trabajos pendientes de OCI procesados al arrancar: %d", processed)
+    except Exception as exc:
+        logger.warning("Aviso procesando trabajos pendientes: %s", exc)
 
 # Configurar CORS para permitir peticiones desde el Frontend Angular
 app.add_middleware(
@@ -30,6 +54,8 @@ app.add_middleware(
 )
 
 app.include_router(api_router, prefix=settings.API_V1_STR)
+app.include_router(api_router, prefix="/api")
+
 
 @app.get("/")
 async def root():

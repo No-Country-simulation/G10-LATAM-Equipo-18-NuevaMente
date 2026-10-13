@@ -107,12 +107,15 @@ async def parse_document(file: UploadFile = File(...), use_llm: bool = Query(Fal
             use_llm,
         )
 
-        # Upload original document to OCI Object Storage Always Free bucket
-        oci_doc_info = OCIStorageService().upload_document_source(
-            bucket_name=settings.OCI_BUCKET_DOCS,
-            object_name=filename,
+        # Upload original document to OCI Object Storage Always Free bucket and register in DB
+        from app.services.storage_queue_service import StorageQueueService
+        mime_type = "application/pdf" if extension == ".pdf" else ("text/markdown" if extension in (".md", ".markdown") else "text/plain")
+        oci_doc_info = StorageQueueService.get_instance().save_source_document(
             file_bytes=content_bytes,
-            content_type="application/pdf" if extension == ".pdf" else "text/plain"
+            filename=filename,
+            user_id="anonimo",
+            title=ingested_doc.title,
+            content_type=mime_type,
         )
 
         return {
@@ -158,6 +161,15 @@ async def parse_pdf_llm(file: UploadFile = File(...)):
         parsed_result = await anyio.to_thread.run_sync(
             _save_and_parse_pdf_llm,
             content_bytes,
+        )
+
+        from app.services.storage_queue_service import StorageQueueService
+        StorageQueueService.get_instance().save_source_document(
+            file_bytes=content_bytes,
+            filename=filename,
+            user_id="anonimo",
+            title=suggested_title,
+            content_type="application/pdf",
         )
 
         return {

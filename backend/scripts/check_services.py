@@ -246,9 +246,10 @@ def get_package_versions() -> Dict[str, str]:
 def test_oci_storage() -> Dict[str, Any]:
     """
     Verifica el estado de OCI Object Storage sin exponer secretos.
-    Retorna estado ('ok', 'degradado', 'caído'), auth_mode y buckets alcanzables.
+    Retorna estado ('operativo', 'degradado', 'caído'), auth_mode, buckets y estado de trabajos.
     """
     from app.core.config import settings
+    from app.core.security import get_db
     from app.services.storage import get_storage_backend, OciStorageBackend
 
     auth_mode = settings.OCI_AUTH_MODE
@@ -256,31 +257,59 @@ def test_oci_storage() -> Dict[str, Any]:
     bucket_src = settings.OCI_BUCKET_SOURCES
     bucket_art = settings.OCI_BUCKET_CONTENT
 
+    # Obtener métricas de la cola de almacenamiento
+    trabajos_pendientes = 0
+    trabajos_fallidos = 0
+    ultima_escritura = None
+    try:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT estado, COUNT(*) FROM storage_jobs GROUP BY estado")
+        counts = {row[0]: row[1] for row in cursor.fetchall()}
+        trabajos_pendientes = counts.get("pendiente", 0)
+        trabajos_fallidos = counts.get("error", 0)
+
+        cursor.execute("SELECT updated_at FROM storage_jobs WHERE estado = 'completado' ORDER BY updated_at DESC LIMIT 1")
+        last_row = cursor.fetchone()
+        if last_row:
+            ultima_escritura = last_row[0]
+        conn.close()
+    except Exception:
+        pass
+
     try:
         backend = get_storage_backend()
         if isinstance(backend, OciStorageBackend):
-            if backend.is_connected:
-                return {
-                    "status": "ok",
-                    "auth_mode": auth_mode,
-                    "region": region,
-                    "buckets_alcanzables": [bucket_src, bucket_art],
-                    "detalle": "Conexión activa con OCI Object Storage Always Free.",
-                }
+            check_rep = backend.self_check()
+            status_val = check_rep.get("status", "caido")
+            if status_val == "operativo":
+                detalle_msg = "Conexión activa y verificada con OCI Object Storage Always Free."
             else:
-                return {
-                    "status": "caído" if settings.APP_ENV == "production" else "degradado",
-                    "auth_mode": auth_mode,
-                    "region": region,
-                    "buckets_alcanzables": [],
-                    "detalle": "Cliente OCI sin conexión activa.",
-                }
+                detalle_msg = f"OCI en estado {status_val}: {check_rep.get('error') or 'Revisar políticas o configuración.'}"
+
+            alcanzables = [b for b, data in check_rep.get("buckets", {}).items() if data.get("alcanzable")]
+
+            return {
+                "status": status_val,
+                "auth_mode": backend.active_auth_mode,
+                "region": region,
+                "namespace_obtenido": check_rep.get("namespace", False),
+                "buckets_alcanzables": alcanzables,
+                "ultima_escritura_exitosa": ultima_escritura,
+                "trabajos_pendientes": trabajos_pendientes,
+                "trabajos_fallidos": trabajos_fallidos,
+                "detalle": detalle_msg,
+            }
         else:
             return {
                 "status": "degradado",
                 "auth_mode": "local_mock",
                 "region": "local",
+                "namespace_obtenido": False,
                 "buckets_alcanzables": ["storage_mock"],
+                "ultima_escritura_exitosa": ultima_escritura,
+                "trabajos_pendientes": trabajos_pendientes,
+                "trabajos_fallidos": trabajos_fallidos,
                 "detalle": "Operando en almacenamiento local mock (desarrollo).",
             }
     except Exception as exc:
@@ -288,7 +317,11 @@ def test_oci_storage() -> Dict[str, Any]:
             "status": "caído" if settings.APP_ENV == "production" else "degradado",
             "auth_mode": auth_mode,
             "region": region,
+            "namespace_obtenido": False,
             "buckets_alcanzables": [],
+            "ultima_escritura_exitosa": ultima_escritura,
+            "trabajos_pendientes": trabajos_pendientes,
+            "trabajos_fallidos": trabajos_fallidos,
             "detalle": f"Fallo al contactar almacenamiento: {exc}",
         }
 

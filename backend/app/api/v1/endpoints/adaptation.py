@@ -145,3 +145,19 @@ async def adapt_content(request: AdaptationRequest):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Error en la adaptación de contenido: {str(error)}",
         )
+
+
+@router.post("/adapt-content/ampliar/{content_id}", response_model=AdaptationResponse, status_code=status.HTTP_200_OK)
+async def ampliar_content(content_id: str, request: AdaptationRequest):
+    """
+    Amplía un contenido educativo existente incrementando la versión a v{n+1}.json
+    sin sobrescribir la versión previa en OCI Object Storage Always Free.
+    """
+    from app.services.storage_queue_service import StorageQueueService
+    status_info = StorageQueueService.get_instance().get_content_status(content_id)
+    curr_version = status_info.get("version", 1) or 1
+    next_version = curr_version + 1
+
+    setattr(request, "version", next_version)
+    return await adapt_content(request)
+

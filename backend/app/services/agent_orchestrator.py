@@ -218,27 +218,38 @@ class AgentOrchestrator:
             observations=f"Generación agéntica por lotes ({items_generated} items) anclada al documento fuente.",
         )
 
-        object_name = (
-            f"contenido-{self._slugify(doc_title)[:20]}-"
-            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
+        content_id = (
+            f"{self._slugify(doc_title)[:20]}-"
+            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}"
         )
+        user_id = getattr(request, "user_id", None) or "anonimo"
+        version_num = getattr(request, "version", 1) or 1
 
         response_payload = {
             "status": "exito",
+            "content_id": content_id,
             "metadatos": metadata.model_dump(by_alias=True),
             "contenido_adaptado": adapted_content.model_dump(by_alias=True),
             "evaluacion_calidad": evaluation.model_dump(by_alias=True),
         }
 
-        storage_info = self.storage.upload_json_artifact(
-            object_name=object_name,
+        from app.services.storage_queue_service import StorageQueueService
+        queue_service = StorageQueueService.get_instance()
+        job_info = queue_service.enqueue_content_job(
+            content_id=content_id,
+            user_id=user_id,
             json_data=response_payload,
+            version=version_num,
         )
 
+        # Intento inicial inmediato; si OCI responde, marca 'completado'; de lo contrario queda 'pendiente' para reintento
+        immediate_ok = queue_service.process_job(job_info["job_id"])
+        upload_status_val = "completado" if immediate_ok else "pendiente"
+
         storage_result = OCIStorageResult(
-            bucket=storage_info["bucket"],
-            object_id=storage_info["objeto_id"],
-            upload_status=storage_info["status_upload"],
+            bucket=job_info["bucket"],
+            object_id=job_info["objeto_id"],
+            upload_status=upload_status_val,
         )
 
         pdf_path = None

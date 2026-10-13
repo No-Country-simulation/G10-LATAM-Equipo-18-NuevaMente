@@ -153,6 +153,47 @@ def init_auth_tables():
         )
     """)
 
+    # Persistent Storage Jobs table (OCI background queue)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS storage_jobs (
+            id TEXT PRIMARY KEY,
+            content_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            bucket TEXT NOT NULL,
+            object_key TEXT NOT NULL,
+            tipo TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            version INTEGER DEFAULT 1,
+            estado TEXT DEFAULT 'pendiente',
+            intentos INTEGER DEFAULT 0,
+            max_intentos INTEGER DEFAULT 5,
+            ultimo_error TEXT,
+            created_at REAL NOT NULL,
+            updated_at REAL NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_content ON storage_jobs (content_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_estado ON storage_jobs (estado)")
+
+    # Original Technical Source Documents table
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS documentos (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            bucket TEXT NOT NULL,
+            object_key TEXT NOT NULL,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            content_type TEXT NOT NULL,
+            status_upload TEXT DEFAULT 'completado',
+            created_at REAL NOT NULL
+        )
+    """)
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_user ON documentos (user_id)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_sha256 ON documentos (sha256)")
+
     conn.commit()
 
     # Seed initial demo users if empty
@@ -435,3 +476,16 @@ def reset_failed_login(key: str):
 # User isolation helper for OCI Storage
 def get_user_storage_prefix(user_id: str) -> str:
     return f"usuarios/{user_id}/"
+
+def get_current_user_optional(request: Request) -> Optional[Dict[str, Any]]:
+    auth_header = request.headers.get("Authorization")
+    if not auth_header:
+        return None
+    try:
+        parts = auth_header.split()
+        if len(parts) == 2 and parts[0].lower() == "bearer":
+            return decode_access_token(parts[1])
+    except Exception:
+        pass
+    return None
+
