@@ -459,7 +459,9 @@ class AgentOrchestrator:
 
         # Optimization: for compact requests (target <= 10) with multiple topics,
         # consolidate all topics into a single LLM prompt call instead of multiple sequential round-trips.
-        if target <= 10 and len(topics) > 1:
+        # Executive summary always consolidates regardless of target count to ensure a holistic output.
+        is_summary_format = "resumen" in fmt_key or "executive_summary" in fmt_key
+        if (target <= 10 or is_summary_format) and len(topics) > 1:
             consolidated_chunks = []
             topic_names = []
             for t in topics:

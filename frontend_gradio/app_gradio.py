@@ -596,10 +596,11 @@ def handle_agent_generation(
                 src_str = format_source_badges(fuentes)
                 if src_str:
                     md_lines.append(f"* **Fuente:** 🔍 {src_str}")
-                md_lines.append("\n---\n")
+                md_lines.append("")  # Blank line between items, not a heavy separator
         elif adapted.executive_summary:
             md_lines.append(adapted.executive_summary)
-            md_lines.append("\n---\n")
+            md_lines.append("")
+
 
     json_str = json.dumps(response.model_dump(), ensure_ascii=False, indent=2)
     yield progress_log_final, "\n".join(md_lines), json_str
