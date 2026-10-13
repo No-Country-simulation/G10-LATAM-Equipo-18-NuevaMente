@@ -90,24 +90,28 @@ def test_llm_gemini() -> Dict[str, Any]:
 
     start_time = time.time()
     try:
-        import httpx
         from google import genai
-        from google.genai import types
 
-        # Timeout estricto para evitar bloqueos
-        httpx_client = httpx.Client(timeout=10.0)
-        client = genai.Client(
-            api_key=api_key,
-            http_options=types.HttpOptions(httpx_client=httpx_client)
-        )
-        
-        response = client.models.generate_content(
-            model=settings.DEFAULT_GEMINI_MODEL_FLASH,
-            contents=["Responde solo: ok"],
-            config=types.GenerateContentConfig(temperature=0.0)
-        )
+        client = genai.Client(api_key=api_key)
+        model_name = settings.DEFAULT_GEMINI_MODEL_FLASH or "gemini-flash-lite-latest"
+
+        response = None
+        for attempt in range(2):
+            try:
+                response = client.models.generate_content(
+                    model=model_name,
+                    contents=["Responde solo: ok"],
+                )
+                if response:
+                    break
+            except Exception as inner_e:
+                if attempt == 0 and ("503" in str(inner_e) or "UNAVAILABLE" in str(inner_e)):
+                    time.sleep(1.0)
+                    continue
+                raise inner_e
+
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
-        resp_text = (response.text or "").strip()
+        resp_text = (response.text or "").strip() if response else ""
 
         return {
             "status": "ok",
@@ -119,15 +123,14 @@ def test_llm_gemini() -> Dict[str, Any]:
         elapsed_ms = round((time.time() - start_time) * 1000, 2)
         exc_str = str(exc)
         
-        # Traducción de errores según reglas de negocio
         if "401" in exc_str or "403" in exc_str or "UNAUTHENTICATED" in exc_str or "PERMISSION_DENIED" in exc_str or "API_KEY_INVALID" in exc_str:
-            translated = "clave inválida, de otro servicio o API no habilitada"
+            translated = "clave inválida o API no habilitada"
         elif "429" in exc_str or "RESOURCE_EXHAUSTED" in exc_str or "QUOTA" in exc_str:
             translated = "cuota excedida (HTTP 429)"
-        elif "500" in exc_str or "503" in exc_str or "CONNECT" in exc_str or "SSL" in exc_str or "CERTIFICATE" in exc_str or "Timeout" in exc_str:
-            translated = "error de conectividad (red / SSL / timeout)"
+        elif "503" in exc_str or "UNAVAILABLE" in exc_str:
+            translated = "servicio de Gemini temporalmente ocupado (HTTP 503)"
         else:
-            translated = f"error en llamada a Gemini: {exc_str[:100]}"
+            translated = f"error de llamada: {exc_str[:100]}"
 
         return {
             "status": "error",
