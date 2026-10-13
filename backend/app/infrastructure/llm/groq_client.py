@@ -20,7 +20,14 @@ from typing import Any, Optional, Type
 from app.core.config import settings
 from app.infrastructure.llm.base import BaseLLMClient, T
 
+from tenacity import retry, stop_after_attempt, wait_exponential
+
 logger = logging.getLogger("GroqClient")
+
+try:
+    import groq
+except ImportError:
+    groq = None
 
 
 class GroqClient(BaseLLMClient):
@@ -50,6 +57,11 @@ class GroqClient(BaseLLMClient):
     def is_available(self) -> bool:
         """True when a valid Groq client instance is present."""
         return self.has_real_key and self._client is not None
+    @retry(
+        reraise=True,
+        stop=stop_after_attempt(3),
+        wait=wait_exponential(multiplier=0.1, min=0.1, max=1.0),
+    )
     def generate(
         self,
         prompt: str,

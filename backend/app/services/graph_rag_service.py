@@ -46,8 +46,10 @@ class GraphRAGService:
         {document_text[:3000]}
         """
         
-        key_concepts = ["VCN", "Subredes", "Security Lists", "Internet Gateway"]
-        prerequisites = ["VCN", "Subredes"]
+        key_concepts = []
+        prerequisites = []
+        unique_concepts = []
+        relationships = []
         
         try:
             response_text = self.gemini_client.generate_content(
@@ -65,8 +67,8 @@ class GraphRAGService:
                 key_concepts = unique_concepts[:4]
                 prerequisites = unique_concepts[:2]
         except Exception as e:
-            logger.error(f"Error al extraer grafo con Gemini: {e}. Activando Fallback.")
-            # Fallback de filtrado semántico
+            logger.error(f"Error al extraer grafo con Gemini: {e}. Activando Fallback dinámico sobre texto.")
+            # Fallback dinámico: extracción estricta sobre el texto del documento
             raw_words = re.findall(r'\b[A-Z][a-zA-Z0-9\-]{2,}\b', document_text or '')
             filtered_concepts = []
             for w in raw_words:
@@ -75,7 +77,14 @@ class GraphRAGService:
                         filtered_concepts.append(w)
                         
             if len(filtered_concepts) < 2:
-                filtered_concepts = ["VCN", "Subredes", "Security Lists", "Internet Gateway"]
+                # Extraer frases o términos de las primeras líneas del documento
+                for line in (document_text or "").split("\n"):
+                    clean_line = line.strip().lstrip("#").strip()
+                    if 4 <= len(clean_line) <= 40 and clean_line not in STOP_WORDS:
+                        if clean_line not in filtered_concepts:
+                            filtered_concepts.append(clean_line)
+                    if len(filtered_concepts) >= 4:
+                        break
                 
             unique_concepts = filtered_concepts[:10]
             key_concepts = unique_concepts[:4]

@@ -5,11 +5,12 @@ router = APIRouter()
 
 @router.get("/health")
 async def health_check():
+    from app.core.config import settings
     return {
         "status": "healthy",
         "service": "NuevaMente API Engine",
-        "version": "1.0.0",
-        "oci_always_free": "desactivado (local)",
+        "version": settings.VERSION,
+        "oci_always_free": "activo" if settings.OCI_ENABLED else "desactivado (local)",
         "gemini_pipeline": "listo"
     }
 

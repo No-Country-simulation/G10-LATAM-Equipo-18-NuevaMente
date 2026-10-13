@@ -129,26 +129,33 @@ class PDFExportService:
                 self._add_body_text(pdf, sec_content)
                 pdf.ln(5)
                 
-        # 4. Flashcards
+        # 4. Items (Flashcards / Quizzes / Tutoriales / Resumen)
         if content.items:
             pdf.add_page()
-            self._add_section_title(pdf, "4. Tarjetas de Memorización")
+            self._add_section_title(pdf, "4. Material Educativo Adaptado")
             for idx, item in enumerate(content.items, 1):
-                # Frente (Pregunta)
+                if isinstance(item, dict):
+                    frente = item.get("frente") or item.get("front") or item.get("pregunta") or item.get("question") or item.get("titulo") or item.get("punto_clave") or f"Ítem {idx}"
+                    dorso = item.get("dorso") or item.get("back") or item.get("respuesta_correcta") or item.get("instruccion") or item.get("impacto_negocio") or ""
+                    pista = item.get("pista_didactica") or item.get("hint") or item.get("justificacion") or ""
+                else:
+                    frente = getattr(item, "frente", getattr(item, "front", getattr(item, "pregunta", getattr(item, "titulo", getattr(item, "punto_clave", f"Ítem {idx}")))))
+                    dorso = getattr(item, "dorso", getattr(item, "back", getattr(item, "respuesta_correcta", getattr(item, "instruccion", getattr(item, "impacto_negocio", "")))))
+                    pista = getattr(item, "pista_didactica", getattr(item, "hint", getattr(item, "justificacion", "")))
+
                 pdf.set_font("helvetica", "B", 12)
-                pdf.set_fill_color(240, 248, 255) # Azul clarito
+                pdf.set_fill_color(240, 248, 255)
                 pdf.set_text_color(*self.color_secondary)
-                pdf.multi_cell(0, 10, f"Q{idx}: {item.front}", fill=True, new_x="LMARGIN", new_y="NEXT")
-                
-                # Dorso (Respuesta)
-                pdf.set_font("helvetica", "", 12)
-                pdf.multi_cell(0, 10, f"R: {item.back}", new_x="LMARGIN", new_y="NEXT")
-                
-                # Pista
-                if item.hint:
+                pdf.multi_cell(0, 10, f"#{idx}: {frente}", fill=True, new_x="LMARGIN", new_y="NEXT")
+
+                if dorso:
+                    pdf.set_font("helvetica", "", 12)
+                    pdf.multi_cell(0, 10, f"{dorso}", new_x="LMARGIN", new_y="NEXT")
+
+                if pista:
                     pdf.set_font("helvetica", "I", 10)
                     pdf.set_text_color(*self.color_accent)
-                    pdf.multi_cell(0, 8, f"Pista: {item.hint}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.multi_cell(0, 8, f"Pista / Justificación: {pista}", new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(5)
                 
         # 5. Quizzes

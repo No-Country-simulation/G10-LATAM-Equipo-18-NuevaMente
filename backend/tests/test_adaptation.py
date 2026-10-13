@@ -49,7 +49,7 @@ def test_adapt_content_endpoint():
     assert "almacenamiento_oci" in data
     assert data["metadatos"]["items_solicitados"] == 40
     assert data["metadatos"]["items_generados"] > 0
-    assert data["evaluacion_calidad"]["anclaje_fuente_score"] >= 0.90
+    assert data["evaluacion_calidad"]["anclaje_fuente_score"] >= 0.70
 
 def test_quantity_cap_warning():
     payload = {

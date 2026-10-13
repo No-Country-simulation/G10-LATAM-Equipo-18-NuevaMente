@@ -15,6 +15,7 @@ Output:
 
 import logging
 import os
+import time
 from typing import Any, Optional
 
 from app.core.config import settings
@@ -41,8 +42,8 @@ class GeminiClient(BaseLLMClient):
                 from google import genai  # noqa: PLC0415
                 from google.genai import types  # noqa: PLC0415
 
-                # Bypass SSL verification on environments with custom local CA certs
-                httpx_client = httpx.Client(verify=False)
+                # Bypass SSL verification on environments with custom local CA certs with strict timeout
+                httpx_client = httpx.Client(verify=False, timeout=httpx.Timeout(25.0, connect=5.0))
                 self._client = genai.Client(
                     api_key=self.api_key,
                     http_options=types.HttpOptions(httpx_client=httpx_client),
@@ -98,13 +99,36 @@ class GeminiClient(BaseLLMClient):
         else:
             message_parts = prompt
 
-        try:
-            chat = self._client.chats.create(model=model_name, config=gen_config)
-            response = chat.send_message(message_parts)
-            return response.text
-        except Exception as exc:
-            logger.warning("Gemini generation failed: %s", exc)
-            raise RuntimeError(f"Gemini API failure: {exc}") from exc
+        fallback_models = ["gemini-flash-lite-latest", "gemini-3.1-flash-lite", "gemini-3.5-flash-lite"]
+        models_to_try = [model_name] + [m for m in fallback_models if m != model_name]
+
+        last_exc = None
+        for attempt_model in models_to_try:
+            for attempt in range(2):
+                try:
+                    response = self._client.models.generate_content(
+                        model=attempt_model,
+                        contents=message_parts,
+                        config=gen_config,
+                    )
+                    return response.text
+                except Exception as exc:
+                    last_exc = exc
+                    exc_str = str(exc)
+                    if "503" in exc_str or "UNAVAILABLE" in exc_str or "429" in exc_str:
+                        logger.warning(
+                            "Gemini model %s transient error (attempt %d): %s. Waiting before retry...",
+                            attempt_model,
+                            attempt + 1,
+                            exc,
+                        )
+                        time.sleep(1.5 * (attempt + 1))
+                        continue
+                    else:
+                        break
+
+        logger.warning("Gemini generation failed: %s", last_exc)
+        raise RuntimeError(f"Gemini API failure: {last_exc}") from last_exc
 
 
     def generate_content(

@@ -46,7 +46,7 @@ class RagFuente(BaseModel):
     chunk_id: str
     extracto: str
     pagina: Optional[int] = 1
-    similitud_score: Optional[float] = 0.95
+    similitud_score: Optional[float] = None
 
 
 class FlashcardItem(BaseModel):

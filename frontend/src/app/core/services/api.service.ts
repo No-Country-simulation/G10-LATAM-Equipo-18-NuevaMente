@@ -36,6 +36,15 @@ export class ApiService {
     return this.http.post<AdaptationResponse>(`${this.baseUrl}/adapt-content`, request, { headers: this.getHeaders() });
   }
 
+  parseDocument(file: File, useLlm: boolean = false): Observable<{ status: string; filename: string; titulo_sugerido?: string; engine?: string; texto_extraido: string; total_chunks?: number; almacenamiento_oci?: any }> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const token = localStorage.getItem('nuevamente_jwt_token');
+    const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
+    const url = useLlm ? `${this.baseUrl}/parse-document?use_llm=true` : `${this.baseUrl}/parse-document`;
+    return this.http.post<{ status: string; filename: string; titulo_sugerido?: string; engine?: string; texto_extraido: string; total_chunks?: number; almacenamiento_oci?: any }>(url, formData, { headers });
+  }
+
   parsePdf(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
     const formData = new FormData();
     formData.append('file', file);

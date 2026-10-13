@@ -4,99 +4,123 @@ import logging
 from typing import Dict, Any, Optional
 from pathlib import Path
 
+from app.core.config import settings
+from app.services.storage import get_storage_backend
+from app.services.storage.base import StorageBackend
+
 logger = logging.getLogger("OCIStorageService")
 
-class OCIStorageService:
-    def __init__(self):
-        self.config_path = os.path.expanduser("~/.oci/config")
-        self.is_connected = False
-        self.client = None
-        self.namespace = "mock-oci-namespace"
-        
-        if os.path.exists(self.config_path):
-            try:
-                import oci
-                self.config = oci.config.from_file(self.config_path)
-                self.client = oci.object_storage.ObjectStorageClient(self.config)
-                self.namespace = self.client.get_namespace().data
-                self.is_connected = True
-                logger.info("Conexión activa con Oracle Cloud Infrastructure (OCI Object Storage).")
-            except Exception as e:
-                logger.warning(f"No se pudo conectar a OCI Object Storage via SDK: {e}. Operando en modo Fallback Local.")
-        else:
-            logger.info("Archivo ~/.oci/config no encontrado. OCI Storage operará en modo Local Mock (Always Free Compatible).")
 
-    def upload_json_artifact(self, bucket_name: str, object_name: str, json_data: dict) -> Dict[str, Any]:
+class OCIStorageService:
+    """
+    Servicio de alto nivel para almacenamiento en OCI Object Storage Always Free.
+    Delega en StorageBackend (Instance Principals o Config File en OCI, o Local en dev).
+    Garantiza el esquema jerárquico:
+      - Documentos: usuarios/{user_id}/documentos/{sha256}/{nombre_saneado}
+      - Contenidos: usuarios/{user_id}/contenidos/{content_id}/v{n}.json
+    """
+
+    def __init__(self):
+        self.backend: StorageBackend = get_storage_backend()
+        self.is_connected = getattr(self.backend, "is_connected", True)
+        self.namespace = getattr(self.backend, "namespace", settings.OCI_NAMESPACE or "mock-namespace")
+
+    def upload_json_artifact(
+        self,
+        bucket_name: str,
+        object_name: str,
+        json_data: dict,
+        user_id: Optional[str] = None,
+        version: int = 1,
+    ) -> Dict[str, Any]:
         """
         Guarda los contenidos educativos adaptados (JSON) en el bucket de OCI Object Storage Always Free.
         """
-        if self.is_connected and self.client:
-            try:
-                body = json.dumps(json_data, ensure_ascii=False, indent=2).encode('utf-8')
-                self.client.put_object(self.namespace, bucket_name, object_name, body, content_type="application/json")
-                return {
-                    "bucket": bucket_name,
-                    "objeto_id": object_name,
-                    "status_upload": "completado"
-                }
-            except Exception as e:
-                logger.error(f"Error subiendo JSON a OCI Object Storage: {e}")
+        # Determinar clave jerárquica si no viene con prefijo usuarios/
+        if object_name.startswith("usuarios/"):
+            target_key = object_name
+        else:
+            content_id = object_name.replace(".json", "")
+            target_key = StorageBackend.build_content_key(user_id, content_id, version=version)
 
-        # Fallback local mock
-        base_dir = Path(os.getcwd()) / "storage_mock" / bucket_name
-        base_dir.mkdir(parents=True, exist_ok=True)
-        file_path = base_dir / object_name
+        body_bytes = json.dumps(json_data, ensure_ascii=False, indent=2).encode("utf-8")
+        try:
+            res = self.backend.put_object(
+                bucket_name=bucket_name,
+                object_name=target_key,
+                data=body_bytes,
+                content_type="application/json",
+                metadata={"tipo": "contenido_educativo", "version": str(version)},
+            )
+            return {
+                "bucket": bucket_name,
+                "objeto_id": target_key,
+                "status_upload": "completado",
+                "sha256": res.get("sha256"),
+            }
+        except Exception as exc:
+            logger.error("Error al persistir artefacto educativo en OCI [%s/%s]: %s", bucket_name, target_key, exc)
+            if settings.APP_ENV == "production" and not settings.ALLOW_LOCAL_STORAGE:
+                raise
+            return {
+                "bucket": bucket_name,
+                "objeto_id": target_key,
+                "status_upload": "error",
+                "error": str(exc),
+            }
 
-        file_path.write_text(json.dumps(json_data, ensure_ascii=False, indent=2), encoding="utf-8")
-            
-        return {
-            "bucket": bucket_name,
-            "objeto_id": object_name,
-            "status_upload": "completado"
-        }
-
-    def upload_document_source(self, bucket_name: str, object_name: str, file_bytes: bytes, content_type: str = "application/pdf") -> Dict[str, Any]:
+    def upload_document_source(
+        self,
+        bucket_name: str,
+        object_name: str,
+        file_bytes: bytes,
+        content_type: str = "application/pdf",
+        user_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Guarda los documentos técnicos originales subidos (PDF, TXT, MD) en OCI Object Storage Always Free.
         """
-        if self.is_connected and self.client:
-            try:
-                self.client.put_object(self.namespace, bucket_name, object_name, file_bytes, content_type=content_type)
-                return {
-                    "bucket": bucket_name,
-                    "objeto_id": object_name,
-                    "status_upload": "completado"
-                }
-            except Exception as e:
-                logger.error(f"Error subiendo documento fuente a OCI Object Storage: {e}")
+        sha256_hash = StorageBackend.compute_sha256(file_bytes)
 
-        # Fallback local mock
-        base_dir = Path(os.getcwd()) / "storage_mock" / bucket_name
-        base_dir.mkdir(parents=True, exist_ok=True)
-        file_path = base_dir / object_name
-        file_path.write_bytes(file_bytes)
+        if object_name.startswith("usuarios/"):
+            target_key = object_name
+        else:
+            target_key = StorageBackend.build_document_key(user_id, sha256_hash, object_name)
 
-        return {
-            "bucket": bucket_name,
-            "objeto_id": object_name,
-            "status_upload": "completado"
-        }
+        try:
+            res = self.backend.put_object(
+                bucket_name=bucket_name,
+                object_name=target_key,
+                data=file_bytes,
+                content_type=content_type,
+                metadata={"nombre_original": StorageBackend.sanitize_filename(object_name)},
+            )
+            return {
+                "bucket": bucket_name,
+                "objeto_id": target_key,
+                "status_upload": "completado",
+                "sha256": sha256_hash,
+                "deduplicado": res.get("deduplicado", False),
+            }
+        except Exception as exc:
+            logger.error("Error al persistir documento fuente en OCI [%s/%s]: %s", bucket_name, target_key, exc)
+            if settings.APP_ENV == "production" and not settings.ALLOW_LOCAL_STORAGE:
+                raise
+            return {
+                "bucket": bucket_name,
+                "objeto_id": target_key,
+                "status_upload": "error",
+                "error": str(exc),
+            }
 
     def download_document_source(self, bucket_name: str, object_name: str) -> Optional[bytes]:
         """
         Descarga documentos técnicos u objetos desde OCI Object Storage Always Free.
         """
-        if self.is_connected and self.client:
-            try:
-                response = self.client.get_object(self.namespace, bucket_name, object_name)
-                return response.data.content
-            except Exception as e:
-                logger.error(f"Error descargando documento desde OCI Object Storage: {e}")
+        return self.backend.get_object(bucket_name, object_name)
 
-        # Fallback local mock
-        base_dir = Path(os.getcwd()) / "storage_mock" / bucket_name
-        file_path = base_dir / object_name
-        if file_path.exists():
-            return file_path.read_bytes()
-        return None
-
+    def delete_document(self, bucket_name: str, object_name: str) -> bool:
+        """
+        Elimina un documento de OCI de forma idempotente.
+        """
+        return self.backend.delete_object(bucket_name, object_name)

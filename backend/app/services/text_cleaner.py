@@ -219,10 +219,30 @@ def clean_title(title: str, stats: Optional[CleaningStats] = None, strip_markdow
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+_BROKEN_LIGATURE_REPAIRS = [
+    (re.compile(r'\bcon[gq]uración\b', re.IGNORECASE), "configuración"),
+    (re.compile(r'\bcon[gq]uraciones\b', re.IGNORECASE), "configuraciones"),
+    (re.compile(r'\bcon[gq]urar\b', re.IGNORECASE), "configurar"),
+    (re.compile(r'\bcon[gq]urado\b', re.IGNORECASE), "configurado"),
+    (re.compile(r'\bcon[gq]urada\b', re.IGNORECASE), "configurada"),
+    (re.compile(r'\bde[gq]nición\b', re.IGNORECASE), "definición"),
+    (re.compile(r'\bde[gq]nir\b', re.IGNORECASE), "definir"),
+    (re.compile(r'\bde[gq]nido\b', re.IGNORECASE), "definido"),
+    (re.compile(r'\bsigni[gq]cado\b', re.IGNORECASE), "significado"),
+    (re.compile(r'\bsigni[gq]ca\b', re.IGNORECASE), "significa"),
+    (re.compile(r'\bespeci[gq]car\b', re.IGNORECASE), "especificar"),
+    (re.compile(r'\bespeci[gq]cación\b', re.IGNORECASE), "especificación"),
+    (re.compile(r'\b[gq]gura\b', re.IGNORECASE), "figura"),
+]
+
+
 def _normalize_characters(text: str, stats: CleaningStats) -> str:
     """Replaces ligatures and special spaces, and drops invisible characters."""
     stats.characters_normalized += sum(text.count(char) for char in _CHARACTER_REPLACEMENTS)
-    return text.translate(_CHARACTER_TABLE)
+    translated = text.translate(_CHARACTER_TABLE)
+    for pattern, replacement in _BROKEN_LIGATURE_REPAIRS:
+        translated = pattern.sub(replacement, translated)
+    return translated
 
 
 def _split_code_fences(text: str) -> List[Tuple[bool, str]]:

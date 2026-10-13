@@ -243,6 +243,56 @@ def get_package_versions() -> Dict[str, str]:
             
     return results
 
+def test_oci_storage() -> Dict[str, Any]:
+    """
+    Verifica el estado de OCI Object Storage sin exponer secretos.
+    Retorna estado ('ok', 'degradado', 'caído'), auth_mode y buckets alcanzables.
+    """
+    from app.core.config import settings
+    from app.services.storage import get_storage_backend, OciStorageBackend
+
+    auth_mode = settings.OCI_AUTH_MODE
+    region = settings.OCI_REGION
+    bucket_src = settings.OCI_BUCKET_SOURCES
+    bucket_art = settings.OCI_BUCKET_CONTENT
+
+    try:
+        backend = get_storage_backend()
+        if isinstance(backend, OciStorageBackend):
+            if backend.is_connected:
+                return {
+                    "status": "ok",
+                    "auth_mode": auth_mode,
+                    "region": region,
+                    "buckets_alcanzables": [bucket_src, bucket_art],
+                    "detalle": "Conexión activa con OCI Object Storage Always Free.",
+                }
+            else:
+                return {
+                    "status": "caído" if settings.APP_ENV == "production" else "degradado",
+                    "auth_mode": auth_mode,
+                    "region": region,
+                    "buckets_alcanzables": [],
+                    "detalle": "Cliente OCI sin conexión activa.",
+                }
+        else:
+            return {
+                "status": "degradado",
+                "auth_mode": "local_mock",
+                "region": "local",
+                "buckets_alcanzables": ["storage_mock"],
+                "detalle": "Operando en almacenamiento local mock (desarrollo).",
+            }
+    except Exception as exc:
+        return {
+            "status": "caído" if settings.APP_ENV == "production" else "degradado",
+            "auth_mode": auth_mode,
+            "region": region,
+            "buckets_alcanzables": [],
+            "detalle": f"Fallo al contactar almacenamiento: {exc}",
+        }
+
+
 def check_all_services() -> Dict[str, Any]:
     """
     Función integradora reutilizable para el endpoint /api/salud/servicios
@@ -254,6 +304,7 @@ def check_all_services() -> Dict[str, Any]:
     emb_info = test_embeddings()
     opt_info = test_optional_services()
     pkg_info = get_package_versions()
+    oci_info = test_oci_storage()
     
     is_healthy = (llm_info["status"] == "ok") and (emb_info["status"] == "ok")
     
@@ -263,6 +314,7 @@ def check_all_services() -> Dict[str, Any]:
         "keys": keys_info,
         "llm_gemini": llm_info,
         "embeddings": emb_info,
+        "oci_storage": oci_info,
         "opcionales": opt_info,
         "paquetes": pkg_info
     }
@@ -291,6 +343,11 @@ def print_health_table(report: Dict[str, Any]):
     emb_status = "SUCCESS" if emb["status"] == "ok" else "FAIL"
     emb_detail = f"{emb['message']} | Dim: {emb['dimension']} ({emb['latency_ms']} ms)"
     print(f"| Embeddings principales | **{emb_status}** | {emb_detail} |")
+
+    oci = report.get("oci_storage", {})
+    oci_status = oci.get("status", "desconocido").upper()
+    oci_detail = f"Modo: {oci.get('auth_mode')} | Buckets: {oci.get('buckets_alcanzables', [])} | {oci.get('detalle')}"
+    print(f"| OCI Object Storage | **{oci_status}** | {oci_detail} |")
     
     opt = report["opcionales"]
     print(f"| Jina AI Embeddings | {opt['jina']} | Respaldo en cascada |")

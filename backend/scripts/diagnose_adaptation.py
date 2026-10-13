@@ -18,6 +18,7 @@ import re
 import hashlib
 import difflib
 import unicodedata
+import asyncio
 from pathlib import Path
 from typing import Dict, Any, List, Tuple, Optional
 
@@ -25,9 +26,9 @@ from typing import Dict, Any, List, Tuple, Optional
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 if hasattr(sys.stderr, "reconfigure"):
-    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace", line_buffering=True)
 
 try:
     import certifi
@@ -59,12 +60,25 @@ PDF_PATH = Path(__file__).parent.parent / "storage_mock" / "nuevamente-documento
 
 # Cadenas prohibidas que indican relleno o plantillas fijas
 FORBIDDEN_PATTERNS = [
+    "Tarjeta #",
+    "Pista #",
+    "este concepto establece",
+    "Diseñado para el nivel",
+    "Enfócate en las buenas prácticas",
+    "Relevancia de",
+    "Verifica los prerrequisitos",
     "Aumenta la eficiencia",
     "Punto Clave #",
     "(Módulo",
     "VCN",
     "Subredes",
-    "Security Lists"
+    "Security Lists",
+    "conguración"
+]
+
+FORBIDDEN_REGEX = [
+    re.compile(r"Paso\s+\d+:", re.IGNORECASE),
+    re.compile(r"\bcon[gq]uración\b", re.IGNORECASE),
 ]
 
 MAIN_COMBINATIONS = [
@@ -88,7 +102,7 @@ MAIN_COMBINATIONS = [
         "detail": "Tecnico",
         "quantity_level": "Exhaustivo",
         "target_quantity": None,
-        "expected_max_items": 70
+        "expected_items": 70
     },
     {
         "id": "c",
@@ -99,7 +113,7 @@ MAIN_COMBINATIONS = [
         "detail": "Exhaustivo",
         "quantity_level": "Amplio",
         "target_quantity": None,
-        "expected_max_items": 12
+        "expected_items": 12
     },
     {
         "id": "d",
@@ -110,7 +124,7 @@ MAIN_COMBINATIONS = [
         "detail": "Conciso",
         "quantity_level": "Estandar",
         "target_quantity": None,
-        "expected_max_items": 6
+        "expected_items": 6
     }
 ]
 
@@ -265,12 +279,12 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
         )
 
         t0 = time.time()
-        response = orchestrator.run_pipeline(
+        response = asyncio.run(orchestrator.run_pipeline(
             request=req,
             top_passages=top_passages,
             key_concepts=key_concepts,
             prerequisites=prerequisites
-        )
+        ))
         elapsed = round(time.time() - t0, 2)
 
         meta = response.metadata
@@ -306,12 +320,12 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
         forzar_regenerar=False
     )
     t_cache = time.time()
-    resp_cache = orchestrator.run_pipeline(
+    resp_cache = asyncio.run(orchestrator.run_pipeline(
         request=req_cache,
         top_passages=[],
         key_concepts=key_concepts,
         prerequisites=prerequisites
-    )
+    ))
     elapsed_cache = round(time.time() - t_cache, 4)
     origin_cache = getattr(resp_cache.metadata, "origin", getattr(resp_cache.metadata, "origen", "llm"))
     hash_a = results[0]["metadata"].prompt_hash
@@ -336,7 +350,7 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
             forzar_regenerar=True
         )
         t0 = time.time()
-        resp_ex = orchestrator.run_pipeline(
+        resp_ex = asyncio.run(orchestrator.run_pipeline(
             request=req_ex,
             top_passages=hybrid_rag.retrieve_top_passages(
                 query=f"{comb_ex['profile']} {comb_ex['format']} {comb_ex['niche']}",
@@ -346,7 +360,7 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
             ),
             key_concepts=key_concepts,
             prerequisites=prerequisites
-        )
+        ))
         elapsed_ex = round(time.time() - t0, 2)
         results.append({
             "comb": comb_ex,
@@ -388,14 +402,31 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
         origin = getattr(meta, "origin", getattr(meta, "origen", "llm"))
         fallback_used = getattr(meta, "fallback_used", getattr(meta, "fallback_usado", False))
 
-        # Detector 1: Patrones de relleno o plantillas fijas
+        # Detector 1: Patrones de relleno o plantillas fijas y ligaduras rotas
         for pat in FORBIDDEN_PATTERNS:
             if pat in full_text:
                 failures.append(f"FALLO ({comb['id'].upper()}): Se detectó el patrón prohibido '{pat}' en el contenido generado.")
+        for reg in FORBIDDEN_REGEX:
+            if reg.search(full_text):
+                failures.append(f"FALLO ({comb['id'].upper()}): Se detectó expresión regular prohibida '{reg.pattern}' en el contenido generado.")
 
         # Detector 2: Fallback usado o modo demo
         if fallback_used or origin == "demo":
             failures.append(f"FALLO ({comb['id'].upper()}): Se utilizó fallback silencioso o modo demo (origen='{origin}', fallback_usado={fallback_used}).")
+
+        # Detector 2.1: Primera ejecución NUNCA desde caché
+        if origin == "cache":
+            failures.append(f"FALLO ({comb['id'].upper()}): La primera ejecución provino de la caché ('cache'). Debe ser una llamada fresca a LLM.")
+
+        # Detector 2.2: Llamadas a LLM registradas (llm_calls > 0)
+        calls_data = getattr(meta, "llm_calls", {})
+        total_calls = 0
+        if isinstance(calls_data, dict):
+            total_calls = sum(v for k, v in calls_data.items() if isinstance(v, (int, float)) and k in ("planificar", "generar", "verificar"))
+        elif isinstance(calls_data, (int, float)):
+            total_calls = int(calls_data)
+        if total_calls <= 0:
+            failures.append(f"FALLO ({comb['id'].upper()}): No se registraron llamadas a LLM (llm_calls={calls_data}).")
 
         # Detector 3: Ítems duplicados dentro de la misma salida
         if len(items_text) != len(set(items_text)) and len(items_text) > 0:
@@ -405,11 +436,19 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
             print(f"DEBUG DUPES ({comb['id'].upper()}): {dupes}")
             failures.append(f"FALLO ({comb['id'].upper()}): Se detectaron ítems duplicados dentro de la misma generación.")
 
-        # Detector 4: Ítems sin fuentes
+        # Detector 4: Ítems sin fuentes, extractos < 40 caracteres, o scores fijos
         for idx_it, it in enumerate(items):
             fuentes = it.get("fuentes") if isinstance(it, dict) else getattr(it, "fuentes", None)
             if not fuentes:
                 failures.append(f"FALLO ({comb['id'].upper()}): El ítem #{idx_it+1} carece de la lista 'fuentes'.")
+            else:
+                for f_idx, f in enumerate(fuentes):
+                    ext = f.get("extracto", "") if isinstance(f, dict) else getattr(f, "extracto", "")
+                    if len(ext) < 40:
+                        failures.append(f"FALLO ({comb['id'].upper()}): Ítem #{idx_it+1} fuente #{f_idx+1} tiene extracto < 40 caracteres ({len(ext)} chars: '{ext}').")
+                    sim_val = f.get("similitud_score") if isinstance(f, dict) else getattr(f, "similitud_score", None)
+                    if sim_val in (0.95, 0.98, 0.85):
+                        failures.append(f"FALLO ({comb['id'].upper()}): Ítem #{idx_it+1} tiene un similitud_score fijo prohibido ({sim_val}).")
 
         # Guardar score de anclaje
         score = getattr(quality, "source_grounding_score", getattr(quality, "anclaje_fuente_score", None))
@@ -424,11 +463,11 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
         if "expected_items" in comb and gen_count != comb["expected_items"]:
             failures.append(f"FALLO ({comb['id'].upper()}): Cantidad generada {gen_count} difiere de la esperada {comb['expected_items']} para el nivel {comb['quantity_level']}.")
 
-    # Detector 5: Anclaje de fuente idéntico o fijo en 0.98 / 0.85
+    # Detector 5: Anclaje de fuente idéntico o fijo en 0.98 / 0.95 / 0.85
     if len(set(grounding_scores)) <= 1 and len(grounding_scores) > 1:
         failures.append(f"FALLO: Los scores de anclaje de fuente son idénticos en todas las combinaciones ({grounding_scores}). Debe ser dinámico.")
-    if 0.98 in grounding_scores or 0.85 in grounding_scores:
-        failures.append(f"FALLO: Se detectaron scores de anclaje fijos hardcodeados (0.98 o 0.85) en {grounding_scores}.")
+    if 0.98 in grounding_scores or 0.85 in grounding_scores or 0.95 in grounding_scores:
+        failures.append(f"FALLO: Se detectaron scores de anclaje fijos hardcodeados (0.98, 0.95 o 0.85) en {grounding_scores}.")
 
     # Detector 6: Similitud entre combinaciones distintas >= 0.70
     pairwise_similarities: List[float] = []
@@ -464,7 +503,7 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
         fallback = getattr(m, "fallback_used", getattr(m, "fallback_usado", False))
         score = getattr(q, "source_grounding_score", getattr(q, "anclaje_fuente_score", "-"))
         prov_llm = getattr(m, "llm_provider", getattr(m, "proveedor_llm", "gemini"))
-        mod_llm = getattr(m, "llm_model", getattr(m, "modelo_llm", "gemini-2.5-flash"))
+        mod_llm = getattr(m, "llm_model", getattr(m, "modelo_llm", "gemini-3.5-flash"))
         prov_emb = getattr(m, "embedding_provider", getattr(m, "proveedor_embeddings", "gemini"))
         modo_rec = getattr(m, "retrieval_mode", getattr(m, "modo_recuperacion", "semantico"))
         p_hash = getattr(m, "prompt_hash", "-")

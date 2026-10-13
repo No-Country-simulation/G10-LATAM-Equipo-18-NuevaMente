@@ -1,0 +1,100 @@
+"""
+base.py
+
+Purpose:
+    Abstract base interface and key naming utilities for NuevaMente document
+    and educational artifact storage backends (OCI Object Storage & Local).
+"""
+
+from abc import ABC, abstractmethod
+import hashlib
+import re
+from typing import Dict, Any, Optional, List
+
+
+class StorageBackend(ABC):
+    """Contrato base para backends de almacenamiento en la nube o local."""
+
+    @abstractmethod
+    def put_object(
+        self,
+        bucket_name: str,
+        object_name: str,
+        data: bytes,
+        content_type: str = "application/octet-stream",
+        metadata: Optional[Dict[str, str]] = None,
+    ) -> Dict[str, Any]:
+        """Sube un objeto al bucket. Retorna metadata del objeto subido."""
+        pass
+
+    @abstractmethod
+    def head_object(self, bucket_name: str, object_name: str) -> Optional[Dict[str, Any]]:
+        """Retorna metadatos del objeto si existe, o None."""
+        pass
+
+    @abstractmethod
+    def get_object(self, bucket_name: str, object_name: str) -> Optional[bytes]:
+        """Descarga el contenido binario del objeto o retorna None si no existe."""
+        pass
+
+    @abstractmethod
+    def delete_object(self, bucket_name: str, object_name: str) -> bool:
+        """Elimina un objeto de forma idempotente (404 / no existe = True)."""
+        pass
+
+    @abstractmethod
+    def object_exists(self, bucket_name: str, object_name: str) -> bool:
+        """Verifica si el objeto existe."""
+        pass
+
+    @abstractmethod
+    def list_objects(self, bucket_name: str, prefix: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Lista objetos en el bucket con prefijo opcional."""
+        pass
+
+    @staticmethod
+    def compute_sha256(data: bytes) -> str:
+        """Calcula el hash SHA-256 de los bytes provistos."""
+        return hashlib.sha256(data).hexdigest()
+
+    @staticmethod
+    def sanitize_filename(name: str) -> str:
+        """
+        Sanea el nombre de un archivo removiendo rutas ('..', '/'),
+        caracteres especiales y espacios, garantizando compatibilidad ASCII.
+        """
+        # Extraer nombre base si viene con ruta
+        base = name.split("/")[-1].split("\\")[-1]
+        # Reemplazar espacios y caracteres no alfanuméricos seguros
+        clean = re.sub(r"[^a-zA-Z0-9_\.-]", "_", base)
+        # Prevenir múltiples puntos o nombres vacíos
+        clean = re.sub(r"\.{2,}", ".", clean).strip("._")
+        return clean or "documento_fuente"
+
+    @staticmethod
+    def sanitize_user_id(user_id: Optional[str]) -> str:
+        """Sanea el identificador de usuario."""
+        if not user_id:
+            return "anonimo"
+        clean = re.sub(r"[^a-zA-Z0-9_\-]", "_", str(user_id)).strip("_")
+        return clean or "anonimo"
+
+    @classmethod
+    def build_document_key(cls, user_id: Optional[str], sha256_hash: str, filename: str) -> str:
+        """
+        Construye la clave jerárquica para un documento fuente:
+        usuarios/{user_id}/documentos/{sha256}/{nombre_saneado}
+        """
+        safe_user = cls.sanitize_user_id(user_id)
+        safe_name = cls.sanitize_filename(filename)
+        return f"usuarios/{safe_user}/documentos/{sha256_hash}/{safe_name}"
+
+    @classmethod
+    def build_content_key(cls, user_id: Optional[str], content_id: str, version: int = 1) -> str:
+        """
+        Construye la clave jerárquica para un artefacto educativo JSON:
+        usuarios/{user_id}/contenidos/{content_id}/v{version}.json
+        """
+        safe_user = cls.sanitize_user_id(user_id)
+        clean_content_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", content_id).strip("_")
+        return f"usuarios/{safe_user}/contenidos/{clean_content_id}/v{version}.json"

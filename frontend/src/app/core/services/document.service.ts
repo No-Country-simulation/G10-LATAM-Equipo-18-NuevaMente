@@ -1,5 +1,7 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal, computed, inject } from '@angular/core';
+import { firstValueFrom } from 'rxjs';
 import { AppDocument, DocumentType } from '../models/document.model';
+import { ApiService } from './api.service';
 
 const STORAGE_KEY = 'nuevamente_app_documents';
 
@@ -7,6 +9,7 @@ const STORAGE_KEY = 'nuevamente_app_documents';
   providedIn: 'root'
 })
 export class DocumentService {
+  private api = inject(ApiService);
   private documentsSignal = signal<AppDocument[]>([]);
   readonly selectedWorkspaceDocument = signal<AppDocument | null>(null);
 
@@ -116,11 +119,36 @@ Este documento detalla la combinación de Embeddings Densos (Gemini 001) y Búsq
     if (fileExt === 'pdf') type = 'pdf';
     else if (fileExt === 'md' || fileExt === 'markdown') type = 'md';
 
-    const content = await this.readFileAsText(file);
-    let contentUrl: string | undefined;
+    let content = '';
+    let ociMeta: any = null;
 
+    try {
+      const parsed = await firstValueFrom(this.api.parseDocument(file));
+      if (parsed && parsed.texto_extraido) {
+        content = parsed.texto_extraido;
+      }
+      if (parsed && parsed.almacenamiento_oci) {
+        ociMeta = parsed.almacenamiento_oci;
+      }
+    } catch (err) {
+      console.warn('Backend parsing/OCI upload failed, fallback to local text read:', err);
+      content = await this.readFileAsText(file);
+    }
+
+    if (!content) {
+      content = await this.readFileAsText(file);
+    }
+
+    let contentUrl: string | undefined;
     if (type === 'pdf') {
       contentUrl = URL.createObjectURL(file);
+    }
+
+    const finalTags = [...tags];
+    if (ociMeta && ociMeta.status_upload === 'completado') {
+      finalTags.push('OCI Standard');
+    } else if (finalTags.length === 0) {
+      finalTags.push(type.toUpperCase(), 'Importado');
     }
 
     const newDoc: AppDocument = {
@@ -132,7 +160,7 @@ Este documento detalla la combinación de Embeddings Densos (Gemini 001) y Búsq
       contentUrl,
       content,
       status: 'active',
-      tags: tags.length > 0 ? tags : [type.toUpperCase(), 'Importado']
+      tags: Array.from(new Set(finalTags))
     };
 
     const current = this.documentsSignal();

@@ -33,7 +33,7 @@ try:
 except Exception:
     pass
 
-from typing import Dict, List
+from typing import Dict, List, Optional
 from pydantic import BaseModel
 
 try:
@@ -64,9 +64,9 @@ class Settings(BaseModel):
     DEFAULT_OUTPUT_LANGUAGE: str = os.getenv("DEFAULT_OUTPUT_LANGUAGE", "Spanish")
 
     # LLM model identifiers - defined here, not in .env (which is only for API keys)
-    GEMINI_LLM_MODEL: str = "gemini-3.5-flash"
-    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-3.5-pro"
-    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.5-flash"
+    GEMINI_LLM_MODEL: str = os.getenv("DEFAULT_GEMINI_MODEL_FLASH", "gemini-flash-lite-latest")
+    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-flash-lite-latest"
+    DEFAULT_GEMINI_MODEL_FLASH: str = os.getenv("DEFAULT_GEMINI_MODEL_FLASH", "gemini-flash-lite-latest")
     DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-20b"
     DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
 
@@ -146,13 +146,30 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
+    # ── Environment & Storage Mode ───────────────────────────────────────────
+    APP_ENV: str = os.getenv("APP_ENV", "development")
+    ALLOW_LOCAL_STORAGE: bool = os.getenv("ALLOW_LOCAL_STORAGE", "false").lower() == "true"
+    STORAGE_MAX_UPLOAD_MB: int = int(os.getenv("STORAGE_MAX_UPLOAD_MB", "25"))
+    STORAGE_USER_QUOTA_MB: int = int(os.getenv("STORAGE_USER_QUOTA_MB", "200"))
+    STORAGE_SOFT_LIMIT_GIB: int = int(os.getenv("STORAGE_SOFT_LIMIT_GIB", "15"))
+
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
+    OCI_AUTH_MODE: str = os.getenv("OCI_AUTH_MODE", "instance_principal")
+    OCI_REGION: str = os.getenv("OCI_REGION", "mx-monterrey-1")
+    OCI_NAMESPACE: Optional[str] = os.getenv("OCI_NAMESPACE", None)
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
+    OCI_BUCKET_SOURCES: str = os.getenv("OCI_BUCKET_SOURCES", os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente"))
+    OCI_BUCKET_CONTENT: str = os.getenv("OCI_BUCKET_CONTENT", os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos"))
     OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente")
     OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos")
 
     @property
     def OCI_ENABLED(self) -> bool:
+        env_val = os.getenv("OCI_ENABLED")
+        if env_val is not None:
+            return env_val.lower() == "true"
+        if self.OCI_AUTH_MODE == "instance_principal":
+            return True
         return os.path.exists(self.OCI_CONFIG_FILE)
 
     # ── RAG Configuration ─────────────────────────────────────────────────────
