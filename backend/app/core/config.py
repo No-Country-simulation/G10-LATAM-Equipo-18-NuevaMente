@@ -134,9 +134,8 @@ class Settings(BaseModel):
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
 
     # ── Document Storage Configuration (original uploaded files) ──────────────
-    # STORAGE_METHOD: "supabase" (Supabase Storage) or "oci" (pending an OCI
-    # adapter behind the same BaseDocumentStorage interface).
-    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "supabase")
+    # STORAGE_METHOD: "oci" (OCI Object Storage Always Free) or "supabase".
+    STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "oci")
  
     # Supabase project credentials. SUPABASE_KEY must be the service_role key
     # (backend-only, bypasses Row Level Security) — never the anon/public key,

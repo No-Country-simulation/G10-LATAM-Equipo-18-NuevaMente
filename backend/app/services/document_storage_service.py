@@ -171,8 +171,6 @@ class OCIStorageAdapter(BaseDocumentStorage):
 
 def get_document_storage() -> BaseDocumentStorage:
     """Factory choosing the storage backend by settings.STORAGE_METHOD."""
-    if settings.STORAGE_METHOD == "supabase":
+    if settings.STORAGE_METHOD.lower() == "supabase":
         return SupabaseStorageService()
-    elif settings.STORAGE_METHOD == "oci":
-        return OCIStorageAdapter()
-    raise ValueError(f"Unsupported STORAGE_METHOD: '{settings.STORAGE_METHOD}'.")
+    return OCIStorageAdapter()

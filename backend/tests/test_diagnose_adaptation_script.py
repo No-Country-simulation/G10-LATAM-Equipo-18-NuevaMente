@@ -9,7 +9,7 @@ duplicados o scores fijos, y APROBADO cuando las salidas difieren y son dinámic
 import os
 import sys
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 
 # Inserción de ruta backend
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -21,8 +21,8 @@ def _make_mock_response(title: str, text_content: str, items_count: int, groundi
     items = [
         {
             "frente": f"Concepto {i+1} de {title}",
-            "dorso": f"Explicación detallada {i+1} ({text_content})",
-            "fuentes": [{"chunk_id": f"c{i+1}", "extracto": "fuente"}]
+            "dorso": f"Explicación detallada {i+1} ({text_content}) sobre la arquitectura del sistema.",
+            "fuentes": [{"chunk_id": f"c{i+1}", "extracto": "Fragmento de referencia técnica del documento original sobre Java y microservicios."}]
         }
         for i in range(items_count)
     ]
@@ -39,7 +39,8 @@ def _make_mock_response(title: str, text_content: str, items_count: int, groundi
         prerequisites=["OOP"],
         prompt_hash=prompt_hash,
         origin=origin,
-        fallback_used=False
+        fallback_used=False,
+        llm_calls={"generar": 1}
     )
     qual = QualityEvaluation(
         source_grounding_score=grounding_score,
@@ -68,7 +69,7 @@ def test_diagnose_script_detects_fixed_template_failure(mock_exists, mock_graph,
     
     # Inyectar respuesta fija con frase prohibida "Aumenta la eficiencia"
     resp_fixed = _make_mock_response("Título Fijo", "Aumenta la eficiencia en fintech", 10, 0.98, "hash_123")
-    mock_orch_cls.return_value.run_pipeline.return_value = resp_fixed
+    mock_orch_cls.return_value.run_pipeline = AsyncMock(return_value=resp_fixed)
     
     passed, failures, report_md = run_adaptation_diagnostics(save_report=False)
     
@@ -90,16 +91,16 @@ def test_diagnose_script_passes_on_dynamic_outputs(mock_exists, mock_graph, mock
 
     responses = [
         _make_mock_response("Flashcards Principiante", "Conceptos básicos de clases y objetos en Java", 10, 0.912, "hash_a"),
-        _make_mock_response("Flashcards Desarrollador", "Optimización de garbage collector y hilos", 30, 0.895, "hash_b"),
+        _make_mock_response("Flashcards Desarrollador", "Optimización de garbage collector y hilos", 70, 0.895, "hash_b"),
         _make_mock_response("Tutorial Líder Técnico", "Arquitectura de microservicios con Spring Cloud Gateway", 12, 0.943, "hash_c"),
-        _make_mock_response("Resumen Ejecutivo", "Métricas de adopción y rendimiento de JVM", 5, 0.925, "hash_d"),
+        _make_mock_response("Resumen Ejecutivo", "Métricas de adopción y rendimiento de JVM", 6, 0.925, "hash_d"),
         _make_mock_response("Flashcards Principiante Caché", "Conceptos básicos de clases y objetos en Java", 10, 0.912, "hash_a", origin="cache"),
         _make_mock_response("Flashcards 25", "Patrones de diseño GoF en Java", 25, 0.901, "hash_e"),
         _make_mock_response("Quiz 15", "Evaluación de concurrencia en Java", 15, 0.934, "hash_f")
     ]
     
     # Hacer que run_pipeline devuelva una respuesta diferente para cada combinación
-    mock_orch_cls.return_value.run_pipeline.side_effect = responses
+    mock_orch_cls.return_value.run_pipeline = AsyncMock(side_effect=responses)
     
     passed, failures, report_md = run_adaptation_diagnostics(save_report=False)
     
