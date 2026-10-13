@@ -370,7 +370,7 @@ def print_health_table(report: Dict[str, Any]):
     
     llm = report["llm_gemini"]
     llm_status = "SUCCESS" if llm["status"] == "ok" else "FAIL"
-    print(f"| LLM Gemini (`gemini-2.5-flash`) | **{llm_status}** | {llm['message']} ({llm['latency_ms']} ms) |")
+    print(f"| LLM Gemini (`{settings.DEFAULT_GEMINI_MODEL_FLASH}`) | **{llm_status}** | {llm['message']} ({llm['latency_ms']} ms) |")
     
     emb = report["embeddings"]
     emb_status = "SUCCESS" if emb["status"] == "ok" else "FAIL"
