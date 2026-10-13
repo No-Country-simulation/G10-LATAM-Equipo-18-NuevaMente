@@ -121,6 +121,7 @@ DEFAULT_PATTERNS: Dict[str, Dict[str, List[str]]] = {
             r"^contents$",
             r"^list\s+of\s+(?:tables|figures|illustrations)$",
             r"^lista\s+de\s+(?:tablas|figuras|ilustraciones|im[aá]genes)$",
+            r"(?:^|>\s*|^\d+(?:\.\d+)*\s+)(?:references|referencias(?:\s+bibliogr[aá]ficas)?|bibliograf[íi]a|works\s+cited)(?:\s*$)",
         ],
     },
     "near_empty": {

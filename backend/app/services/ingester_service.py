@@ -120,7 +120,11 @@ class IngesterService:
         ]
         return "\n".join(pages_with_metadata)
 
-    def extract_text_from_pdf(self, filepath: Path) -> str:
+    def extract_text_from_pdf(
+        self,
+        filepath: Path,
+        options: Optional[IngestionOptions] = None,
+    ) -> str:
         """Extracts text from a PDF, preferring the Markdown-aware parser
         (pymupdf4llm) for its table/heading structure. Falls back to the
         legacy pypdf extraction both when the library is not installed and
@@ -141,7 +145,13 @@ class IngesterService:
 
         if available:
             try:
-                return pdf_parser.parse_pdf_to_markdown(str(filepath))
+                use_ai_vision = options.use_ai_vision if options else False
+                image_output_dir = options.image_output_dir if options else "./extracted_images"
+                return pdf_parser.parse_pdf_to_markdown(
+                    str(filepath),
+                    use_ai_vision=use_ai_vision,
+                    image_output_dir=image_output_dir,
+                )
             except Exception as exc:
                 logger.warning(
                     "Markdown PDF parsing failed for %s (%s). Falling back to plain-text extraction.",
@@ -165,7 +175,7 @@ class IngesterService:
 
         try:
             if extension == ".pdf":
-                return self.extract_text_from_pdf(filepath)
+                return self.extract_text_from_pdf(filepath, options=options)
             elif extension in (".md", ".markdown"):
                 return self.extract_text_from_markdown(filepath)
             elif extension == ".txt":
@@ -174,6 +184,7 @@ class IngesterService:
                 raise ValueError(f"No extractor registered for {extension}")
         except Exception as error:
             raise ValueError(f"Failed to read {filepath.name}: {error}") from error
+
 
     # ---------------------------------------------------------------------------
     # Section detection
@@ -568,6 +579,10 @@ class IngesterService:
         )
         chunks = self.build_chunks_from_sections(sections, document_id)
 
+        extracted_images = []
+        if self._pdf_parser is not None:
+            extracted_images = getattr(self._pdf_parser, "last_extracted_images", []) or []
+
         return IngestedDocument(
             document_id=document_id,
             title=title or path.stem,
@@ -575,6 +590,7 @@ class IngesterService:
             raw_text=raw_text,
             chunks=chunks,
             noise_report=noise_report,
+            extracted_images=extracted_images,
         )
 
     def process_text(

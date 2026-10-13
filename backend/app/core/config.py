@@ -96,6 +96,10 @@ class Settings(BaseModel):
             {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
             {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
         ],
+        "vision_diagram": [
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+        ],
     }
 
     CRITIC_CASCADE: List[Dict[str, str]] = [

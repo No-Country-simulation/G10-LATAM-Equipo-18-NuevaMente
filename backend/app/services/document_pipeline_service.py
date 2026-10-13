@@ -42,6 +42,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 
 from app.schemas.document_record import DocumentRecord
+from app.schemas.ingestion import IngestionOptions
 from app.services.document_storage_service import get_document_storage
 from app.services.document_repository import get_document_repository
 from app.services.ingester_service import IngesterService
@@ -106,6 +107,7 @@ def process_registered_document(
     title: str,
     on_progress: Optional[ProgressCallback] = None,
     cleanup_local: bool = True,
+    use_ai_vision: bool = False,
 ) -> DocumentRecord:
     """
     Performs ingestion, chunking, embedding generation, and vector indexing for a registered document.
@@ -114,7 +116,14 @@ def process_registered_document(
     repo = get_document_repository()
 
     try:
-        _ingest_embed_and_index(path, title, document_id, repo, on_progress)
+        _ingest_embed_and_index(
+            path,
+            title,
+            document_id,
+            repo,
+            on_progress,
+            use_ai_vision=use_ai_vision,
+        )
     except Exception as exc:
         logger.error("Pipeline failed for document_id=%s: %s", document_id, exc)
         repo.mark_failed(document_id, error_message=str(exc))
@@ -135,6 +144,7 @@ def process_and_index_document(
     title: Optional[str] = None,
     user_id: Optional[str] = None,
     on_progress: Optional[ProgressCallback] = None,
+    use_ai_vision: bool = False,
 ) -> DocumentRecord:
     """
     Runs the full synchronous pipeline for one document and returns its final record.
@@ -154,6 +164,7 @@ def process_and_index_document(
         title=resolved_title,
         on_progress=on_progress,
         cleanup_local=False,
+        use_ai_vision=use_ai_vision,
     )
 
 
@@ -163,6 +174,7 @@ def _ingest_embed_and_index(
     document_id: str,
     repo,
     on_progress: Optional[ProgressCallback] = None,
+    use_ai_vision: bool = False,
 ) -> None:
     """Ingestion + embedding + indexing, kept separate from
     process_and_index_document() so the try/except there only wraps the
@@ -171,8 +183,40 @@ def _ingest_embed_and_index(
     to mark failed."""
     _emit(on_progress, "ingesting", "Leyendo y dividiendo el documento en fragmentos…")
     ingester = IngesterService()
-    document = ingester.process_document(path, title=title, document_id=document_id)
+    options = IngestionOptions(use_ai_vision=use_ai_vision)
+    document = ingester.process_document(
+        path,
+        title=title,
+        options=options,
+        document_id=document_id,
+    )
+
+    num_images = len(document.extracted_images)
+    if num_images > 0:
+        _emit(
+            on_progress,
+            "ingesting",
+            f"📸 Se detectaron y procesaron {num_images} diagramas/imágenes del documento.",
+        )
+    elif use_ai_vision:
+        _emit(
+            on_progress,
+            "ingesting",
+            "ℹ️ No se detectaron imágenes o diagramas rasterizados en el PDF.",
+        )
+
+    if document.noise_report and document.noise_report.entries:
+        discarded_count = sum(1 for e in document.noise_report.entries if e.discarded)
+        if discarded_count > 0:
+            categories = ", ".join({e.category for e in document.noise_report.entries if e.discarded})
+            _emit(
+                on_progress,
+                "ingesting",
+                f"🧹 Filtro de ruido: {discarded_count} secciones descartadas ({categories}).",
+            )
+
     rag_payload = ingester.build_rag_chunks(document)
+
 
     child_chunks = rag_payload["child_chunks"]
     parent_chunks = rag_payload["parent_chunks"]

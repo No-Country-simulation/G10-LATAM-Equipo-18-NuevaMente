@@ -211,7 +211,7 @@ def render_gen_status(lines: List[str], working: bool) -> str:
     current = lines[-1] if lines else "⏳ Iniciando generación agéntica…"
     return header + "\n\n" + current
 
-def handle_upload(file_path: str, title: str):
+def handle_upload(file_path: str, title: str, use_ai_vision: bool = False):
     """Runs the ingestion pipeline in a worker thread and yields live progress, then the final report."""
     if not file_path:
         yield "⚠️ No se seleccionó ningún archivo."
@@ -226,6 +226,7 @@ def handle_upload(file_path: str, title: str):
                 local_path=file_path,
                 title=title or None,
                 on_progress=events.put,
+                use_ai_vision=use_ai_vision,
             )
         except Exception as exc:
             outcome["error"] = exc
@@ -616,10 +617,19 @@ with gr.Blocks(title="NuevaMente — Suite de Ingestión y Agentes") as demo:
             type="filepath",
         )
         title_input = gr.Textbox(label="Título (opcional)")
+        vision_checkbox = gr.Checkbox(
+            label="🔍 Analizar diagramas e imágenes con IA (Visión Multimodal)",
+            value=False,
+            info="Extrae diagramas del PDF y genera descripciones técnicas para alimentar el índice RAG.",
+        )
         submit_button = gr.Button("Procesar documento", variant="primary")
         result_output = gr.Markdown()
 
-        submit_button.click(fn=handle_upload, inputs=[file_input, title_input], outputs=result_output)
+        submit_button.click(
+            fn=handle_upload,
+            inputs=[file_input, title_input, vision_checkbox],
+            outputs=result_output,
+        )
 
     with gr.Tab("2. Documentos existentes"):
         refresh_button = gr.Button("Actualizar listado")
