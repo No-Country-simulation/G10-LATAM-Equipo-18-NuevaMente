@@ -28,6 +28,7 @@ class AdaptationRequest(BaseModel):
     language: Optional[str] = Field(default=None, alias="idioma_salida", description="Target language for generated content (defaults to settings.DEFAULT_OUTPUT_LANGUAGE)")
     additional_instructions: Optional[str] = Field(default=None, alias="instrucciones_adicionales")
     force_regenerate: Optional[bool] = Field(default=False, alias="forzar_regenerar")
+    user_id: Optional[str] = Field(default=None, description="Owner of the document, used to scope generated artifacts")
 
     from pydantic import field_validator
 

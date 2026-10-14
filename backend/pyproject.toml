@@ -41,6 +41,7 @@ dependencies = [
     "supabase>=2.31.0",
     # ── Gradio (for tests with UI) ──────────────────────────────
     "gradio>=6.28.0",
+    "email-validator>=2.3.0",
 ]
 
 [tool.uv]

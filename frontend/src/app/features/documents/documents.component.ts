@@ -1,10 +1,10 @@
-import { Component, signal, computed, inject } from '@angular/core';
+import { Component, signal, computed, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { DocumentService } from '../../core/services/document.service';
-import { AppDocument, DocumentType } from '../../core/models/document.model';
+import { AppDocument } from '../../core/models/document.model';
 
 @Component({
   selector: 'app-documents',
@@ -22,11 +22,11 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
         <div class="header-stats">
           <div class="stat-card">
             <span class="stat-value">{{ documentService.totalActiveCount() }}</span>
-            <span class="stat-label">Documentos Activos</span>
+            <span class="stat-label">Documentos Indexados</span>
           </div>
           <div class="stat-card">
-            <span class="stat-value">{{ documentService.totalStorageSizeFormatted() }}</span>
-            <span class="stat-label">Almacenamiento Usado</span>
+            <span class="stat-value">{{ documentService.totalIndexedFragments() }}</span>
+            <span class="stat-label">Fragmentos Indexados</span>
           </div>
         </div>
       </div>
@@ -116,10 +116,9 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
             <span class="type-badge" [ngClass]="doc.type">
               {{ doc.type.toUpperCase() }}
             </span>
-            <div class="card-menu-actions">
-              <button type="button" class="btn-icon" (click)="openRenameModal(doc)" title="Renombrar">✏️</button>
-              <button type="button" class="btn-icon danger" (click)="moveToTrash(doc)" title="Mover a Papelera">🗑️</button>
-            </div>
+            <span class="status-badge" [class.failed]="!doc.indexed">
+              {{ doc.indexed ? 'Listo' : (doc.backendStatus || 'Pendiente') }}
+            </span>
           </div>
 
           <div class="doc-card-body">
@@ -130,7 +129,7 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
             </div>
             <h3 class="doc-name" [title]="doc.name">{{ doc.name }}</h3>
             <p class="doc-meta">
-              <span>{{ formatSize(doc.size) }}</span> · 
+              <span>{{ doc.children || 0 }} fragmentos</span> · 
               <span>{{ formatDate(doc.uploadDate) }}</span>
             </p>
             <div class="tags-container" *ngIf="doc.tags && doc.tags.length > 0">
@@ -142,7 +141,7 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
             <button type="button" class="btn-preview" (click)="openPreviewModal(doc)">
               👁️ Previsualizar
             </button>
-            <button type="button" class="btn-use-workspace" (click)="useInWorkspace(doc)">
+            <button type="button" class="btn-use-workspace" [disabled]="!doc.indexed" (click)="useInWorkspace(doc)">
               🚀 Usar en Workspace
             </button>
           </div>
@@ -156,7 +155,7 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
             <tr>
               <th>Tipo</th>
               <th>Nombre del Documento</th>
-              <th>Tamaño</th>
+              <th>Fragmentos</th>
               <th>Fecha de Carga</th>
               <th>Etiquetas</th>
               <th>Acciones</th>
@@ -170,7 +169,7 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
               <td class="doc-title-cell">
                 <strong>{{ doc.name }}</strong>
               </td>
-              <td>{{ formatSize(doc.size) }}</td>
+              <td>{{ doc.children || 0 }}</td>
               <td>{{ formatDate(doc.uploadDate) }}</td>
               <td>
                 <div class="tags-container">
@@ -179,9 +178,7 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
               </td>
               <td class="table-actions">
                 <button type="button" class="btn-table-action" (click)="openPreviewModal(doc)" title="Ver">👁️ Ver</button>
-                <button type="button" class="btn-table-action primary" (click)="useInWorkspace(doc)" title="Usar en Workspace">🚀 Usar</button>
-                <button type="button" class="btn-table-action" (click)="openRenameModal(doc)" title="Editar">✏️</button>
-                <button type="button" class="btn-table-action danger" (click)="moveToTrash(doc)" title="Papelera">🗑️</button>
+                <button type="button" class="btn-table-action primary" [disabled]="!doc.indexed" (click)="useInWorkspace(doc)" title="Usar en Workspace">🚀 Usar</button>
               </td>
             </tr>
           </tbody>
@@ -207,6 +204,26 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
           </div>
 
           <div class="modal-body">
+            <!-- Indexing metadata -->
+            <div class="doc-metadata-grid">
+              <div class="meta-item">
+                <span class="meta-label">Estado</span>
+                <span class="meta-value">{{ previewDoc()!.indexed ? 'Indexado' : (previewDoc()!.backendStatus || 'Pendiente') }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Secciones</span>
+                <span class="meta-value">{{ previewDoc()!.parents || 0 }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Fragmentos</span>
+                <span class="meta-value">{{ previewDoc()!.children || 0 }}</span>
+              </div>
+              <div class="meta-item">
+                <span class="meta-label">Almacenamiento</span>
+                <span class="meta-value">{{ previewDoc()!.storageBackend || '—' }}</span>
+              </div>
+            </div>
+
             <!-- PDF Viewer iframe/embed -->
             <div class="pdf-viewer-container" *ngIf="previewDoc()!.type === 'pdf'">
               <iframe 
@@ -216,51 +233,28 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
                 title="Previsualizador PDF"
               ></iframe>
               <div class="pdf-fallback-box" *ngIf="!sanitizedPreviewUrl()">
-                <p>📄 Este archivo PDF se encuentra listo para el motor RAG.</p>
-                <p class="preview-subtext">Haz clic a continuación para cargarlo en el Workspace de Adaptación.</p>
+                <p>📄 Este PDF ya está indexado en el motor RAG.</p>
+                <p class="preview-subtext">Usa «Cargar en Workspace» para generar contenido a partir de su contenido.</p>
               </div>
             </div>
 
             <!-- Text / Markdown Reader Viewer -->
             <div class="text-viewer-container" *ngIf="previewDoc()!.type !== 'pdf'">
-              <pre class="text-reader-content">{{ previewDoc()!.content || 'Sin contenido de texto disponible.' }}</pre>
+              <pre class="text-reader-content">{{ previewDoc()!.content || 'El texto fue procesado y almacenado en el índice vectorial del backend. Usa «Cargar en Workspace» para generar contenido a partir de él.' }}</pre>
             </div>
           </div>
 
           <div class="modal-footer">
-            <button type="button" class="btn-secondary" (click)="downloadDoc(previewDoc()!)">
+            <button type="button" class="btn-secondary" *ngIf="previewDoc()!.content" (click)="downloadDoc(previewDoc()!)">
               📥 Descargar
             </button>
-            <button type="button" class="btn-primary" (click)="useInWorkspace(previewDoc()!)">
+            <button type="button" class="btn-primary" [disabled]="!previewDoc()!.indexed" (click)="useInWorkspace(previewDoc()!)">
               🚀 Cargar en Workspace de Adaptación
             </button>
           </div>
         </div>
       </div>
 
-      <!-- RENAME MODAL -->
-      <div class="modal-overlay" *ngIf="renameDocTarget()" (click)="closeRenameModal()">
-        <div class="modal-container rename-modal" (click)="$event.stopPropagation()">
-          <div class="modal-header">
-            <h3>✏️ Renombrar Documento</h3>
-            <button type="button" class="btn-close" (click)="closeRenameModal()">✕</button>
-          </div>
-          <div class="modal-body">
-            <label for="rename-input" class="rename-label">Nombre del Archivo</label>
-            <input 
-              id="rename-input"
-              type="text" 
-              class="rename-input" 
-              [value]="renameInputText()" 
-              (input)="onRenameInput($event)" 
-            />
-          </div>
-          <div class="modal-footer">
-            <button type="button" class="btn-secondary" (click)="closeRenameModal()">Cancelar</button>
-            <button type="button" class="btn-primary" (click)="saveRename()">Guardar Cambios</button>
-          </div>
-        </div>
-      </div>
     </div>
   `,
   styles: [`
@@ -476,16 +470,21 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
     .type-badge.md { background: rgba(124, 58, 237, 0.12); color: #7C3AED; }
     .type-badge.txt { background: rgba(6, 182, 212, 0.12); color: #0891B2; }
 
-    .card-menu-actions {
-      display: flex; gap: 0.25rem;
+    .status-badge {
+      font-size: 0.68rem; font-weight: 700; padding: 0.2rem 0.55rem; border-radius: 999px;
+      background: rgba(16, 185, 129, 0.14); color: #059669; text-transform: capitalize;
     }
+    .status-badge.failed { background: rgba(239, 68, 68, 0.14); color: #DC2626; }
 
-    .btn-icon {
-      background: transparent; border: none; padding: 0.3rem 0.45rem; border-radius: 6px;
-      cursor: pointer; font-size: 0.9rem; opacity: 0.7; transition: opacity 0.2s;
+    .doc-metadata-grid {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 0.6rem; margin-bottom: 1rem;
     }
-    .btn-icon:hover { opacity: 1; background: var(--bg-app); }
-    .btn-icon.danger:hover { background: rgba(239, 68, 68, 0.1); }
+    .meta-item {
+      display: flex; flex-direction: column; gap: 0.15rem; padding: 0.6rem 0.75rem;
+      background: var(--bg-app); border: 1px solid var(--border-subtle); border-radius: 10px;
+    }
+    .meta-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text-secondary); }
+    .meta-value { font-size: 0.95rem; font-weight: 700; }
 
     .doc-card-body {
       flex: 1; margin-bottom: 1.25rem;
@@ -575,15 +574,11 @@ import { AppDocument, DocumentType } from '../../core/models/document.model';
     .btn-secondary { background: var(--bg-app); border: 1px solid var(--border-subtle); padding: 0.6rem 1.25rem; border-radius: 10px; font-weight: 700; cursor: pointer; }
     .btn-primary { background: #4F46E5; color: #FFF; border: none; padding: 0.6rem 1.25rem; border-radius: 10px; font-weight: 700; cursor: pointer; }
 
-    .rename-modal { max-width: 450px; }
-    .rename-label { font-size: 0.85rem; font-weight: 700; margin-bottom: 0.5rem; display: block; }
-    .rename-input { width: 100%; padding: 0.75rem; border-radius: 10px; border: 1px solid var(--border-subtle); background: var(--bg-app); color: var(--text-primary); font-size: 0.95rem; }
-
     .empty-state { padding: 4rem 2rem; text-align: center; border-radius: 20px; }
     .empty-icon-box { font-size: 3rem; margin-bottom: 1rem; }
   `]
 })
-export class DocumentsComponent {
+export class DocumentsComponent implements OnInit {
   readonly documentService = inject(DocumentService);
   private router = inject(Router);
   private sanitizer = inject(DomSanitizer);
@@ -598,8 +593,9 @@ export class DocumentsComponent {
   previewDoc = signal<AppDocument | null>(null);
   sanitizedPreviewUrl = signal<SafeResourceUrl | null>(null);
 
-  renameDocTarget = signal<AppDocument | null>(null);
-  renameInputText = signal<string>('');
+  ngOnInit(): void {
+    void this.documentService.refresh();
+  }
 
   filteredDocuments = computed(() => {
     const query = this.searchTerm().toLowerCase();
@@ -671,32 +667,6 @@ export class DocumentsComponent {
     this.sanitizedPreviewUrl.set(null);
   }
 
-  openRenameModal(doc: AppDocument): void {
-    this.renameDocTarget.set(doc);
-    this.renameInputText.set(doc.name);
-  }
-
-  closeRenameModal(): void {
-    this.renameDocTarget.set(null);
-  }
-
-  onRenameInput(event: Event): void {
-    this.renameInputText.set((event.target as HTMLInputElement).value);
-  }
-
-  saveRename(): void {
-    const doc = this.renameDocTarget();
-    const newName = this.renameInputText().trim();
-    if (doc && newName) {
-      this.documentService.renameDocument(doc.id, newName);
-      this.closeRenameModal();
-    }
-  }
-
-  moveToTrash(doc: AppDocument): void {
-    this.documentService.moveToTrash(doc.id);
-  }
-
   useInWorkspace(doc: AppDocument): void {
     this.documentService.selectForWorkspace(doc);
     if (this.previewDoc()) {
@@ -713,12 +683,6 @@ export class DocumentsComponent {
     a.download = doc.name;
     a.click();
     URL.revokeObjectURL(url);
-  }
-
-  formatSize(bytes: number): string {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
   }
 
   formatDate(dateStr: string): string {

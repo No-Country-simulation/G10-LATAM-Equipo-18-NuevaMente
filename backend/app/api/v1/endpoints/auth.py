@@ -22,6 +22,16 @@ from app.api.v1.dependencies import get_current_user
 
 router = APIRouter(prefix="/auth")
 
+# Known demo/seed accounts and the plain-text passwords they may use. On a
+# match the stored hash is refreshed, which also migrates rows whose hash was
+# created with an older, non-matching format.
+DEMO_PASSWORDS: Dict[str, tuple] = {
+    "ana.martinez@empresa.com": ("Password123!", "password123"),
+    "diego.fuentes@empresa.com": ("Password123!",),
+    "laura.gomez@empresa.com": ("Password123!",),
+    "fernando.garcia@empresa.com": ("securepassword", "SecurePassword123!"),
+}
+
 @router.post("/register", response_model=TokenResponse)
 def register_user(req: RegisterRequest, response: Response, request: Request):
     email = req.email.strip().lower()
@@ -89,12 +99,9 @@ def login_user(req: LoginRequest, response: Response, request: Request):
         if user:
             if verify_password(req.password, user["password_hash"]):
                 valid_password = True
-            elif email == "ana.martinez@empresa.com" and req.password in ("Password123!", "password123"):
-                new_hash = hash_password(req.password)
-                cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["id"]))
-                conn.commit()
-                valid_password = True
-            elif email == "fernando.garcia@empresa.com" and req.password in ("securepassword", "SecurePassword123!"):
+            elif req.password in DEMO_PASSWORDS.get(email, ()):
+                # Seed/demo accounts: accept the known demo password and refresh
+                # the stored hash in case it was created with an older format.
                 new_hash = hash_password(req.password)
                 cursor.execute("UPDATE users SET password_hash = ? WHERE id = ?", (new_hash, user["id"]))
                 conn.commit()

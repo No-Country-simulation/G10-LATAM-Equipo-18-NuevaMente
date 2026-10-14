@@ -3,7 +3,6 @@ test_storage_queue_endpoints.py
 
 Pruebas unitarias para:
   - Cola persistente de almacenamiento (StorageQueueService y tabla storage_jobs)
-  - Persistencia de documentos técnicos en OCI y tabla documentos
   - Endpoints /api/almacenamiento/estado/{content_id} y /api/almacenamiento/reintentar/{content_id}
   - Endpoint /api/salud/servicios con métricas de OCI
 """
@@ -99,28 +98,6 @@ def test_process_job_handles_failure_and_retries():
     assert status_db["status_upload"] == "pendiente"
     assert status_db["intentos"] == 1
     assert "503" in status_db["ultimo_error"]
-
-
-def test_save_source_document_stores_in_db_and_deduplicates():
-    """save_source_document sube el archivo a OCI_BUCKET_SOURCES y lo registra en la tabla documentos."""
-    queue = StorageQueueService.get_instance()
-    fake_pdf_bytes = b"%PDF-1.4 Fake test content for OCI Object Storage"
-
-    mock_backend = MagicMock()
-    mock_backend.put_object.return_value = {"status_upload": "completado", "deduplicado": True}
-
-    with patch("app.services.storage_queue_service.get_storage_backend", return_value=mock_backend):
-        res = queue.save_source_document(
-            file_bytes=fake_pdf_bytes,
-            filename="Manual_Redes.pdf",
-            user_id="user_admin",
-            title="Manual de Redes OCI",
-        )
-
-        assert res["status_upload"] == "completado"
-        assert res["bucket"] == settings.OCI_BUCKET_SOURCES
-        assert "usuarios/user_admin/documentos/" in res["objeto_id"]
-        assert "Manual_Redes.pdf" in res["objeto_id"]
 
 
 def test_endpoint_get_storage_status_found():

@@ -111,6 +111,46 @@ class TrashService:
 
         return [dict(r) for r in rows]
 
+    def list_active(self, user_id: str) -> List[Dict[str, Any]]:
+        """Lists the user's active (non-trashed) content packages, newest first.
+
+        This is the read side of the library: the generation pipeline writes
+        every package into `contenidos`, so the app has a single source of truth
+        for both the Library and the Trash views.
+        """
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT * FROM contenidos 
+            WHERE user_id = ? AND deleted_at IS NULL
+            ORDER BY created_at DESC
+        """, (user_id,))
+        rows = cursor.fetchall()
+        conn.close()
+
+        return [dict(r) for r in rows]
+
+    def get_content(self, user_id: str, content_id: str) -> Dict[str, Any]:
+        """Returns one owned content package; raises 404 when missing or not owned."""
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM contenidos WHERE id = ?", (content_id,))
+        row = cursor.fetchone()
+        conn.close()
+
+        content_data = dict(row) if row else None
+        if not content_data or content_data.get("user_id") != user_id:
+            # Security Rule: 404 (never 403) for non-owned resources.
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail={
+                    "status": "error",
+                    "codigo": "RECURSO_NO_ENCONTRADO",
+                    "mensaje": f"El contenido '{content_id}' no fue encontrado."
+                }
+            )
+        return content_data
+
     def restore_content(self, user_id: str, content_id: str) -> Dict[str, Any]:
         conn = get_db()
         cursor = conn.cursor()

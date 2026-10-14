@@ -175,39 +175,21 @@ def init_auth_tables():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_content ON storage_jobs (content_id)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_estado ON storage_jobs (estado)")
 
-    # Original Technical Source Documents table
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS documentos (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            title TEXT NOT NULL,
-            filename TEXT NOT NULL,
-            bucket TEXT NOT NULL,
-            object_key TEXT NOT NULL,
-            sha256 TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            content_type TEXT NOT NULL,
-            status_upload TEXT DEFAULT 'completado',
-            created_at REAL NOT NULL
-        )
-    """)
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_user ON documentos (user_id)")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_sha256 ON documentos (sha256)")
-
     conn.commit()
 
-    # Seed initial demo users if empty
-    cursor.execute("SELECT COUNT(*) FROM users")
-    if cursor.fetchone()[0] == 0:
-        demo_users = [
-            ("usr_ana_001", "ana.martinez@empresa.com", "Ana Martinez", hash_password("Password123!"), "Instructor", "Educacion Corp", "A", 1, 0, None, None, time.time()),
-            ("usr_fer_002", "fernando.garcia@empresa.com", "Fernando Garcia", hash_password("SecurePassword123!"), "Dev", "Tech Solutions", "F", 1, 0, None, None, time.time())
-        ]
-        cursor.executemany("""
-            INSERT INTO users (id, email, name, password_hash, role, organization, avatar_letter, is_verified, mfa_enabled, mfa_secret, mfa_backup_codes, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """, demo_users)
-        conn.commit()
+    # Seed the three demo users on every start (INSERT OR IGNORE keeps any
+    # existing row untouched). Demo passwords are intentionally simple because
+    # this build has no real signup flow yet.
+    demo_users = [
+        ("usr_ana_001", "ana.martinez@empresa.com", "Ana Martinez", hash_password("Password123!"), "Instructor", "Educacion Corp", "A", 1, 0, None, None, time.time()),
+        ("usr_diego_002", "diego.fuentes@empresa.com", "Diego Fuentes", hash_password("Password123!"), "Lider Tecnico", "Educacion Corp", "D", 1, 0, None, None, time.time()),
+        ("usr_laura_003", "laura.gomez@empresa.com", "Laura Gomez", hash_password("Password123!"), "Gestora", "Educacion Corp", "L", 1, 0, None, None, time.time()),
+    ]
+    cursor.executemany("""
+        INSERT OR IGNORE INTO users (id, email, name, password_hash, role, organization, avatar_letter, is_verified, mfa_enabled, mfa_secret, mfa_backup_codes, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, demo_users)
+    conn.commit()
 
     conn.close()
 

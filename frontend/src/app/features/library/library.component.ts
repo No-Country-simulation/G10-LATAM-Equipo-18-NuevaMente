@@ -1,8 +1,8 @@
 import { Component, signal, computed, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { forkJoin } from 'rxjs';
 import { StateService, RecentProject } from '../../core/services/state.service';
 import { ExportService } from '../../core/services/export.service';
-import { AdaptationResponse, AdaptationRequest } from '../../core/models/adaptation.model';
 import { NUEVAMENTE_API, NuevaMenteApi } from '../../core/api/nuevamente-api';
 
 interface ToastState {
@@ -543,69 +543,22 @@ export class LibraryComponent implements OnInit {
   }
 
   private refreshProjects(): void {
-    const list = this.stateService.getLibraryProjects();
-    const isInitialized = localStorage.getItem('nuevamente_library_initialized');
+    this.api.listLibrary().subscribe({
+      next: (list) => this.applyLibraryList(list),
+      error: () => this.applyLibraryList(this.stateService.getLibraryProjects())
+    });
+  }
 
-    if (list.length === 0 && !isInitialized) {
-      localStorage.setItem('nuevamente_library_initialized', 'true');
-      const sampleRequest: AdaptationRequest = {
-        documento_titulo: 'Guía Paso a Paso: MsJava',
-        documento_contenido: 'MsJava Microservicios',
-        perfil_destinatario: 'Desarrollador',
-        formato_salida: 'Tutorial',
-        nicho_sector: 'Fintech',
-        nivel_detalle: 'Didactico'
-      };
-
-      const sampleResponse: AdaptationResponse = {
-        status: 'exito',
-        metadatos: {
-          perfil_aplicado: 'Desarrollador',
-          formato_generado: 'Tutorial',
-          tiempo_estimado_estudio_minutos: 12,
-          conceptos_clave: ['MsJava', 'Microservicios', 'Spring Boot']
-        },
-        contenido_adaptado: {
-          titulo: 'Guía Paso a Paso: MsJava Microservicios',
-          introduccion_contextualizada: 'Tutorial didáctico estructurado paso a paso a partir de MsJava, optimizado para Desarrollador en el sector Fintech.',
-          items: [
-            {
-              paso: 1,
-              titulo: 'MsJava: Fase 1',
-              instruccion: 'Microservicios con Spring Boot. Esta etapa asegura la correcta aplicación del requerimiento en el entorno de Fintech.',
-              ejemplo: '# Ejecución para MsJava\nrun-process --spec "MsJava" --profile desarrollador',
-              advertencia: 'Asegúrate de validar la compatibilidad con el nivel Técnico antes de proceder.'
-            },
-            {
-              paso: 2,
-              titulo: 'Microservicios Spring: Fase 2',
-              instruccion: 'Agenda del Curso. Esta etapa asegura la correcta aplicación del requerimiento en el entorno de Fintech.'
-            },
-            {
-              paso: 3,
-              titulo: 'Agenda: Fase 3',
-              instruccion: '1 Spring Boot. Esta etapa asegura la correcta aplicación del requerimiento en el entorno de Fintech.',
-              advertencia: 'Asegúrate de validar la compatibilidad con el nivel Técnico antes de proceder.'
-            }
-          ]
-        },
-        evaluacion_calidad: {
-          anclaje_fuente_score: 0.98,
-          claridad_pedagogica: 'Alta',
-          observaciones: 'Fidelidad verificada con anclaje RAG en fuente original.'
-        },
-        almacenamiento_oci: {
-          bucket: 'nuevamente-contenidos-educativos',
-          objeto_id: 'msjava_tutorial_001.json',
-          status_upload: 'completado'
-        }
-      };
-
-      this.stateService.addProjectFromResponse(sampleRequest, sampleResponse);
-      this.projectsList.set(this.stateService.getLibraryProjects());
-    } else {
+  private applyLibraryList(list: RecentProject[]): void {
+    // The backend `contenidos` table is the source of truth: when it returns
+    // packages, show them. Otherwise fall back to the local mirror of content
+    // generated in this browser session (never to seeded demo data).
+    if (list.length > 0) {
       this.projectsList.set([...list]);
+      return;
     }
+
+    this.projectsList.set(this.stateService.getLibraryProjects());
   }
 
   filteredProjects = computed(() => {
@@ -686,44 +639,58 @@ export class LibraryComponent implements OnInit {
     this.exitingIds.set(exiting);
 
     setTimeout(() => {
-      // 2. Perform soft delete to trash
-      this.stateService.moveToTrash(proj.id);
-      
-      const newExiting = new Set(this.exitingIds());
-      newExiting.delete(proj.id);
-      this.exitingIds.set(newExiting);
-
-      // Remove from selected set if present
-      const sel = new Set(this.selectedIds());
-      sel.delete(proj.id);
-      this.selectedIds.set(sel);
-
-      this.projectsList.set([...this.stateService.getLibraryProjects()]);
-
-      // 3. Show Toast notification (8s duration)
-      if (this.toast()?.timeoutId) {
-        clearTimeout(this.toast()!.timeoutId);
-      }
-
-      const timeoutId = setTimeout(() => {
-        this.toast.set(null);
-      }, 8000);
-
-      this.toast.set({
-        id: proj.id,
-        nombre: proj.nombre,
-        timeoutId
+      // 2. Soft-delete in the backend; keep the local mirror in sync.
+      this.api.moveToTrash(proj.id).subscribe({
+        next: () => this.finishMoveToTrash(proj),
+        error: () => this.finishMoveToTrash(proj)
       });
     }, 250);
+  }
+
+  private finishMoveToTrash(proj: RecentProject): void {
+    this.stateService.moveToTrash(proj.id);
+
+    const newExiting = new Set(this.exitingIds());
+    newExiting.delete(proj.id);
+    this.exitingIds.set(newExiting);
+
+    // Remove from selected set if present
+    const sel = new Set(this.selectedIds());
+    sel.delete(proj.id);
+    this.selectedIds.set(sel);
+
+    this.refreshProjects();
+
+    // Show Toast notification (8s duration)
+    if (this.toast()?.timeoutId) {
+      clearTimeout(this.toast()!.timeoutId);
+    }
+
+    const timeoutId = setTimeout(() => {
+      this.toast.set(null);
+    }, 8000);
+
+    this.toast.set({
+      id: proj.id,
+      nombre: proj.nombre,
+      timeoutId
+    });
   }
 
   moveBatchToTrash(): void {
     const ids = Array.from(this.selectedIds());
     if (ids.length === 0) return;
 
+    forkJoin(ids.map(id => this.api.moveToTrash(id))).subscribe({
+      next: () => this.finishBatchMoveToTrash(ids),
+      error: () => this.finishBatchMoveToTrash(ids)
+    });
+  }
+
+  private finishBatchMoveToTrash(ids: string[]): void {
     ids.forEach(id => this.stateService.moveToTrash(id));
     this.selectedIds.set(new Set());
-    this.projectsList.set([...this.stateService.getLibraryProjects()]);
+    this.refreshProjects();
 
     if (this.toast()?.timeoutId) {
       clearTimeout(this.toast()!.timeoutId);
@@ -741,11 +708,18 @@ export class LibraryComponent implements OnInit {
   }
 
   undoMoveToTrash(id: string): void {
+    this.api.restore(id).subscribe({
+      next: () => this.finishUndoMoveToTrash(id),
+      error: () => this.finishUndoMoveToTrash(id)
+    });
+  }
+
+  private finishUndoMoveToTrash(id: string): void {
     this.stateService.restoreFromTrash(id);
     if (this.toast()?.timeoutId) {
       clearTimeout(this.toast()!.timeoutId);
     }
     this.toast.set(null);
-    this.projectsList.set([...this.stateService.getLibraryProjects()]);
+    this.refreshProjects();
   }
 }

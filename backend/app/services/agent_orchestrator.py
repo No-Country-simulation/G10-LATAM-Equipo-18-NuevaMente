@@ -187,7 +187,7 @@ class AgentOrchestrator:
 
         if tracer:
             tracer.start_stage("generacion_lotes")
-        raw_items = await self._stage_batch_generators(
+        raw_items = self._stage_batch_generators(
             request=request,
             doc_title=doc_title,
             topics=topics,
@@ -312,6 +312,10 @@ class AgentOrchestrator:
             f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
         )
 
+        content_id = f"cnt_{int(time.time() * 1000)}"
+        user_id = getattr(request, "user_id", None) or "usr_demo_001"
+        version_num = getattr(request, "version", 1) or 1
+
         response_payload = {
             "status": "exito",
             "content_id": content_id,
@@ -332,6 +336,21 @@ class AgentOrchestrator:
         # Intento inicial inmediato; si OCI responde, marca 'completado'; de lo contrario queda 'pendiente' para reintento
         immediate_ok = queue_service.process_job(job_info["job_id"])
         upload_status_val = "completado" if immediate_ok else "pendiente"
+
+        # Record the generated package in `contenidos`: the library and trash
+        # flows read that table, so without this row the content exists in
+        # storage but is invisible in the app.
+        queue_service.save_content_metadata(
+            content_id=content_id,
+            user_id=user_id,
+            title=doc_title,
+            content=json.dumps(adapted_content.model_dump(by_alias=True), ensure_ascii=False),
+            recipient_profile=request.recipient_profile,
+            output_format=request.output_format,
+            niche=getattr(request, "niche", None),
+            detail_level=getattr(request, "detail_level", None),
+            object_key_json=job_info["objeto_id"],
+        )
 
         storage_result = OCIStorageResult(
             bucket=job_info["bucket"],

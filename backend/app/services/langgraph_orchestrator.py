@@ -17,6 +17,7 @@ Output:
     AdaptationResponse schema strictly compatible with frontend and API contracts.
 """
 
+import json
 import logging
 import time
 from typing import Any, Dict, List, Optional, TypedDict
@@ -466,23 +467,48 @@ class LangGraphOrchestrator:
             f"contenido-{self._orchestrator._slugify(doc_title)[:20]}-"
             f"{self._orchestrator._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
         )
+        from app.services.storage_queue_service import StorageQueueService
+        content_id = f"cnt_{int(time.time() * 1000)}"
+        user_id = getattr(request, "user_id", None) or "usr_demo_001"
+        version_num = getattr(request, "version", 1) or 1
 
         response_payload = {
             "status": "exito",
+            "content_id": content_id,
             "metadatos": metadata.model_dump(by_alias=True),
             "contenido_adaptado": adapted_content.model_dump(by_alias=True),
             "evaluacion_calidad": evaluation.model_dump(by_alias=True),
         }
 
-        storage_info = self._orchestrator.storage.upload_json_artifact(
-            object_name=object_name,
+        queue_service = StorageQueueService.get_instance()
+        job_info = queue_service.enqueue_content_job(
+            content_id=content_id,
+            user_id=user_id,
             json_data=response_payload,
+            version=version_num,
+        )
+        immediate_ok = queue_service.process_job(job_info["job_id"])
+        upload_status_val = "completado" if immediate_ok else "pendiente"
+
+        # Record the generated package in `contenidos`: the library and trash
+        # flows read that table, so without this row the content exists in
+        # storage but is invisible in the app.
+        queue_service.save_content_metadata(
+            content_id=content_id,
+            user_id=user_id,
+            title=doc_title,
+            content=json.dumps(adapted_content.model_dump(by_alias=True), ensure_ascii=False),
+            recipient_profile=request.recipient_profile,
+            output_format=request.output_format,
+            niche=getattr(request, "niche", None),
+            detail_level=getattr(request, "detail_level", None),
+            object_key_json=job_info["objeto_id"],
         )
 
         storage_result = OCIStorageResult(
-            bucket=storage_info["bucket"],
-            object_id=storage_info["objeto_id"],
-            upload_status=storage_info["status_upload"],
+            bucket=job_info["bucket"],
+            object_id=job_info["objeto_id"],
+            upload_status=upload_status_val,
         )
 
         try:

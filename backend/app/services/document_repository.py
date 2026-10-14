@@ -110,6 +110,7 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
             "title": title,
             "source_filename": source_filename,
             "object_key": object_key,
+            "storage_backend": settings.resolve_storage_backend(),
         }
         response = client.table(_TABLE_NAME).insert(row).execute()
 
@@ -182,6 +183,7 @@ CREATE TABLE IF NOT EXISTS documents (
     total_parents INTEGER,
     total_children INTEGER,
     error_message TEXT,
+    storage_backend TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 )
@@ -198,6 +200,13 @@ class SQLiteDocumentRepository(BaseDocumentRepository):
         conn = get_db()
         try:
             conn.execute(_DOCUMENTS_DDL)
+            # Migration for databases created before storage_backend existed.
+            # SQLite has no "ADD COLUMN IF NOT EXISTS", so the duplicate-column
+            # error on re-run is expected and ignored.
+            try:
+                conn.execute("ALTER TABLE documents ADD COLUMN storage_backend TEXT")
+            except Exception:
+                pass
             conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_user_id ON documents (user_id)")
             conn.commit()
         finally:
@@ -209,9 +218,9 @@ class SQLiteDocumentRepository(BaseDocumentRepository):
         try:
             conn.execute(
                 "INSERT INTO documents (document_id, user_id, title, source_filename, object_key,"
-                " status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                " status, storage_backend, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (document_id, user_id, title, source_filename, object_key,
-                 STATUS_PROCESSING, now, now),
+                 STATUS_PROCESSING, settings.resolve_storage_backend(), now, now),
             )
             conn.commit()
             row = conn.execute(

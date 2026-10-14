@@ -14,7 +14,8 @@ export class AuthStore {
   private router = inject(Router);
   private authApi: AuthApi = environment.useMock ? inject(MockAuthApiService) : inject(HttpAuthApiService);
 
-  // Core Signals - Access Token is stored in memory and synchronized with localStorage
+  // Core Signals - Access Token is stored in memory and mirrored to
+  // sessionStorage so closing the tab ends the session (demo-friendly).
   readonly user = signal<User | null>(null);
   readonly accessToken = signal<string | null>(null);
   readonly status = signal<AuthStatus>('idle');
@@ -37,10 +38,15 @@ export class AuthStore {
   }
 
   private restoreLocalSession() {
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
-        const token = localStorage.getItem('nuevamente_jwt_token');
-        const userStr = localStorage.getItem('nuevamente_user');
+        // Drop tokens left in localStorage by older builds so the session
+        // never leaks across tabs/restarts.
+        localStorage.removeItem('nuevamente_jwt_token');
+        localStorage.removeItem('nuevamente_user');
+
+        const token = sessionStorage.getItem('nuevamente_jwt_token');
+        const userStr = sessionStorage.getItem('nuevamente_user');
         if (token && userStr) {
           const user = JSON.parse(userStr);
           this.accessToken.set(token);
@@ -70,6 +76,13 @@ export class AuthStore {
     return new Promise((resolve) => {
       if (this.isAuthenticated()) {
         resolve(true);
+        return;
+      }
+      // Demo mode: never restore a session silently. A new tab always starts
+      // on the login screen so a demo user can be picked explicitly.
+      if (environment.enableDemoLogin) {
+        this.status.set('unauthenticated');
+        resolve(false);
         return;
       }
       this.status.set('loading');
@@ -161,10 +174,10 @@ export class AuthStore {
     this.status.set('authenticated');
     this.error.set(null);
     this.showSessionExpiredModal.set(false);
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
-        localStorage.setItem('nuevamente_jwt_token', token);
-        localStorage.setItem('nuevamente_user', JSON.stringify(user));
+        sessionStorage.setItem('nuevamente_jwt_token', token);
+        sessionStorage.setItem('nuevamente_user', JSON.stringify(user));
       } catch (e) {}
     }
   }
@@ -196,10 +209,10 @@ export class AuthStore {
     this.accessToken.set(null);
     this.status.set('unauthenticated');
     this.error.set(null);
-    if (typeof window !== 'undefined' && window.localStorage) {
+    if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
-        localStorage.removeItem('nuevamente_jwt_token');
-        localStorage.removeItem('nuevamente_user');
+        sessionStorage.removeItem('nuevamente_jwt_token');
+        sessionStorage.removeItem('nuevamente_user');
       } catch (e) {}
     }
   }

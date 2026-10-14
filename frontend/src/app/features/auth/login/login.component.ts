@@ -153,12 +153,25 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
             <button class="tab-btn" [class.active]="mode() === 'magic_link'" (click)="setMode('magic_link')">Magic Link</button>
           </div>
 
-          <!-- DEMO QUICK-LOGIN BANNER (Shown ONLY if enableDemoLogin === true) -->
-          <div class="demo-banner" *ngIf="showDemoLoginBanner" (click)="fillDemoCredentials()">
-            <div class="demo-badge">DEMO QUICK-LOGIN</div>
+          <!-- DEMO USER PICKER (Shown ONLY if enableDemoLogin === true) -->
+          <div class="demo-banner" *ngIf="showDemoLoginBanner">
+            <div class="demo-badge">DEMO · SELECCIONA UN USUARIO</div>
             <div class="demo-info">
-              <span><code>ana.martinez&#64;empresa.com</code> / <code>Password123!</code></span>
-              <span class="demo-click-hint">⚡ Clic para autocompletar</span>
+              <span class="demo-click-hint">⚡ Un clic autocompleta e inicia sesión</span>
+            </div>
+            <div class="demo-users">
+              <button
+                type="button"
+                class="demo-user-btn"
+                *ngFor="let u of demoUsers"
+                (click)="fillDemoCredentials(u)"
+              >
+                <span class="demo-user-avatar">{{ u.name.charAt(0) }}</span>
+                <span class="demo-user-text">
+                  <strong>{{ u.name }}</strong>
+                  <small>{{ u.role }}</small>
+                </span>
+              </button>
             </div>
           </div>
 
@@ -415,11 +428,17 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     .tab-btn { flex: 1; padding: 0.6rem; border: none; background: transparent; color: #94A3B8; font-size: 0.85rem; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
     .tab-btn.active { background: #4F46E5; color: #FFFFFF; }
 
-    .demo-banner { background: rgba(34, 211, 238, 0.1); border: 1px dashed rgba(34, 211, 238, 0.4); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; cursor: pointer; transition: background 0.2s; }
-    .demo-banner:hover { background: rgba(34, 211, 238, 0.18); }
+    .demo-banner { background: rgba(34, 211, 238, 0.1); border: 1px dashed rgba(34, 211, 238, 0.4); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; }
     .demo-badge { font-size: 0.7rem; font-weight: 800; color: #22D3EE; letter-spacing: 0.08em; margin-bottom: 0.25rem; }
-    .demo-info { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #E2E8F0; }
+    .demo-info { display: flex; justify-content: flex-end; align-items: center; font-size: 0.82rem; color: #E2E8F0; }
     .demo-click-hint { font-size: 0.75rem; color: #67E8F9; font-weight: 600; }
+    .demo-users { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
+    .demo-user-btn { display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.5rem 0.65rem; border-radius: 10px; border: 1px solid rgba(34, 211, 238, 0.35); background: rgba(255, 255, 255, 0.04); color: #E2E8F0; cursor: pointer; text-align: left; transition: background 0.2s, border-color 0.2s; }
+    .demo-user-btn:hover { background: rgba(34, 211, 238, 0.16); border-color: #22D3EE; }
+    .demo-user-avatar { width: 28px; height: 28px; border-radius: 50%; background: #4F46E5; color: #FFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; flex-shrink: 0; }
+    .demo-user-text { display: flex; flex-direction: column; line-height: 1.15; }
+    .demo-user-text strong { font-size: 0.82rem; }
+    .demo-user-text small { font-size: 0.72rem; color: #94A3B8; }
 
     .alert-banner { padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-bottom: 1.25rem; }
     .error-banner { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #FCA5A5; }
@@ -485,6 +504,13 @@ export class LoginComponent implements OnInit {
 
   showDemoLoginBanner = environment.enableDemoLogin;
   enableSocialLogin = environment.enableSocialLogin ?? false;
+
+  /** Demo accounts seeded in the backend; one click fills and logs in. */
+  readonly demoUsers = [
+    { name: 'Ana Martínez', email: 'ana.martinez@empresa.com', role: 'Instructor' },
+    { name: 'Diego Fuentes', email: 'diego.fuentes@empresa.com', role: 'Líder Técnico' },
+    { name: 'Laura Gómez', email: 'laura.gomez@empresa.com', role: 'Gestora' }
+  ];
 
   mode = signal<AuthMode>('login');
   showPassword = signal<boolean>(false);
@@ -552,11 +578,14 @@ export class LoginComponent implements OnInit {
     this.isAnimationPaused.update(v => !v);
   }
 
-  fillDemoCredentials(): void {
+  fillDemoCredentials(user: { email: string }): void {
+    this.mode.set('login');
+    this.authStore.error.set(null);
     this.loginForm.patchValue({
-      email: 'ana.martinez@empresa.com',
+      email: user.email,
       password: 'Password123!'
     });
+    this.onLoginSubmit();
   }
 
   evaluatePasswordStrength(): void {

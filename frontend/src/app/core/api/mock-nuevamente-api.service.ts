@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, of, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { NuevaMenteApi } from './nuevamente-api';
+import { DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
 import { StateService, RecentProject } from '../services/state.service';
 import { getTargetItemCount } from '../config/content-quantity.config';
 import {
@@ -20,6 +20,50 @@ import {
 })
 export class MockNuevaMenteApiService implements NuevaMenteApi {
   private stateService = inject(StateService);
+
+  ingestDocument(input: DocumentIngestInput, onEvent?: (event: DocumentIngestEvent) => void): Observable<DocumentRecord> {
+    const documentId = 'doc_mock_' + Date.now();
+    const title = input.title || input.file?.name || 'Documento de prueba';
+    const events: DocumentIngestEvent[] = [
+      { stage: 'uploading', message: 'Preparando la ingesta…' },
+      { stage: 'ingesting', message: 'Leyendo y dividiendo el documento en fragmentos…' },
+      { stage: 'embedding', message: 'Generando embeddings…' },
+      { stage: 'indexing', message: 'Guardando el índice de búsqueda…' },
+      { stage: 'done', document_id: documentId, status: 'ready', title, total_parents: 8, total_children: 32, storage_backend: 'local' }
+    ];
+
+    return new Observable<DocumentRecord>((subscriber) => {
+      let index = 0;
+      const tick = () => {
+        const event = events[index];
+        if (onEvent) onEvent(event);
+        if (event.stage === 'done') {
+          subscriber.next({
+            document_id: documentId,
+            title,
+            status: 'ready',
+            total_parents: event.total_parents,
+            total_children: event.total_children,
+            storage_backend: event.storage_backend
+          });
+          subscriber.complete();
+          return;
+        }
+        index++;
+        setTimeout(tick, 250);
+      };
+      tick();
+      return () => {};
+    });
+  }
+
+  adaptDocument(_documentId: string, request: AdaptationRequest): Observable<AdaptationResponse> {
+    return this.adaptContent(request);
+  }
+
+  listDocuments(_userId?: string | null): Observable<DocumentRecord[]> {
+    return of([] as DocumentRecord[]);
+  }
 
   listLibrary(): Observable<RecentProject[]> {
     return of(this.stateService.getLibraryProjects());

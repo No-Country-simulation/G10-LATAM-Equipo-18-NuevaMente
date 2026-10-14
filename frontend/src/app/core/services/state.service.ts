@@ -59,7 +59,7 @@ export class StateService {
 
   private loadUserFromStorage(): void {
     try {
-      const saved = localStorage.getItem('nuevamente_user');
+      const saved = sessionStorage.getItem('nuevamente_user');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.email && parsed.isLoggedIn) {
@@ -73,7 +73,7 @@ export class StateService {
 
   private loadProjectsFromStorage(): void {
     try {
-      const savedProjects = localStorage.getItem('nuevamente_projects');
+      const savedProjects = sessionStorage.getItem('nuevamente_projects');
       if (savedProjects) {
         const parsed = JSON.parse(savedProjects);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -97,7 +97,7 @@ export class StateService {
 
   private saveProjectsToStorage(): void {
     try {
-      localStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
+      sessionStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
     } catch (e) {
       console.log('Error al guardar proyectos en localStorage', e);
     }
@@ -135,9 +135,9 @@ export class StateService {
     };
 
     try {
-      localStorage.setItem('nuevamente_user', JSON.stringify(this.user));
+      sessionStorage.setItem('nuevamente_user', JSON.stringify(this.user));
       if (token) {
-        localStorage.setItem('nuevamente_jwt_token', token);
+        sessionStorage.setItem('nuevamente_jwt_token', token);
       }
     } catch (e) {
       console.log('Error al persistir sesión', e);
@@ -152,8 +152,8 @@ export class StateService {
       isLoggedIn: false
     };
     try {
-      localStorage.removeItem('nuevamente_user');
-      localStorage.removeItem('nuevamente_jwt_token');
+      sessionStorage.removeItem('nuevamente_user');
+      sessionStorage.removeItem('nuevamente_jwt_token');
     } catch (e) {
       console.log('Error al eliminar sesión', e);
     }

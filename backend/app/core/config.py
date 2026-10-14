@@ -198,6 +198,10 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
     # ── Environment & Storage Mode ───────────────────────────────────────────
+    # Server bind address/port. Kept as constants (not .env) so changing the
+    # port is a deliberate code change; .env holds secrets/credentials only.
+    APP_HOST: str = "0.0.0.0"
+    APP_PORT: int = 8001
     APP_ENV: str = os.getenv("APP_ENV", "development")
     ALLOW_LOCAL_STORAGE: bool = os.getenv("ALLOW_LOCAL_STORAGE", "false").lower() == "true"
     STORAGE_MAX_UPLOAD_MB: int = int(os.getenv("STORAGE_MAX_UPLOAD_MB", "25"))
@@ -207,11 +211,12 @@ class Settings(BaseModel):
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_AUTH_MODE: str = os.getenv("OCI_AUTH_MODE", "auto")
     OCI_REGION: str = os.getenv("OCI_REGION", "mx-monterrey-1")
-    OCI_NAMESPACE: Optional[str] = os.getenv("OCI_NAMESPACE", None)
-    OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config")))
+    OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
     OCI_NAMESPACE: str = os.getenv("OCI_NAMESPACE", "")
-    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente"))
-    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos"))
+    OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente")
+    OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos")
+    OCI_BUCKET_SOURCES: str = os.getenv("OCI_BUCKET_SOURCES", os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente"))
+    OCI_BUCKET_CONTENT: str = os.getenv("OCI_BUCKET_CONTENT", os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos"))
 
     @property
     def supabase_configured(self) -> bool:

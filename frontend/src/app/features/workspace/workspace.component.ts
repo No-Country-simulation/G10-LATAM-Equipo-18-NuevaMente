@@ -1,15 +1,16 @@
-import { Component, signal, computed, inject, ViewChild, OnInit } from '@angular/core';
+import { Component, signal, computed, inject, ViewChild, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
-import { NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
+import { DocumentIngestEvent, DocumentRecord, NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, NivelCantidad, RagFuente } from '../../core/models/adaptation.model';
 import { CONTENT_QUANTITY_CONFIG, getQuantityHintText, getTargetItemCount } from '../../core/config/content-quantity.config';
 
-import { PipelineProgressComponent } from './pipeline-progress.component';
+import { PipelineProgressComponent, PipelineStage } from './pipeline-progress.component';
 import { GenerationLoaderComponent } from './generation-loader.component';
 import { FlashcardsRendererComponent } from './renderers/flashcards-renderer.component';
 import { QuizRendererComponent } from './renderers/quiz-renderer.component';
@@ -342,7 +343,7 @@ import { AppDocument } from '../../core/models/document.model';
             <button 
               type="submit" 
               class="btn-cta-generate" 
-              [disabled]="adaptForm.invalid"
+              [disabled]="adaptForm.invalid && !(activeTab() === 'upload' && uploadedFile()) && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed)"
             >
               ⚡ Generar Contenido Educativo →
             </button>
@@ -355,6 +356,8 @@ import { AppDocument } from '../../core/models/document.model';
         #loaderComp
         *ngIf="isPipelineRunning()" 
         [params]="getGenerationParams()"
+        [stages]="pipelineStages()"
+        [activeStage]="activeStage()"
         (cancel)="cancelPipeline()"
         (retry)="runPipeline()"
       ></app-generation-loader>
@@ -744,7 +747,7 @@ import { AppDocument } from '../../core/models/document.model';
     }
   `]
 })
-export class WorkspaceComponent implements OnInit {
+export class WorkspaceComponent implements OnInit, OnDestroy {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
@@ -752,7 +755,7 @@ export class WorkspaceComponent implements OnInit {
   readonly documentService = inject(DocumentService);
   private router = inject(Router);
 
-  activeTab = signal<'upload' | 'text' | 'from_documents'>('from_documents');
+  activeTab = signal<'upload' | 'text' | 'from_documents'>('upload');
   isDragging = signal<boolean>(false);
   uploadedFile = signal<File | null>(null);
   selectedWorkspaceDoc = signal<AppDocument | null>(null);
@@ -775,6 +778,12 @@ export class WorkspaceComponent implements OnInit {
 
   private pipelineSub?: Subscription;
 
+  /** Live pipeline stages shown by the generation loader, driven by real SSE events. */
+  pipelineStages = signal<PipelineStage[]>(this.buildPipelineStages());
+  activeStage = computed<PipelineStage | null>(
+    () => this.pipelineStages().find(stage => stage.estado === 'activo') || null
+  );
+
   perfiles = [
     { value: 'Principiante', label: 'Principiante', icon: '🌱', desc: 'Explicaciones didácticas y analogías sencillas' },
     { value: 'Desarrollador', label: 'Desarrollador', icon: '💻', desc: 'Enfoque en código, APIs y CLI' },
@@ -795,8 +804,8 @@ export class WorkspaceComponent implements OnInit {
   nivelesCantidad: NivelCantidad[] = ['Breve', 'Estandar', 'Amplio', 'Exhaustivo', 'Personalizado'];
 
   adaptForm = this.fb.group({
-    documento_titulo: ['Especificación de Redes VCN en Oracle Cloud Infrastructure (OCI)', [Validators.required]],
-    documento_contenido: ['Una Virtual Cloud Network (VCN) en Oracle Cloud Infrastructure es una red privada definida por software...', [Validators.required]],
+    documento_titulo: ['', [Validators.required]],
+    documento_contenido: ['', [Validators.required]],
     perfil_destinatario: ['Desarrollador' as PerfilDestinatario, [Validators.required]],
     formato_salida: ['Flashcards' as FormatoSalida, [Validators.required]],
     nicho_sector: ['Fintech' as NichoSector, [Validators.required]],
@@ -808,15 +817,14 @@ export class WorkspaceComponent implements OnInit {
   readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
 
   ngOnInit(): void {
-    // Check if document was pre-selected from DocumentService
+    // Keep the "Desde Mis Documentos" picker in sync with the backend.
+    void this.documentService.refresh();
+
+    // Only preload a document when the user explicitly sent one from the
+    // documents page ("Usar en Workspace"). Nothing is selected by default.
     const preselected = this.documentService.selectedWorkspaceDocument();
     if (preselected) {
       this.selectDocFromPicker(preselected);
-    } else {
-      const activeDocs = this.documentService.activeDocuments();
-      if (activeDocs.length > 0) {
-        this.selectDocFromPicker(activeDocs[0]);
-      }
     }
   }
 
@@ -824,12 +832,14 @@ export class WorkspaceComponent implements OnInit {
     const query = this.pickerSearchQuery().toLowerCase();
     const type = this.pickerTypeFilter();
 
-    return this.documentService.activeDocuments().filter(doc => {
-      const matchQuery = doc.name.toLowerCase().includes(query) ||
-        (doc.tags && doc.tags.some(t => t.toLowerCase().includes(query)));
-      const matchType = type === 'all' || doc.type === type;
-      return matchQuery && matchType;
-    });
+    return this.documentService.activeDocuments()
+      .filter(doc => doc.indexed)
+      .filter(doc => {
+        const matchQuery = doc.name.toLowerCase().includes(query) ||
+          (doc.tags && doc.tags.some(t => t.toLowerCase().includes(query)));
+        const matchType = type === 'all' || doc.type === type;
+        return matchQuery && matchType;
+      });
   });
 
   selectDocFromPicker(doc: AppDocument): void {
@@ -837,18 +847,11 @@ export class WorkspaceComponent implements OnInit {
     this.activeTab.set('from_documents');
     this.documentService.selectForWorkspace(doc);
 
-    // Clean title from extension
-    const cleanTitle = doc.name.replace(/\.(pdf|md|txt)$/i, '');
-    let cleanContent = doc.content || `Contenido de ${doc.name}`;
-    cleanContent = cleanContent.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
-    cleanContent = cleanContent.replace(/stream[\s\S]*?endstream/gi, '');
-    cleanContent = cleanContent.replace(/<<[\s\S]*?>>/g, '');
-    cleanContent = cleanContent.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
-    cleanContent = cleanContent.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
-
+    // The backend already indexed this document, so generation runs against
+    // its vector store and only the title is kept as context.
     this.adaptForm.patchValue({
-      documento_titulo: cleanTitle,
-      documento_contenido: cleanContent || `Especificación técnica de ${cleanTitle}`
+      documento_titulo: doc.name.replace(/\.(pdf|md|txt)$/i, ''),
+      documento_contenido: ''
     });
   }
 
@@ -1025,26 +1028,8 @@ export class WorkspaceComponent implements OnInit {
     this.adaptForm.patchValue({ documento_titulo: cleanName });
 
     if (file.name.toLowerCase().endsWith('.pdf')) {
-      this.api.parsePdf(file).subscribe({
-        next: (res) => {
-          if (res && res.texto_extraido) {
-            this.adaptForm.patchValue({ documento_contenido: res.texto_extraido });
-          }
-        },
-        error: () => {
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const raw = e.target?.result as string || '';
-            let text = raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
-            text = text.replace(/stream[\s\S]*?endstream/gi, '');
-            text = text.replace(/<<[\s\S]*?>>/g, '');
-            text = text.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
-            text = text.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
-            this.adaptForm.patchValue({ documento_contenido: text || `Especificación técnica de ${file.name}` });
-          };
-          reader.readAsText(file);
-        }
-      });
+      // PDF text extraction happens server-side during ingestion; the file is
+      // uploaded as-is in step 1, so no client-side parsing is required.
     } else {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -1059,15 +1044,27 @@ export class WorkspaceComponent implements OnInit {
     this.uploadedFile.set(null);
   }
 
+  /**
+   * Runs the real two-step pipeline: ingest the document (streaming progress),
+   * then generate educational content from the indexed document.
+   */
   runPipeline(): void {
-    if (this.adaptForm.invalid) return;
+    const indexedDoc = this.activeTab() === 'from_documents' ? this.selectedWorkspaceDoc() : null;
+    const usingUpload = this.activeTab() === 'upload' && !!this.uploadedFile();
+    const usingIndexedDoc = !!indexedDoc?.indexed;
+    if (this.adaptForm.invalid && !usingUpload && !usingIndexedDoc) return;
 
     this.pipelineErrorMessage.set(null);
+    this.currentResponse.set(null);
     this.isPipelineRunning.set(true);
+    this.pipelineStages.set(this.buildPipelineStages());
+
     const formVal = this.adaptForm.value;
+    const title = formVal.documento_titulo || 'Documento Técnico';
+    const userId = this.currentUserId();
 
     const req: AdaptationRequest = {
-      documento_titulo: formVal.documento_titulo || 'Documento Técnico',
+      documento_titulo: title,
       documento_contenido: formVal.documento_contenido || '',
       perfil_destinatario: formVal.perfil_destinatario || 'Desarrollador',
       formato_salida: formVal.formato_salida || 'Flashcards',
@@ -1077,19 +1074,137 @@ export class WorkspaceComponent implements OnInit {
       cantidad_objetivo: formVal.cantidad_objetivo || 20
     };
 
-    this.pipelineSub = this.api.adaptContent(req).subscribe({
-      next: (resp) => {
+    if (usingIndexedDoc && indexedDoc) {
+      // The document is already ingested and indexed: step 1 is done, so mark
+      // the ingest stages complete and generate directly from its vector store.
+      this.pipelineStages.update(list => list.map((stage, i): PipelineStage =>
+        i < list.length - 1 ? { ...stage, estado: 'completado' } : stage));
+      this.startAdaptProgress();
+      this.pipelineSub = this.api.adaptDocument(indexedDoc.id, req, userId)
+        .subscribe(this.generationObserver(req));
+      return;
+    }
+
+    const ingestInput = {
+      file: usingUpload ? this.uploadedFile() : null,
+      text: usingUpload ? null : (formVal.documento_contenido || ''),
+      title,
+      userId
+    };
+
+    this.pipelineSub = this.api.ingestDocument(ingestInput, event => this.onIngestEvent(event))
+      .pipe(
+        switchMap((record: DocumentRecord) => {
+          // Step 1 finished: the document is indexed, now retrieve + generate.
+          this.startAdaptProgress();
+          return this.api.adaptDocument(record.document_id, req, userId);
+        })
+      )
+      .subscribe(this.generationObserver(req));
+  }
+
+  /** Subscribe handlers shared by both generation paths (new vs. indexed doc). */
+  private generationObserver(req: AdaptationRequest): { next: (r: AdaptationResponse) => void; error: (e: any) => void } {
+    return {
+      next: (resp: AdaptationResponse) => {
         this.currentResponse.set(resp);
         this.stateService.addProjectFromResponse(req, resp);
+        this.completeStages();
         this.isPipelineRunning.set(false);
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error('Error en pipeline RAG:', err);
         const detail = err?.error?.detail || err?.message || 'Error de procesamiento en backend';
         this.pipelineErrorMessage.set(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        this.failStages(this.pipelineErrorMessage() || 'Error');
         this.isPipelineRunning.set(false);
       }
+    };
+  }
+
+  /**
+   * Builds the initial (all pending) list of pipeline stages for the loader.
+   * These mirror exactly what the backend reports over SSE: ingest, chunk,
+   * embed and index, followed by a single generation step (the generation
+   * endpoint is not streamed, so it stays active until the response arrives).
+   */
+  private buildPipelineStages(): PipelineStage[] {
+    return [
+      { id: 1, nombre: '1. Ingesta', microcopy: 'Leyendo el documento', estado: 'pendiente' },
+      { id: 2, nombre: '2. Chunking', microcopy: 'División en fragmentos semánticos', estado: 'pendiente' },
+      { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización semántica', estado: 'pendiente' },
+      { id: 4, nombre: '4. Indexado', microcopy: 'Guardando el índice de búsqueda', estado: 'pendiente' },
+      { id: 5, nombre: '5. Generación', microcopy: 'Recuperación RAG y redacción pedagógica', estado: 'pendiente' }
+    ];
+  }
+
+  /** Maps a backend ingestion stage name to its index in the UI stepper. */
+  private ingestStageIndex(stage: string): number {
+    switch (stage) {
+      case 'uploading': return 0;
+      case 'ingesting': return 1;
+      case 'embedding': return 2;
+      case 'indexing': return 3;
+      default: return -1;
+    }
+  }
+
+  private onIngestEvent(event: DocumentIngestEvent): void {
+    if (event.stage === 'failed') {
+      this.failStages(event.message || 'Falló la ingesta del documento.');
+      return;
+    }
+    if (event.stage === 'ready' || event.stage === 'done') {
+      this.setStageProgress(4, 'Documento indexado. Generando contenido…');
+      return;
+    }
+    const index = this.ingestStageIndex(event.stage);
+    if (index >= 0) {
+      this.setStageProgress(index, event.message);
+    }
+  }
+
+  /** Marks every stage before `index` completed and `index` itself active. */
+  private setStageProgress(index: number, message?: string): void {
+    this.pipelineStages.update(list => list.map((stage, i): PipelineStage => {
+      if (i < index) return { ...stage, estado: 'completado' };
+      if (i === index) return { ...stage, estado: 'activo', microcopy: message || stage.microcopy };
+      return { ...stage, estado: 'pendiente' };
+    }));
+  }
+
+  private startAdaptProgress(): void {
+    // Generation is a single non-streamed request: keep the last stage active
+    // until the response resolves, with no simulated progression.
+    this.setStageProgress(4, 'Recuperando fragmentos y generando contenido…');
+  }
+
+  private completeStages(): void {
+    this.pipelineStages.update(list => list.map((stage): PipelineStage => ({ ...stage, estado: 'completado' })));
+  }
+
+  private failStages(message: string): void {
+    this.pipelineStages.update(list => {
+      const activeIdx = Math.max(0, list.findIndex(stage => stage.estado === 'activo'));
+      return list.map((stage, i): PipelineStage => {
+        if (i < activeIdx) return { ...stage, estado: 'completado' };
+        if (i === activeIdx) return { ...stage, estado: 'error', microcopy: message };
+        return { ...stage, estado: 'pendiente' };
+      });
     });
+  }
+
+  private currentUserId(): string | null {
+    try {
+      const raw = sessionStorage.getItem('nuevamente_user');
+      if (raw) {
+        const user = JSON.parse(raw);
+        return user?.id || null;
+      }
+    } catch {
+      // Ignore corrupted session data; the backend falls back to the document owner.
+    }
+    return null;
   }
 
   cancelPipeline(): void {
@@ -1097,6 +1212,10 @@ export class WorkspaceComponent implements OnInit {
       this.pipelineSub.unsubscribe();
     }
     this.isPipelineRunning.set(false);
+  }
+
+  ngOnDestroy(): void {
+    if (this.pipelineSub) this.pipelineSub.unsubscribe();
   }
 
   getGenerationParams(): any {
@@ -1165,6 +1284,7 @@ export class WorkspaceComponent implements OnInit {
   }
 
   formatSize(bytes: number): string {
+    if (!bytes) return '—';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

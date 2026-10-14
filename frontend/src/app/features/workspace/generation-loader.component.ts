@@ -190,7 +190,7 @@ export interface GenerationParams {
         *ngIf="isDetailsOpen()"
       >
         <div class="details-divider">
-          <span>Detalles Técnicos del Pipeline (7 Etapas)</span>
+          <span>Detalles Técnicos del Pipeline ({{ currentStages().length }} Etapas)</span>
         </div>
 
         <div class="stepper-grid">

@@ -43,12 +43,12 @@ class StorageQueueService:
         return cls._instance
 
     def init_storage_tables(self) -> None:
-        """Crea las tablas storage_jobs y documentos en SQLite si no existen."""
+        """Crea la tabla storage_jobs en SQLite si no existe."""
         try:
             conn = get_db()
             cursor = conn.cursor()
 
-            # 1. Tabla de trabajos en segundo plano (storage_jobs)
+            # Persistent background jobs queue (storage_jobs)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS storage_jobs (
                     id TEXT PRIMARY KEY,
@@ -69,25 +69,6 @@ class StorageQueueService:
             """)
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_content ON storage_jobs (content_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_estado ON storage_jobs (estado)")
-
-            # 2. Tabla de documentos originales (documentos)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS documentos (
-                    id TEXT PRIMARY KEY,
-                    user_id TEXT NOT NULL,
-                    title TEXT NOT NULL,
-                    filename TEXT NOT NULL,
-                    bucket TEXT NOT NULL,
-                    object_key TEXT NOT NULL,
-                    sha256 TEXT NOT NULL,
-                    size_bytes INTEGER NOT NULL,
-                    content_type TEXT NOT NULL,
-                    status_upload TEXT DEFAULT 'completado',
-                    created_at REAL NOT NULL
-                )
-            """)
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_user ON documentos (user_id)")
-            cursor.execute("CREATE INDEX IF NOT EXISTS idx_documentos_sha256 ON documentos (sha256)")
 
             conn.commit()
             conn.close()
@@ -282,63 +263,47 @@ class StorageQueueService:
 
         return True
 
-    def save_source_document(
+    def save_content_metadata(
         self,
-        file_bytes: bytes,
-        filename: str,
-        user_id: Optional[str] = None,
-        title: Optional[str] = None,
-        content_type: str = "application/pdf",
-    ) -> Dict[str, Any]:
+        content_id: str,
+        user_id: Optional[str],
+        title: str,
+        content: str,
+        recipient_profile: Optional[str] = None,
+        output_format: Optional[str] = None,
+        niche: Optional[str] = None,
+        detail_level: Optional[str] = None,
+        object_key_json: Optional[str] = None,
+    ) -> None:
         """
-        Valida, calcula sha256 y guarda un documento original en OCI_BUCKET_SOURCES.
-        Registra la metadata en la tabla 'documentos'.
+        Registra un paquete educativo generado en la tabla 'contenidos'.
+
+        La biblioteca y la papelera leen de esa tabla; sin esta fila el
+        contenido existe en Object Storage pero es invisible en la app.
         """
-        max_bytes = settings.STORAGE_MAX_UPLOAD_MB * 1024 * 1024
-        size_bytes = len(file_bytes)
-        if size_bytes > max_bytes:
-            raise ValueError(f"El archivo supera el tamaño máximo permitido de {settings.STORAGE_MAX_UPLOAD_MB} MB.")
-
-        sha256_hash = StorageBackend.compute_sha256(file_bytes)
-        user_clean = StorageBackend.sanitize_user_id(user_id)
-        safe_filename = StorageBackend.sanitize_filename(filename)
-        bucket = settings.OCI_BUCKET_SOURCES
-
-        object_key = StorageBackend.build_document_key(user_clean, sha256_hash, safe_filename)
-        backend = get_storage_backend()
-
-        # Subida a OCI (con deduplicación interna vía head_object)
-        res = backend.put_object(
-            bucket_name=bucket,
-            object_name=object_key,
-            data=file_bytes,
-            content_type=content_type,
-            metadata={"nombre_original": safe_filename},
-        )
-
-        doc_id = f"doc-{uuid.uuid4().hex[:12]}"
-        resolved_title = title or safe_filename
         now = time.time()
-
         conn = get_db()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT OR REPLACE INTO documentos (
-                id, user_id, title, filename, bucket, object_key, sha256,
-                size_bytes, content_type, status_upload, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'completado', ?)
-        """, (doc_id, user_clean, resolved_title, safe_filename, bucket, object_key, sha256_hash, size_bytes, content_type, now))
-        conn.commit()
-        conn.close()
-
-        logger.info("Documento fuente persistido en OCI y BD: doc_id=%s, object_key=%s", doc_id, object_key)
-
-        return {
-            "id": doc_id,
-            "bucket": bucket,
-            "objeto_id": object_key,
-            "sha256": sha256_hash,
-            "size_bytes": size_bytes,
-            "status_upload": "completado",
-            "deduplicado": res.get("deduplicado", False),
-        }
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO contenidos (
+                    id, user_id, title, content, recipient_profile, output_format,
+                    niche, detail_level, status, object_key_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?)
+            """, (
+                content_id,
+                user_id or "usr_demo_001",
+                title,
+                content,
+                recipient_profile,
+                output_format,
+                niche,
+                detail_level,
+                object_key_json,
+                now,
+                now,
+            ))
+            conn.commit()
+            logger.info("Contenido registrado en la biblioteca: content_id=%s, user_id=%s", content_id, user_id)
+        finally:
+            conn.close()
