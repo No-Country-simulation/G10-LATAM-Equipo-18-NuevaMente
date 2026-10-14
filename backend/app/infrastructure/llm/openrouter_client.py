@@ -64,8 +64,8 @@ class OpenRouterClient(BaseLLMClient):
             "messages": messages,
             "temperature": kwargs.get("temperature", 0.2),
         }
-        if json_output:
-            payload["response_format"] = {"type": "json_object"}
+        if "response_format" in kwargs:
+            payload["response_format"] = kwargs["response_format"]
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",

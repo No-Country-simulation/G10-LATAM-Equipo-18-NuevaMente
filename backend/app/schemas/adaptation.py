@@ -45,7 +45,9 @@ class RagFuente(BaseModel):
 
     chunk_id: str
     extracto: str
-    pagina: Optional[int] = 1
+    seccion: Optional[str] = None
+    breadcrumb: Optional[str] = None
+    pagina: Optional[int] = None
     similitud_score: Optional[float] = None
 
 
@@ -100,7 +102,11 @@ class ResponseMetadata(BaseModel):
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
     llm_model: Optional[str] = Field(None, alias="modelo_llm")
+    models_used: Optional[str] = Field(None, alias="modelos_usados")
+    critic_provider: Optional[str] = Field(None, alias="proveedor_critico")
+    critic_model: Optional[str] = Field(None, alias="modelo_critico")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")
+    embedding_model: Optional[str] = Field(None, alias="modelo_embeddings")
     degraded_retrieval: Optional[bool] = Field(False, alias="recuperacion_degradada")
     retrieval_mode: Optional[str] = Field("semantico", alias="modo_recuperacion")
     fallback_used: Optional[bool] = Field(False, alias="fallback_usado")
@@ -110,6 +116,9 @@ class ResponseMetadata(BaseModel):
     origin: Optional[str] = Field("llm", alias="origen")
     timings: Optional[Dict[str, float]] = Field(default_factory=dict, alias="timings")
     llm_calls: Optional[Dict[str, Any]] = Field(default_factory=dict, alias="llm_calls")
+    graph_orchestration: Optional[bool] = Field(False, alias="orquestacion_grafo")
+    graph_nodes_executed: Optional[List[str]] = Field(default_factory=list, alias="nodos_grafo_ejecutados")
+    graph_revision_count: Optional[int] = Field(0, alias="revisiones_grafo")
 
 
 class QualityEvaluation(BaseModel):

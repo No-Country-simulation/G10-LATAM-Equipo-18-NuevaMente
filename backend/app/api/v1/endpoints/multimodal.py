@@ -21,7 +21,7 @@ def _analyze_diagram_sync(content_bytes: bytes, extension: str, prompt: str, sys
         raw_response = gemini_client.generate_content(
             prompt=prompt,
             system_instruction=system_instruction,
-            model_name=settings.DEFAULT_GEMINI_MODEL_PRO,
+            model_name=settings.DEFAULT_GEMINI_MODEL_FLASH,
             json_output=True,
             image_path=temp_path,
         )

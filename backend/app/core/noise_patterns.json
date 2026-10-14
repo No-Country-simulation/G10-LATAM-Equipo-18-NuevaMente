@@ -12,7 +12,14 @@
             "marcas?\\s+(?:registradas?|comerciales?)",
             "trademarks?",
             "t[eé]rminos\\s+y\\s+condiciones",
-            "terms\\s+(?:and|of)\\s+(?:conditions|use)"
+            "terms\\s+(?:and|of)\\s+(?:conditions|use)",
+            "licencias?",
+            "licenses?",
+            "licensing",
+            "creative\\s+commons",
+            "cr[eé]ditos?",
+            "credits?",
+            "colof[oó]n"
         ],
         "content_patterns": [
             "©",
@@ -25,7 +32,13 @@
             "\\bdisclaimer\\b",
             "\\bexenci[oó]n\\s+de\\s+responsabilidad\\b",
             "\\bsin\\s+previo\\s+aviso\\b",
-            "\\bwithout\\s+(?:prior\\s+)?notice\\b"
+            "\\bwithout\\s+(?:prior\\s+)?notice\\b",
+            "\\bcreative\\s+commons\\b",
+            "\\bdistribuye\\s+bajo\\s+(?:una\\s+)?licencia\\b",
+            "\\bdistributed\\s+under\\s+(?:a\\s+)?(?:creative\\s+commons|license)\\b",
+            "\\breconocimiento(?:‑|-|\\s+)no\\s*comercial\\b",
+            "\\bcopyleft\\b",
+            "\\blicencia\\s+(?:de\\s+uso|creative\\s+commons|gpl|mit|apache|cc\\b)"
         ]
     },
     "revision_history": {

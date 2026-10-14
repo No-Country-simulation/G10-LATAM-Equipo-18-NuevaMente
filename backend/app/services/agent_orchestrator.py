@@ -3,13 +3,14 @@ agent_orchestrator.py
 
 Purpose:
     Multi-stage agentic pipeline for educational content adaptation.
-    Orchestrates topic planning, batch content generation with LLMs,
+    Orchestrates document coverage planning, batch content generation with LLMs,
     deduplication, source citation verification, and capacity capping.
     Integrates external prompt templates and multilingual output support.
 
 Input:
     - request (AdaptationRequest): user customization preferences and constraints.
     - top_passages (List[Dict[str, Any]]): RAG-retrieved document parent/child context.
+    - all_parent_chunks (List[Dict[str, Any]]): full set of parent chunks for coverage planning.
     - key_concepts (List[str]): extracted key domain concepts.
     - prerequisites (List[str]): detected concept dependencies.
     - tracer (Optional[PipelineTracer]): execution telemetry and stage timing.
@@ -27,13 +28,16 @@ import os
 import re
 import time
 from typing import Any, Dict, List, Optional, Tuple
+from app.services.rate_guard import get_llm_guard
 
 from app.core.config import settings
 from app.core.labels import (
     FORMAT_LABELS_ES,
     PROFILE_LABELS_ES,
     TITLE_TEMPLATES_ES,
+    get_capacity_warning,
     get_capacity_warning_es,
+    get_contextualized_intro,
 )
 from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
 from app.prompts.prompt_loader import load_prompt
@@ -48,23 +52,40 @@ from app.schemas.adaptation import (
     RagFuente,
     ResponseMetadata,
 )
+from app.services.coverage_planner import CoveragePlan, CoveragePlanner, SectionPlan
 from app.services.document_storage_service import get_document_storage
 from app.services.multi_agent_router import MultiAgentRouter
+from app.services.pdf_export_service import PDFExportService
 
 logger = logging.getLogger("AgentOrchestrator")
 
+
+def _is_spanish(target_language: Optional[str]) -> bool:
+    """Returns True if the target language is Spanish (default), False otherwise."""
+    if not target_language:
+        return True
+    lang = target_language.strip().lower()
+    return lang.startswith("es") or "span" in lang
+
+
 QUANTITY_TABLE: Dict[str, Dict[str, int]] = {
-    "flashcards": {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 70},
-    "quiz": {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30},
-    "tutorial": {"breve": 5, "estandar": 8, "amplio": 12, "exhaustivo": 20},
-    "resumen ejecutivo": {"breve": 3, "estandar": 6, "amplio": 10, "exhaustivo": 15},
-    "guion de clase": {"breve": 3, "estandar": 6, "amplio": 10, "exhaustivo": 15},
+    settings.FORMAT_FLASHCARDS: {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80, "brief": 10, "standard": 20, "wide": 40, "comprehensive": 80},
+    settings.FORMAT_QUIZ: {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30, "brief": 5, "standard": 10, "wide": 20, "comprehensive": 30},
+    settings.FORMAT_TUTORIAL: {"breve": 4, "estandar": 8, "amplio": 15, "exhaustivo": 25, "brief": 4, "standard": 8, "wide": 15, "comprehensive": 25},
+    settings.FORMAT_SUMMARY: {"breve": 3, "estandar": 5, "amplio": 10, "exhaustivo": 15, "brief": 3, "standard": 5, "wide": 10, "comprehensive": 15},
+    settings.FORMAT_CLASS_SCRIPT: {"breve": 3, "estandar": 5, "amplio": 8, "exhaustivo": 12, "brief": 3, "standard": 5, "wide": 8, "comprehensive": 12},
+    # Spanish aliases
+    "resumen ejecutivo": {"breve": 3, "estandar": 5, "amplio": 10, "exhaustivo": 15, "brief": 3, "standard": 5, "wide": 10, "comprehensive": 15},
+    "guion de clase": {"breve": 3, "estandar": 5, "amplio": 8, "exhaustivo": 12, "brief": 3, "standard": 5, "wide": 8, "comprehensive": 12},
 }
 
 FORMAT_CAPACITY_FACTOR: Dict[str, int] = {
-    "flashcards": 8,
-    "quiz": 4,
-    "tutorial": 3,
+    settings.FORMAT_FLASHCARDS: 8,
+    settings.FORMAT_QUIZ: 4,
+    settings.FORMAT_TUTORIAL: 3,
+    settings.FORMAT_SUMMARY: 2,
+    settings.FORMAT_CLASS_SCRIPT: 2,
+    # Spanish aliases
     "resumen ejecutivo": 2,
     "guion de clase": 2,
 }
@@ -77,16 +98,21 @@ class AgentOrchestrator:
         self.gemini_client = GeminiClient()
         self.groq_client = GroqClient()
         self.openrouter_client = OpenRouterClient()
-        # Ordered cascade: Gemini -> Groq -> OpenRouter (Mistral) -> fallback
-        self._llm_cascade = [self.gemini_client, self.groq_client, self.openrouter_client]
+        # Map of active providers
+        self._provider_map = {
+            "gemini": self.gemini_client,
+            "groq": self.groq_client,
+            "openrouter": self.openrouter_client,
+        }
         # Tracks the name of the LLM provider that last succeeded in the cascade
         self.last_provider: str = "fallback"
+        self.last_model: Optional[str] = None
+        self.critic_provider: str = "fallback"
+        self.critic_model: Optional[str] = None
+        self._models_used: Dict[str, set] = {}
         self.router = MultiAgentRouter()
         self._response_cache: Dict[str, AdaptationResponse] = {}
 
-    @property
-    def storage(self):
-        return get_document_storage()
 
     async def run_pipeline(
         self,
@@ -95,12 +121,10 @@ class AgentOrchestrator:
         key_concepts: List[str],
         prerequisites: List[str],
         tracer: Optional[Any] = None,
+        all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
+        document_id: Optional[str] = None,
     ) -> AdaptationResponse:
-        """Executes full multi-stage pipeline with batching, deduplication, and RAG grounding."""
-        if tracer is None:
-            from app.core.timer import PipelineTracer
-            tracer = PipelineTracer()
-
+        """Executes full multi-stage pipeline with coverage planning, batching, deduplication, and RAG grounding."""
         doc_title = self._clean_document_title(request)
         target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
 
@@ -115,13 +139,48 @@ class AgentOrchestrator:
                 cached_resp.metadata.timings = {"cache": tracer.total_elapsed_ms()}
             return cached_resp
 
+        # Reset per-run model/critic tracking (cached responses never call any model)
+        self._models_used = {}
+        self.critic_provider = "fallback"
+        self.critic_model = None
+
+        # Resolve intended target quantity considering quantity level and explicit overrides
+        fmt_key = (request.output_format or "flashcards").lower()
+        lvl_key = (request.quantity_level or "estandar").lower()
+        format_canonical_map = {
+            "resumen ejecutivo": settings.FORMAT_SUMMARY,
+            "guion de clase": settings.FORMAT_CLASS_SCRIPT,
+        }
+        lookup_fmt = format_canonical_map.get(fmt_key, fmt_key)
+        base_target = QUANTITY_TABLE.get(lookup_fmt, {}).get(lvl_key, 20)
+        requested_count = request.target_quantity if request.target_quantity is not None else (
+            base_target if request.quantity_level else (request.quantity or base_target)
+        )
+
+        # Build document coverage plan using full parent chunk set when available
+        chunks_for_planning = all_parent_chunks or top_passages
+        coverage_plan = CoveragePlanner().plan(
+            parent_chunks=chunks_for_planning,
+            output_format=request.output_format or "flashcards",
+            requested_items=requested_count,
+            language=target_language,
+        )
+
         target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
-            request=request, passages_count=len(top_passages)
+            request=request,
+            coverage_plan=coverage_plan,
+            language=target_language,
         )
 
         if tracer:
             tracer.start_stage("planificador")
-        topics = self._stage_planner(doc_title, key_concepts, top_passages, effective_target)
+        topics = self._stage_planner(
+            doc_title=doc_title,
+            key_concepts=key_concepts,
+            coverage_plan=coverage_plan,
+            target=effective_target,
+            target_language=target_language,
+        )
         if tracer:
             tracer.end_stage("planificador")
             tracer.record_llm_call("planificar")
@@ -146,28 +205,43 @@ class AgentOrchestrator:
         if tracer:
             tracer.end_stage("deduplicacion")
 
-        if len(dedup_items) < effective_target:
-            needed = effective_target - len(dedup_items)
+        if tracer:
+            tracer.start_stage("verificacion_anclaje")
+        verified_items = self._stage_verify_grounding(
+            dedup_items, top_passages, all_chunks=all_parent_chunks
+        )
+        if tracer:
+            tracer.end_stage("verificacion_anclaje")
+
+        # Evaluate quality and factual grounding with the critic/auditor
+        grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
+        preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
+
+        evaluation, audited_items = self._evaluate_quality_with_critic(
+            request=request,
+            generated_items=verified_items,
+            passages=top_passages,
+            all_chunks=all_parent_chunks,
+            fallback_score=preliminary_score,
+        )
+
+        # If items were dropped by the auditor, attempt completion only when the
+        # coverage plan confirmed sufficient capacity — otherwise skip to avoid fabrication.
+        if len(audited_items) < effective_target and coverage_plan.total_capacity > len(audited_items):
+            needed = effective_target - len(audited_items)
             extra_items = self._stage_completion(
                 request=request,
                 doc_title=doc_title,
                 topics=topics,
                 needed=needed,
-                existing_items=dedup_items,
+                existing_items=audited_items,
+                target_language=target_language,
             )
             for extra in extra_items:
-                if len(dedup_items) < effective_target:
-                    dedup_items.append(extra)
+                if len(audited_items) < effective_target:
+                    audited_items.append(extra)
 
-        items_to_verify = dedup_items[:effective_target]
-
-        if tracer:
-            tracer.start_stage("verificacion_anclaje")
-        verified_items = self._stage_verify_grounding(items_to_verify, top_passages)
-        if tracer:
-            tracer.end_stage("verificacion_anclaje")
-
-        final_items = verified_items[:effective_target]
+        final_items = audited_items[:effective_target]
         items_generated = len(final_items)
 
         if tracer:
@@ -177,20 +251,37 @@ class AgentOrchestrator:
             doc_title=doc_title,
             items=final_items,
             effective_count=items_generated,
+            target_language=target_language,
         )
         if tracer:
             tracer.end_stage("serializacion_respuesta")
 
-        verified_citations = sum(1 for it in final_items if it.get("fuentes") or it.get("sources"))
-        source_scores = []
-        for it in final_items:
-            for s in (it.get("fuentes") or []):
-                if isinstance(s, dict) and s.get("similitud_score"):
-                    source_scores.append(float(s["similitud_score"]))
-        if source_scores:
-            grounding_score = round(sum(source_scores) / len(source_scores), 3)
-        else:
-            grounding_score = round(min(0.96, max(0.50, verified_citations / max(1, items_generated))), 3)
+        # True grounding score: heuristic based on verified citations.
+        # Use the higher of the heuristic and the critic's own score so that a valid
+        # critic evaluation is never overridden by a chunk_id-lookup failure.
+        verified_citations = sum(1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or [])))
+        heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        grounding_score = max(heuristic_score, evaluation.source_grounding_score)
+        evaluation.source_grounding_score = round(grounding_score, 2)
+
+        # Try to infer embedding model from vector store if available
+        embedding_provider = "gemini"
+        embedding_model_name = None
+        try:
+            from app.services.vector_store_service import get_store
+
+            store = get_store(document_id)
+            if store and store.model_name:
+                embedding_model_name = store.model_name.split("@")[0].replace("models/", "")
+                lower_em = embedding_model_name.lower()
+                if "gemini" in lower_em:
+                    embedding_provider = "gemini"
+                elif "jina" in lower_em:
+                    embedding_provider = "jina"
+                else:
+                    embedding_provider = "local"
+        except Exception:
+            pass
 
         metadata = ResponseMetadata(
             profile_applied=request.recipient_profile,
@@ -205,25 +296,21 @@ class AgentOrchestrator:
             key_concepts=key_concepts[:8],
             prerequisites=prerequisites[:5],
             llm_provider=self.last_provider,
-            llm_model=settings.DEFAULT_GEMINI_MODEL_FLASH,
-            origin="llm",
-            prompt_hash=prompt_hash,
+            llm_model=self.last_model,
+            models_used=self._format_models_used(),
+            critic_provider=self.critic_provider,
+            critic_model=self.critic_model,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model_name,
+            retrieval_mode="hibrido_rrf_reranker",
             timings=tracer.timings if tracer else {},
             llm_calls=tracer.llm_calls if tracer else {},
         )
 
-        evaluation = QualityEvaluation(
-            source_grounding_score=grounding_score,
-            pedagogical_clarity="Alta",
-            observations=f"Generación agéntica por lotes ({items_generated} items) anclada al documento fuente.",
+        object_name = (
+            f"contenido-{self._slugify(doc_title)[:20]}-"
+            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
         )
-
-        content_id = (
-            f"{self._slugify(doc_title)[:20]}-"
-            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}"
-        )
-        user_id = getattr(request, "user_id", None) or "anonimo"
-        version_num = getattr(request, "version", 1) or 1
 
         response_payload = {
             "status": "exito",
@@ -276,34 +363,74 @@ class AgentOrchestrator:
     # STAGE A: PLANNER
     # ---------------------------------------------------------------------------
     def _stage_planner(
-        self, doc_title: str, key_concepts: List[str], passages: List[Dict[str, Any]], target: int
+        self,
+        doc_title: str,
+        key_concepts: List[str],
+        coverage_plan: CoveragePlan,
+        target: int,
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
-        topics = []
-        base_concepts = key_concepts if key_concepts else [doc_title]
-        num_topics = max(3, min(30, math.ceil(target / 3)))
-        items_per_topic = math.ceil(target / num_topics)
+        """
+        Converts CoveragePlan sections into ordered topic descriptors.
+        Each SectionPlan becomes one or more topic entries with the section's
+        allocated item count and context snippet.
+        """
+        is_spanish = "es" in (target_language or "spanish").lower()
+        topics: List[Dict[str, Any]] = []
 
-        for i in range(num_topics):
-            concept = base_concepts[i % len(base_concepts)]
-            passage = passages[i % len(passages)] if passages else {}
-            chunk_id = passage.get("id") or passage.get("metadata", {}).get("chunk_id", f"chunk-{i+1}")
-            page = passage.get("metadata", {}).get("page_number", 1)
-            context_snippet = (passage.get("content") or passage.get("text") or doc_title)[:250]
+        for sp in coverage_plan.sections:
+            if sp.allocated_items <= 0:
+                continue
+
+            # Use key_concepts to enrich topic label when available
+            concept = self._best_concept_for_section(sp.section_title, key_concepts)
+
+            # Clean raw section titles of leading numbers (e.g. "1.2 Componentes" -> "Componentes")
+            clean_section = re.sub(r"^[\d\.\-\)\s]+", "", sp.section_title).strip()
+            topic_label = (
+                f"{concept}" if concept != sp.section_title and concept != clean_section
+                else (clean_section if clean_section else sp.section_title)
+            )
 
             topics.append({
-                "topic": f"{concept} (Parte {i+1})",
+                "topic": topic_label,
                 "concept": concept,
-                "target_items": items_per_topic,
-                "chunk_id": chunk_id,
-                "page": page,
-                "context": context_snippet,
+                "target_items": sp.allocated_items,
+                "chunk_id": sp.primary_chunk_id,
+                "page": sp.page_number,
+                "section": sp.section_title,
+                "breadcrumb": sp.parent_chunks[0].get("breadcrumb") if sp.parent_chunks else "",
+                "context": sp.context_snippet[:settings.RAG_CONTEXT_SNIPPET_SIZE],
             })
+
+        if not topics:
+            # Fallback: single topic from document title
+            topics.append({
+                "topic": doc_title,
+                "concept": doc_title,
+                "target_items": target,
+                "chunk_id": "chunk-001",
+                "page": None,
+                "section": doc_title,
+                "breadcrumb": "",
+                "context": doc_title,
+            })
+
         return topics
 
-    # ---------------------------------------------------------------------------
-    # STAGE B: BATCH GENERATORS
-    # ---------------------------------------------------------------------------
-    async def _stage_batch_generators(
+    @staticmethod
+    def _best_concept_for_section(section_title: str, key_concepts: List[str]) -> str:
+        """Returns the key concept most lexically similar to the section title,
+        or the section title itself if no key concepts are available."""
+        if not key_concepts:
+            return section_title
+        title_lower = section_title.lower()
+        for concept in key_concepts:
+            if concept.lower() in title_lower or title_lower in concept.lower():
+                return concept
+        return section_title
+
+    def _stage_batch_generators(
         self,
         request: AdaptationRequest,
         doc_title: str,
@@ -315,14 +442,121 @@ class AgentOrchestrator:
     ) -> List[Dict[str, Any]]:
         items: List[Dict[str, Any]] = []
         batch_size = 5 if target <= 10 else (8 if target <= 30 else 10)
-        template = load_prompt("batch_writer.md")
+
+        # Map output format to a specific prompt template file.
+        fmt_key = (request.output_format or "flashcards").lower()
+        format_prompt_map = {
+            "flashcards": "formats/flashcards.md",
+            "quiz": "formats/quiz.md",
+            "tutorial": "formats/tutorial.md",
+            "resumen ejecutivo": "formats/executive_summary.md",
+            "guion de clase": "formats/video_script.md",
+        }
+        prompt_file = format_prompt_map.get(fmt_key, "writer.md")
+        template = load_prompt(prompt_file)
+
+        # Pre-format writer system instruction once for the entire batch stage
+        writer_system_tmpl = load_prompt("writer_system.md")
+        system_instruction = writer_system_tmpl.format(
+            niche=request.niche,
+            recipient_profile=request.recipient_profile,
+            target_language=target_language,
+        )
+
+        cascade = self.router.get_model_cascade(fmt_key)
+        if not cascade:
+            cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
+        guard = get_llm_guard()
+
+        # Optimization: for compact requests (target <= 10) with multiple topics,
+        # consolidate all topics into a single LLM prompt call instead of multiple sequential round-trips.
+        # Executive summary always consolidates regardless of target count to ensure a holistic output.
+        is_summary_format = "resumen" in fmt_key or "executive_summary" in fmt_key
+        if (target <= 10 or is_summary_format) and len(topics) > 1:
+            consolidated_chunks = []
+            topic_names = []
+            for t in topics:
+                s_lbl = t.get("section") or "Unknown section"
+                b_lbl = t.get("breadcrumb") or ""
+                p_val = t.get("page")
+                p_lbl = f" | p.{p_val}" if p_val is not None else ""
+                consolidated_chunks.append(
+                    f"[{t['chunk_id']}] SECTION: {s_lbl}"
+                    f"{(' | ' + b_lbl) if b_lbl else ''}"
+                    f"{p_lbl}\n{t['context']}"
+                )
+                if t.get("topic"):
+                    topic_names.append(t["topic"])
+
+            combined_chunk_info = "\n\n---\n\n".join(consolidated_chunks)
+            combined_topic = ", ".join(dict.fromkeys(topic_names))
+            first_topic = topics[0]
+            first_page_val = first_topic.get("page")
+
+            prompt = template.format(
+                niche=request.niche,
+                recipient_profile=request.recipient_profile,
+                detail_level=request.detail_level,
+                output_format=request.output_format,
+                topic=combined_topic,
+                item_count=target,
+                target_language=target_language,
+                chunk_info=combined_chunk_info,
+                chunk_id=first_topic["chunk_id"],
+                page_number=first_page_val if first_page_val is not None else "N/A",
+            )
+
+            raw = None
+            if tracer:
+                tracer.record_llm_call("generar")
+
+            for entry in cascade:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                    continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
+                try:
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
+                        model_name=entry.get("model"),
+                    )
+                    if raw:
+                        self.last_provider = entry["provider"]
+                        self.last_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Lote consolidado (%d ítems) generado con %s/%s", target, entry["provider"], entry.get("model"))
+                        break
+                except Exception as exc:
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("%s/%s generation failed: %s", entry["provider"], entry.get("model"), exc)
+
+            parsed_batch = self._parse_json_batch(raw)
+            if parsed_batch:
+                items.extend(parsed_batch[:target])
+                return items
+            logger.info("Consolidated batch parsing failed or returned empty; falling back to per-topic generation.")
 
         for topic_idx, topic in enumerate(topics):
             if len(items) >= target:
                 break
 
-            n_items = min(batch_size, target - len(items))
-            chunk_info = f"CHUNK ID: {topic['chunk_id']} (Pág. {topic['page']}): {topic['context']}"
+            # Respect section-level allocation from the coverage plan when present
+            section_cap = topic.get("target_items", batch_size)
+            n_items = min(section_cap, batch_size, target - len(items))
+
+            # Build structural reference line; include page only when available.
+            section_label = topic.get("section") or "Unknown section"
+            breadcrumb_label = topic.get("breadcrumb") or ""
+            page_val = topic.get("page")
+            page_label = f" | p.{page_val}" if page_val is not None else ""
+            chunk_info = (
+                f"[{topic['chunk_id']}] SECTION: {section_label}"
+                f"{(' | ' + breadcrumb_label) if breadcrumb_label else ''}"
+                f"{page_label}\n{topic['context']}"
+            )
 
             prompt = template.format(
                 niche=request.niche,
@@ -334,34 +568,35 @@ class AgentOrchestrator:
                 target_language=target_language,
                 chunk_info=chunk_info,
                 chunk_id=topic["chunk_id"],
-                page_number=topic["page"],
-            )
-
-            system_instruction = (
-                f"ROLE: Senior instructional designer expert in {request.niche}. "
-                f"Writing for profile '{request.recipient_profile}'. "
-                "OUTPUT FORMAT: Return strictly a valid JSON array of objects."
+                page_number=page_val if page_val is not None else "N/A",
             )
 
             raw = None
             if tracer:
                 tracer.record_llm_call("generar")
 
-            # Cascade: attempt each LLM provider in order until one succeeds
-            for llm in self._llm_cascade:
-                if not llm.is_available:
+            for entry in cascade:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
                     continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
                 try:
                     raw = llm.generate(
                         prompt=prompt,
                         system_instruction=system_instruction,
                         json_output=True,
+                        model_name=entry.get("model"),
                     )
                     if raw:
-                        self.last_provider = type(llm).__name__.lower().replace("client", "")
+                        self.last_provider = entry["provider"]
+                        self.last_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Lote generado con %s/%s", entry["provider"], entry.get("model"))
                         break
                 except Exception as exc:
-                    logger.warning("%s generation failed: %s", type(llm).__name__, exc)
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("%s/%s generation failed: %s", entry["provider"], entry.get("model"), exc)
 
             parsed_batch = self._parse_json_batch(raw)
             if not parsed_batch:
@@ -371,6 +606,7 @@ class AgentOrchestrator:
                     topic=topic,
                     n_items=n_items,
                     offset=len(items),
+                    target_language=target_language,
                 )
 
             items.extend(parsed_batch)
@@ -399,73 +635,157 @@ class AgentOrchestrator:
     # STAGE D: GROUNDING VERIFICATION
     # ---------------------------------------------------------------------------
     def _stage_verify_grounding(
-        self, items: List[Dict[str, Any]], passages: List[Dict[str, Any]]
+        self,
+        items: List[Dict[str, Any]],
+        passages: List[Dict[str, Any]],
+        all_chunks: Optional[List[Dict[str, Any]]] = None,
     ) -> List[Dict[str, Any]]:
+        """
+        Verifies that each item's citations genuinely correspond to the injected passages.
+        Uses top_passages for word-level overlap and all_chunks (when provided) to resolve
+        chunk_id references that were generated from the coverage plan but not retrieved by RAG.
+        """
         verified = []
-        default_chunk_id = passages[0].get("id", "chunk-rag-001") if passages else "chunk-rag-001"
-        default_page = passages[0].get("metadata", {}).get("page_number", 1) if passages else 1
+        # Build a multi-key passage index so LLM-cited chunk_ids can be resolved even
+        # when the exact format differs (e.g. missing _child_N suffix, or coming from
+        # metadata vs. top-level id field).
+        passage_map: Dict[str, str] = {}
+        all_passage_texts: List[str] = []
 
-        def _clean_score(val: float, seed: int) -> float:
-            score = round(max(0.68, min(0.96, val)), 3)
-            for forbidden in (0.85, 0.95, 0.98):
-                if abs(score - forbidden) < 0.005:
-                    offset = 0.012 if (seed % 2 == 0) else -0.014
-                    score = round(max(0.68, min(0.96, score + offset)), 3)
-            return score
+        # Index all available chunk sets: RAG top passages first, then the full
+        # parent chunk set (when provided). This is critical because the LLM is
+        # prompted with chunk_ids from the coverage plan (e.g. parent_1) which may
+        # differ from the RAG-retrieved IDs (e.g. parent_66).
+        chunk_sources = list(passages)
+        if all_chunks:
+            chunk_sources = chunk_sources + [
+                c for c in all_chunks
+                if (c.get("id") or c.get("metadata", {}).get("chunk_id", ""))
+                not in {p.get("id") or p.get("metadata", {}).get("chunk_id", "") for p in passages}
+            ]
 
-        def _ensure_extract(extract: str, seed: int) -> str:
-            clean_ext = (extract or "").strip()
-            if len(clean_ext) < 40:
-                if passages:
-                    for p in passages:
-                        p_txt = str(p.get("content") or p.get("text", "")).strip()
-                        if len(p_txt) >= 40:
-                            return p_txt[:140]
-                clean_ext = f"{clean_ext} - Fragmento de referencia técnica del documento.".strip()
-                if len(clean_ext) < 40:
-                    clean_ext = clean_ext.ljust(45, ".")
-            return clean_ext[:140]
+        for p in chunk_sources:
+            passage_text = (p.get("content") or p.get("text") or "").lower()
+            # Only add to all_passage_texts for RAG passages (used for fallback overlap)
+            if p in passages:
+                all_passage_texts.append(passage_text)
 
-        for idx, item in enumerate(items):
-            item_text = self._get_item_text(item)
-            sources = item.get("fuentes") or item.get("sources")
-            if not sources or not isinstance(sources, list):
-                best_sim = 0.72
-                best_chunk = default_chunk_id
-                best_page = default_page
-                best_extract = ""
+            candidate_ids = set()
+            top_id = p.get("id", "")
+            if top_id:
+                candidate_ids.add(top_id)
+            meta_id = p.get("metadata", {}).get("chunk_id", "")
+            if meta_id:
+                candidate_ids.add(meta_id)
 
-                if passages:
-                    for p in passages:
-                        p_txt = str(p.get("content") or p.get("text", "")).strip()
-                        if len(p_txt) >= 40:
-                            sim = difflib.SequenceMatcher(None, item_text[:120].lower(), p_txt[:200].lower()).ratio()
-                            if sim > best_sim:
-                                best_sim = sim
-                                best_chunk = p.get("id") or p.get("metadata", {}).get("chunk_id", default_chunk_id)
-                                best_page = p.get("metadata", {}).get("page_number", default_page)
-                                best_extract = p_txt[:140]
+            for cid in list(candidate_ids):
+                passage_map[cid] = passage_text
+                if "_child_" in cid:
+                    passage_map[cid.rsplit("_child_", 1)[0]] = passage_text
+                simplified = re.sub(r"[-_]\d+$", "", cid)
+                if simplified and simplified != cid:
+                    passage_map.setdefault(simplified, passage_text)
 
-                extract = _ensure_extract(best_extract or item_text, idx)
-                raw_score = 0.72 + 0.22 * best_sim + (idx % 7) * 0.012
-                item["fuentes"] = [{
-                    "chunk_id": best_chunk,
-                    "extracto": extract,
-                    "pagina": best_page,
-                    "similitud_score": _clean_score(raw_score, idx),
-                }]
-            else:
-                for s_idx, src in enumerate(sources):
-                    if isinstance(src, dict):
-                        src["extracto"] = _ensure_extract(src.get("extracto", ""), idx + s_idx)
-                        curr_score = src.get("similitud_score")
-                        if curr_score is None or any(abs(float(curr_score) - t) < 0.005 for t in (0.85, 0.95, 0.98)):
-                            sim = difflib.SequenceMatcher(None, item_text[:120].lower(), src["extracto"][:120].lower()).ratio()
-                            raw_score = 0.71 + 0.21 * sim + ((idx + s_idx) % 7) * 0.013
-                            src["similitud_score"] = _clean_score(raw_score, idx + s_idx)
-                        else:
-                            src["similitud_score"] = _clean_score(float(curr_score), idx + s_idx)
+        logger.debug(
+            "[GROUNDING] passage_map keys (%d): %s",
+            len(passage_map),
+            list(passage_map.keys())[:20],
+        )
+
+        # Pre-compute word sets for all passages (used in fallback matching)
+        all_passage_word_sets: List[set] = [
+            set(re.findall(r"\w{4,}", t)) for t in all_passage_texts
+        ]
+
+        for item in items:
+            raw_sources = item.get("fuentes") or item.get("sources")
+            if not raw_sources or not isinstance(raw_sources, list):
+                item["fuentes"] = []
+                item["grounded"] = False
+                verified.append(item)
+                continue
+
+            valid_sources = []
+            for src in raw_sources:
+                if not isinstance(src, dict):
+                    continue
+
+                chunk_id = src.get("chunk_id", "")
+                passage_text = passage_map.get(chunk_id)
+                matched_via = "direct" if passage_text else None
+
+                if not passage_text and all_passage_texts:
+                    item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                    best_overlap = 0.0
+                    best_text = ""
+                    for p_text, p_words in zip(all_passage_texts, all_passage_word_sets):
+                        if item_words and p_words:
+                            overlap = len(item_words & p_words) / len(item_words)
+                            if overlap > best_overlap:
+                                best_overlap = overlap
+                                best_text = p_text
+                    logger.debug(
+                        "[GROUNDING] chunk_id=%r → no direct match; best_overlap=%.2f",
+                        chunk_id, best_overlap,
+                    )
+                    if best_overlap >= 0.25:
+                        passage_text = best_text
+                        matched_via = f"fallback_overlap({best_overlap:.2f})"
+
+                extract = (src.get("extracto") or "").strip().lower()
+
+                is_supported = False
+                if passage_text:
+                    if extract and (extract in passage_text or passage_text in extract):
+                        is_supported = True
+                    else:
+                        extract_words = set(re.findall(r"\w{4,}", extract))
+                        passage_words = set(re.findall(r"\w{4,}", passage_text))
+                        if extract_words:
+                            ew_score = len(extract_words & passage_words) / len(extract_words)
+                            logger.debug(
+                                "[GROUNDING] chunk_id=%r extract_word_overlap=%.2f (via %s)",
+                                chunk_id, ew_score, matched_via,
+                            )
+                            if ew_score >= 0.45:
+                                is_supported = True
+                        if not is_supported and not extract:
+                            item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                            if item_words and passage_words:
+                                iw_score = len(item_words & passage_words) / len(item_words)
+                                logger.debug(
+                                    "[GROUNDING] chunk_id=%r item_word_overlap=%.2f (via %s)",
+                                    chunk_id, iw_score, matched_via,
+                                )
+                                if iw_score >= 0.25:
+                                    is_supported = True
+                elif not passage_text:
+                    logger.debug(
+                        "[GROUNDING] chunk_id=%r → passage_text empty/missing; no verification possible",
+                        chunk_id,
+                    )
+
+                logger.debug(
+                    "[GROUNDING] src chunk_id=%r is_supported=%s extract_len=%d",
+                    chunk_id, is_supported, len(extract),
+                )
+
+                clean_src = dict(src)
+                pg = clean_src.get("pagina")
+                if not isinstance(pg, int) or pg <= 0:
+                    clean_src.pop("pagina", None)
+
+                clean_src["verificado"] = is_supported
+                valid_sources.append(clean_src)
+
+            item["grounded"] = any(s.get("verificado", False) for s in valid_sources)
+            logger.debug(
+                "[GROUNDING] item grounded=%s sources=%d",
+                item["grounded"], len(valid_sources),
+            )
+            item["fuentes"] = valid_sources
             verified.append(item)
+
         return verified
 
     # ---------------------------------------------------------------------------
@@ -478,6 +798,7 @@ class AgentOrchestrator:
         topics: List[Dict[str, Any]],
         needed: int,
         existing_items: List[Dict[str, Any]],
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         extra = []
         max_idx = len(existing_items)
@@ -487,67 +808,182 @@ class AgentOrchestrator:
             }
             extra.append(
                 self._generate_fallback_item(
-                    request=request, doc_title=doc_title, topic=topic, item_idx=max_idx + i + 1
+                    request=request,
+                    doc_title=doc_title,
+                    topic=topic,
+                    item_idx=max_idx + i + 1,
+                    target_language=target_language,
                 )
             )
         return extra
 
     # ---------------------------------------------------------------------------
-    # STAGE F: CRITIC EVALUATION
+    # STAGE F: CRITIC EVALUATION & AUDITING
     # ---------------------------------------------------------------------------
     def _evaluate_quality_with_critic(
-        self, request: AdaptationRequest, generated_items: List[Dict[str, Any]], passages: List[Dict[str, Any]], fallback_score: float
-    ) -> QualityEvaluation:
-        if not self.groq_client.is_available:
-            return QualityEvaluation(
+        self,
+        request: AdaptationRequest,
+        generated_items: List[Dict[str, Any]],
+        passages: List[Dict[str, Any]],
+        fallback_score: float,
+        all_chunks: Optional[List[Dict[str, Any]]] = None,
+    ) -> Tuple[QualityEvaluation, List[Dict[str, Any]]]:
+        """
+        Uses auditor prompt template to evaluate generated educational items individually,
+        identifying grounding issues and unverified claims.
+        Builds source_facts from the chunks actually cited by items (not just top RAG passages)
+        so the critic evaluates the same context as the heuristic verifier.
+        """
+        if not generated_items:
+            evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="Alta",
-                observations="Generación agéntica por lotes. (Evaluación por heurística; Groq no disponible)."
+                pedagogical_clarity="High",
+                observations="Heuristic quality verification; no items to audit."
             )
-            
-        system_instruction = "You are a pedagogical critic evaluating generated educational content."
-        context_str = "\n".join([str(p.get("content", p.get("text", "")))[:300] for p in passages[:3]])
-        items_str = json.dumps([self._get_item_text(i) for i in generated_items[:3]], ensure_ascii=False)
-        
-        prompt = f"""
-Evaluate the following educational content generated for the profile '{request.recipient_profile}'.
-Source Context excerpts:
-{context_str}
+            return evaluation, generated_items
 
-Generated Items (sample):
-{items_str}
-
-Return a valid JSON with:
-- "anclaje_fuente_score": float between 0.0 and 1.0 (how well it reflects the source).
-- "claridad_pedagogica": string ("Alta", "Media", "Baja").
-- "observaciones": A short sentence justifying the evaluation.
-"""
         try:
-            raw = self.groq_client.generate(prompt=prompt, system_instruction=system_instruction, json_output=True)
+            auditor_template = load_prompt("auditor.md")
+
+            # Build a lookup from chunk_id → text covering all available chunks.
+            # Prioritise content from cited chunks so the critic evaluates the same
+            # context the heuristic verifier used, avoiding score/observations contradiction.
+            all_chunk_map: Dict[str, str] = {}
+            for chunk_list in (passages, all_chunks or []):
+                for p in chunk_list:
+                    pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+                    if pid:
+                        all_chunk_map[pid] = (p.get("content") or p.get("text") or "")[:400]
+
+            # Collect chunk_ids cited by the generated items.
+            cited_ids: List[str] = []
+            seen: set = set()
+            for it in generated_items:
+                for src in (it.get("fuentes") or []):
+                    if isinstance(src, dict):
+                        cid = src.get("chunk_id", "")
+                        if cid and cid not in seen:
+                            seen.add(cid)
+                            cited_ids.append(cid)
+
+            # Build source_facts: cited chunks first, then top RAG passages as supplement.
+            fact_chunks: List[tuple] = []
+            for cid in cited_ids:
+                if cid in all_chunk_map:
+                    fact_chunks.append((cid, all_chunk_map[cid]))
+            # Supplement with RAG top passages not already included
+            for p in passages:
+                pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+                if pid and pid not in seen:
+                    fact_chunks.append((pid, (p.get("content") or p.get("text") or "")[:400]))
+                if len(fact_chunks) >= 10:
+                    break
+
+            source_facts = "\n\n".join(
+                f"[{cid}] {text}" for cid, text in fact_chunks
+            )
+            items_to_audit = [
+                {
+                    "index": i,
+                    "text": self._get_item_text(it),
+                    "sources": [s.get("chunk_id") for s in (it.get("fuentes") or []) if isinstance(s, dict)],
+                }
+                for i, it in enumerate(generated_items)
+            ]
+
+            prompt = auditor_template.format(
+                recipient_profile=request.recipient_profile,
+                source_facts=source_facts,
+                generated_items=json.dumps(items_to_audit, ensure_ascii=False, indent=2),
+            )
+            system_instruction = (
+                "ROLE: Impartial educational auditor and fact-checker. "
+                "OUTPUT FORMAT: Return strictly valid JSON object."
+            )
+
+            raw = None
+            guard = get_llm_guard()
+            for entry in settings.CRITIC_CASCADE:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                    continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
+                try:
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
+                        model_name=entry.get("model"),
+                    )
+                    if raw:
+                        self.critic_provider = entry["provider"]
+                        # Resolve model name: use entry model or provider default
+                        resolved_model = entry.get("model")
+                        if not resolved_model:
+                            if entry["provider"] == "groq":
+                                resolved_model = settings.DEFAULT_GROQ_MODEL
+                            elif entry["provider"] == "gemini":
+                                resolved_model = settings.DEFAULT_GEMINI_MODEL_FLASH
+                            elif entry["provider"] == "openrouter":
+                                resolved_model = settings.DEFAULT_OPENROUTER_MODEL
+                        self.critic_model = resolved_model
+                        self._track_model(entry["provider"], resolved_model or entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info("Crítico respondió con %s/%s", entry["provider"], resolved_model)
+                        break
+                except Exception as exc:
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("Critic %s/%s failed: %s", entry["provider"], entry.get("model"), exc)
+            if not raw:
+                logger.warning("Todos los providers del crítico fallaron; usando score automático.")
+                self.critic_provider = "evaluador_heuristico"
+                self.critic_model = "analizador_anclaje_rag"
+
             text = raw.strip() if raw else "{}"
             text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
             text = re.sub(r"^```\s*", "", text)
             text = re.sub(r"\s*```$", "", text)
             data = json.loads(text)
-            
-            return QualityEvaluation(
-                source_grounding_score=float(data.get("anclaje_fuente_score", fallback_score)),
-                pedagogical_clarity=data.get("claridad_pedagogica", "Alta"),
-                observations=data.get("observaciones", "Evaluado por agente crítico Groq.")
+
+            item_evals = data.get("item_evaluations", [])
+            flagged_indices = {
+                e.get("index") for e in item_evals if e.get("is_grounded") is False
+            }
+
+            accepted_items = []
+            for i, it in enumerate(generated_items):
+                if i in flagged_indices and it.get("grounded") is False:
+                    logger.info("Critic rejected ungrounded item %d: %s", i, self._get_item_text(it)[:60])
+                else:
+                    accepted_items.append(it)
+
+            if not accepted_items:
+                accepted_items = generated_items
+
+            overall_score = float(data.get("overall_grounding_score", fallback_score))
+            evaluation = QualityEvaluation(
+                source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
+                pedagogical_clarity=str(data.get("pedagogical_clarity", "High")),
+                observations=str(data.get("observations", "Evaluated by educational auditor agent."))
             )
+            return evaluation, accepted_items
+
         except Exception as e:
-            logger.warning(f"Critic agent failed: {e}")
-            return QualityEvaluation(
+            logger.warning(f"Critic auditor failed: {e}")
+            self.critic_provider = "evaluador_heuristico"
+            self.critic_model = "analizador_anclaje_rag"
+            evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="Alta",
-                observations="Evaluación heurística de fallback por falla en agente crítico."
+                pedagogical_clarity="High",
+                observations="Heuristic fallback evaluation due to critic agent error."
             )
+            return evaluation, generated_items
 
     # ---------------------------------------------------------------------------
     # HELPERS & FORMATTING
     # ---------------------------------------------------------------------------
     def _clean_document_title(self, request: AdaptationRequest) -> str:
-        doc_title = request.title or getattr(request, "documento_titulo", "Documento Técnico")
+        doc_title = request.title or getattr(request, "documento_titulo", "Technical Document")
         doc_title = re.sub(r"\.(pdf|md|markdown|txt)$", "", doc_title.strip(), flags=re.IGNORECASE)
         doc_title = re.sub(r"[-_]", " ", doc_title).strip()
         if not doc_title or re.match(r"^\d+(\.\d+)?$", doc_title):
@@ -556,7 +992,7 @@ Return a valid JSON with:
                 for line in (request.content or "").split("\n")
                 if len(line.strip()) > 10 and not line.startswith("---")
             ]
-            doc_title = lines[0][:60] if lines else "Documento Técnico"
+            doc_title = lines[0][:60] if lines else "Technical Document"
         return doc_title
 
     def _compute_request_hash(self, request: AdaptationRequest, doc_title: str, language: str) -> str:
@@ -568,23 +1004,40 @@ Return a valid JSON with:
         return hashlib.sha256(hash_input.encode("utf-8")).hexdigest()
 
     def _calculate_target_quantity(
-        self, request: AdaptationRequest, passages_count: int
+        self,
+        request: AdaptationRequest,
+        language: str = "Spanish",
+        coverage_plan: Optional[CoveragePlan] = None,
+        passages_count: int = 0,
     ) -> Tuple[int, int, Optional[str]]:
         fmt_key = (request.output_format or "flashcards").lower()
         lvl_key = (request.quantity_level or "estandar").lower()
 
-        base_target = QUANTITY_TABLE.get(fmt_key, {}).get(lvl_key, 20)
+        # Map Spanish format names to canonical keys if needed
+        format_canonical_map = {
+            "resumen ejecutivo": settings.FORMAT_SUMMARY,
+            "guion de clase": settings.FORMAT_CLASS_SCRIPT,
+        }
+        lookup_fmt = format_canonical_map.get(fmt_key, fmt_key)
+
+        base_target = QUANTITY_TABLE.get(lookup_fmt, {}).get(lvl_key, 20)
         target_quantity = request.target_quantity if request.target_quantity is not None else (
             base_target if request.quantity_level else (request.quantity or base_target)
         )
 
-        cap_factor = FORMAT_CAPACITY_FACTOR.get(fmt_key, 8)
-        max_capacity = max(target_quantity, max(1, passages_count) * cap_factor)
-        effective_target = min(target_quantity, max_capacity)
+        if coverage_plan is not None:
+            # Use the planner's capacity estimate, which is based on total content
+            effective_target = min(target_quantity, coverage_plan.viable_target)
+            warning = coverage_plan.capacity_warning if effective_target < target_quantity else None
+        else:
+            # Legacy fallback when no plan is available
+            cap_factor = FORMAT_CAPACITY_FACTOR.get(lookup_fmt, 4)
+            max_capacity = max(5, max(1, passages_count) * cap_factor)
+            effective_target = min(target_quantity, max_capacity)
+            warning = None
+            if effective_target < target_quantity:
+                warning = get_capacity_warning(effective_target, target_quantity, language=language)
 
-        warning = None
-        if effective_target < target_quantity:
-            warning = get_capacity_warning_es(effective_target, target_quantity)
         return target_quantity, effective_target, warning
 
     def _get_item_text(self, item: Dict[str, Any]) -> str:
@@ -604,28 +1057,63 @@ Return a valid JSON with:
         text = re.sub(r"^```json\s*", "", text, flags=re.IGNORECASE)
         text = re.sub(r"^```\s*", "", text)
         text = re.sub(r"\s*```$", "", text)
-        start = text.find("[")
-        end = text.rfind("]")
-        if start != -1 and end != -1:
-            text = text[start : end + 1]
+
+        # First attempt parsing raw JSON directly (handles objects or arrays)
         try:
             parsed = json.loads(text)
             if isinstance(parsed, list):
                 return parsed
+            if isinstance(parsed, dict):
+                # Check for common wrapper keys like "items", "quiz", "flashcards", etc.
+                for key in ("items", "elementos", "quiz", "flashcards", "preguntas", "data"):
+                    if isinstance(parsed.get(key), list):
+                        return parsed[key]
+                # If any dict value is a list of dicts, return the first one found
+                for val in parsed.values():
+                    if isinstance(val, list) and (not val or isinstance(val[0], dict)):
+                        return val
         except Exception:
             pass
+
+        # Fallback to extracting array substring between '[' and ']'
+        start = text.find("[")
+        end = text.rfind("]")
+        if start != -1 and end != -1:
+            try:
+                parsed = json.loads(text[start : end + 1])
+                if isinstance(parsed, list):
+                    return parsed
+            except Exception:
+                pass
         return None
 
     def _generate_fallback_batch(
-        self, request: AdaptationRequest, doc_title: str, topic: Dict[str, Any], n_items: int, offset: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        topic: Dict[str, Any],
+        n_items: int,
+        offset: int,
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         return [
-            self._generate_fallback_item(request, doc_title, topic, offset + i + 1)
+            self._generate_fallback_item(
+                request=request,
+                doc_title=doc_title,
+                topic=topic,
+                item_idx=offset + i + 1,
+                target_language=target_language,
+            )
             for i in range(n_items)
         ]
 
     def _generate_fallback_item(
-        self, request: AdaptationRequest, doc_title: str, topic: Dict[str, Any], item_idx: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        topic: Dict[str, Any],
+        item_idx: int,
+        target_language: str = "Spanish",
     ) -> Dict[str, Any]:
         fmt = request.output_format.lower()
         topic_name = topic["topic"]
@@ -637,88 +1125,146 @@ Return a valid JSON with:
         main_concept = clean_concept if len(clean_concept) > 2 else "Componente Técnico"
 
         context = topic.get("context", "")
+        is_spanish = _is_spanish(target_language)
+
+        # Avoid redundant phrasing when topic and concept share the same text
+        topic_clean = topic_name.strip()
+        concept_clean = main_concept.strip()
+        if not topic_clean or topic_clean.lower() == concept_clean.lower() or concept_clean.lower() in topic_clean.lower():
+            topic_context_es = ""
+            topic_context_en = ""
+        else:
+            topic_context_es = f" en el marco de {topic_clean}"
+            topic_context_en = f" in the context of {topic_clean}"
+
         sentences = [s.strip() for s in re.split(r"[.!?]", context) if len(s.strip()) > 15]
-        target_sentence = sentences[item_idx % len(sentences)] if sentences else f"Definición clave de {main_concept}."
-        if len(target_sentence) < 40:
-            target_sentence = f"{target_sentence} - Especificación técnica documentada."
+        if sentences:
+            target_sentence = sentences[item_idx % len(sentences)]
+        else:
+            target_sentence = (
+                f"Definición clave y principios fundamentales de {main_concept}."
+                if is_spanish
+                else f"Key definition and fundamental principles of {main_concept}."
+            )
 
-        raw_sim = round(0.74 + (item_idx % 7) * 0.027, 3)
-        for forbidden in (0.85, 0.95, 0.98):
-            if abs(raw_sim - forbidden) < 0.005:
-                raw_sim = round(raw_sim + 0.012, 3)
-
-        fuente = {
+        # Provide reference citation but clearly mark provenance without fabricating similarity scores
+        fuente: Dict[str, Any] = {
             "chunk_id": topic.get("chunk_id", "chunk-001"),
-            "extracto": target_sentence[:120],
-            "pagina": topic.get("page", 1),
-            "similitud_score": raw_sim,
+            "extracto": target_sentence[:100],
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": True,
         }
+        if topic.get("section"):
+            fuente["seccion"] = topic["section"]
+        if topic.get("breadcrumb"):
+            fuente["breadcrumb"] = topic["breadcrumb"]
+        page_val = topic.get("page")
+        if isinstance(page_val, int) and page_val > 0:
+            fuente["pagina"] = page_val
 
         if "flashcard" in fmt:
+            if is_spanish:
+                return {
+                    "frente": f"¿Cuál es el propósito y la aplicación de '{main_concept}'{topic_context_es}?",
+                    "dorso": f"{target_sentence} Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de {request.niche}.",
+                    "pista_didactica": f"Pista: Evalúa el impacto operativo directo de {main_concept}.",
+                    "fuentes": [fuente],
+                }
             return {
-                "frente": f"¿Cuál es el propósito y aplicación de '{main_concept}'?",
-                "dorso": f"{target_sentence} Optimiza el rendimiento, la seguridad y la mantenibilidad en {request.niche}.",
-                "pista_didactica": f"Pista: Evalúa el impacto operativo de {main_concept} para {request.recipient_profile}.",
+                "frente": f"What is the purpose and application of '{main_concept}'{topic_context_en}?",
+                "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
+                "pista_didactica": f"Hint: Assess the operational impact of {main_concept}.",
                 "fuentes": [fuente],
             }
         elif "quiz" in fmt:
+            if is_spanish:
+                return {
+                    "pregunta": f"Respecto a {main_concept}{topic_context_es}, ¿cuál de las siguientes afirmaciones es correcta según la documentación?",
+                    "opciones": [
+                        f"{target_sentence}",
+                        f"Invalida las políticas técnicas y de seguridad estándar en {request.niche}.",
+                        f"Aplica únicamente a entornos heredados (legacy) en desuso.",
+                        f"Carece de relevancia para las funciones de {request.recipient_profile}.",
+                    ],
+                    "respuesta_correcta": f"{target_sentence}",
+                    "justificacion": f"Fundamentado directamente en el texto fuente: '{target_sentence[:120]}'",
+                    "justificacion_didactica": f"Concepto medular para el desarrollo de competencias en {request.recipient_profile}.",
+                    "fuentes": [fuente],
+                }
             return {
-                "pregunta": f"Respecto a {main_concept}, ¿cuál de las siguientes afirmaciones es correcta?",
+                "pregunta": f"Regarding {main_concept}{topic_context_en}, which of the following statements is correct?",
                 "opciones": [
                     f"{target_sentence}",
-                    f"Invalida las políticas de seguridad de {request.niche}.",
-                    f"Aplica únicamente a arquitecturas obsoletas.",
-                    f"No guarda relación con las funciones de {request.recipient_profile}.",
+                    f"Overrides {request.niche} policies.",
+                    f"Applies only to legacy {topic_name} environments.",
+                    f"Is unrelated to the requirements of {request.recipient_profile}.",
                 ],
                 "respuesta_correcta": f"{target_sentence}",
-                "justificacion": f"Respaldado directamente en la fuente técnica: '{target_sentence[:120]}'",
-                "justificacion_didactica": f"Fundamento técnico clave para {request.recipient_profile}.",
+                "justificacion": f"Directly supported by the source text: '{target_sentence[:120]}'",
+                "justificacion_didactica": f"Core technical foundation for {request.recipient_profile}.",
                 "fuentes": [fuente],
             }
         elif "tutorial" in fmt:
+            if is_spanish:
+                return {
+                    "paso": item_idx,
+                    "titulo": f"Paso {item_idx}: Configuración y aplicación de {main_concept}",
+                    "instruccion": f"Implementar {main_concept} siguiendo las directrices técnicas: {target_sentence}",
+                    "ejemplo": f"// Ejemplo de configuración práctica para {main_concept}\nejecutar_accion('{main_concept}')",
+                    "fuentes": [fuente],
+                }
             return {
                 "paso": item_idx,
-                "titulo": f"Paso {item_idx}: Configuración de {main_concept}",
-                "instruccion": f"Configura {main_concept} según las especificaciones técnicas: {target_sentence}",
-                "ejemplo": f"# Configuración de {main_concept}\nconfigure --name '{main_concept}' --profile '{request.recipient_profile}'",
+                "titulo": f"Step {item_idx}: Configuring {main_concept}",
+                "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
+                "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
                 "fuentes": [fuente],
             }
         else:
-            impactos = [
-                f"Garantiza el cumplimiento normativo y la continuidad de servicio para {main_concept} en {request.niche}.",
-                f"Optimiza la arquitectura de red y el aislamiento de recursos en arquitecturas de {request.niche}.",
-                f"Mitiga riesgos de seguridad y simplifica la administración para {request.recipient_profile}.",
-                f"Soporta alta disponibilidad y escalabilidad automatizada en entornos de {request.niche}.",
-                f"Facilita la auditoría técnica y la gestión estructurada de políticas.",
-            ]
-            dynamic_impact = impactos[(item_idx - 1) % len(impactos)]
+            if is_spanish:
+                return {
+                    "punto_clave": f"{main_concept}: {target_sentence}",
+                    "impacto_negocio": f"Garantiza la continuidad operativa y eficiencia técnica en el sector {request.niche}.",
+                    "fuentes": [fuente],
+                }
             return {
-                "punto_clave": f"{main_concept}",
-                "impacto_negocio": f"{target_sentence} {dynamic_impact}",
+                "punto_clave": f"{main_concept}: {target_sentence}",
+                "impacto_negocio": f"Ensures operational efficiency and strategic value in {request.niche}.",
                 "fuentes": [fuente],
             }
 
     def _format_adapted_content(
-        self, request: AdaptationRequest, doc_title: str, items: List[Dict[str, Any]], effective_count: int
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        items: List[Dict[str, Any]],
+        effective_count: int,
+        target_language: str = "Spanish",
     ) -> AdaptedContent:
         fmt = request.output_format.lower()
-        intro = (
-            f"Versión adaptada de '{doc_title}' estructurada en {effective_count} elementos "
-            f"orientada a {request.recipient_profile} en el sector {request.niche}."
+        is_spanish = _is_spanish(target_language)
+
+        intro = get_contextualized_intro(
+            doc_title=doc_title,
+            effective_count=effective_count,
+            recipient_profile=request.recipient_profile,
+            niche=request.niche,
+            language=target_language,
         )
 
         title_template = TITLE_TEMPLATES_ES.get(
-            fmt, "Contenido Educativo ({count} Elementos): {doc_title}"
+            fmt, "Contenido Educativo ({count} Elementos): {doc_title}" if is_spanish else "Educational Content ({count} Items): {doc_title}"
         )
         final_title = title_template.format(count=effective_count, doc_title=doc_title)
 
         if "quiz" in fmt:
+            default_justif = "Fundamento técnico verificado." if is_spanish else "Core technical foundation."
             quizzes = [
                 QuizItem(
                     question=it.get("pregunta", f"Pregunta #{i+1}"),
                     options=it.get("opciones", ["A", "B", "C", "D"]),
                     correct_answer=it.get("respuesta_correcta", "A"),
-                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or "Fundamento técnico.",
+                    didactic_justification=it.get("justificacion_didactica") or it.get("justificacion") or default_justif,
                     sources=[RagFuente(**f) if isinstance(f, dict) else f for f in (it.get("fuentes") or [])],
                 )
                 for i, it in enumerate(items)
@@ -732,8 +1278,12 @@ Return a valid JSON with:
         elif "tutorial" in fmt:
             sections = [
                 {
-                    "encabezado": f"Paso {it.get('paso', i+1)}: {it.get('titulo', 'Módulo ' + str(i+1))}",
-                    "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}",
+                    "encabezado": (
+                        f"Paso {it.get('paso', i+1)}: {it.get('titulo', f'Módulo {i+1}')}"
+                        if is_spanish
+                        else f"Step {it.get('paso', i+1)}: {it.get('titulo', f'Module {i+1}')}"
+                    ),
+                    "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}".strip(),
                 }
                 for i, it in enumerate(items)
             ]
@@ -745,13 +1295,14 @@ Return a valid JSON with:
             )
         elif "resumen" in fmt:
             summary_bullets = [
-                f"{i+1}. {it.get('punto_clave', 'Punto ' + str(i+1))}: {it.get('impacto_negocio', '')}"
+                f"{i+1}. {it.get('punto_clave', 'Punto ' + str(i+1) if is_spanish else 'Point ' + str(i+1))}: {it.get('impacto_negocio', '')}"
                 for i, it in enumerate(items)
             ]
+            header = f"RESUMEN EJECUTIVO ({effective_count} PUNTOS):" if is_spanish else f"EXECUTIVE SUMMARY ({effective_count} POINTS):"
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
-                executive_summary=f"SÍNTESIS EJECUTIVA ({effective_count} PUNTOS):\n\n" + "\n".join(summary_bullets),
+                executive_summary=f"{header}\n\n" + "\n".join(summary_bullets),
                 items=items,
             )
         else:
@@ -760,6 +1311,19 @@ Return a valid JSON with:
                 contextualized_introduction=intro,
                 items=items,
             )
+
+    _PROVIDER_SHORT = {"gemini": "google", "groq": "groq", "openrouter": "openrouter"}
+
+    def _track_model(self, provider: str, model: Optional[str]) -> None:
+        if model:
+            self._models_used.setdefault(provider, set()).add(model)
+
+    def _format_models_used(self) -> str:
+        parts = []
+        for provider in sorted(self._models_used):
+            label = self._PROVIDER_SHORT.get(provider, provider)
+            parts.append(f"{label}({len(self._models_used[provider])})")
+        return ", ".join(parts)
 
     @staticmethod
     def _slugify(text: str) -> str:

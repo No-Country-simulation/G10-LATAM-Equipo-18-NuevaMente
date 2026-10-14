@@ -30,6 +30,7 @@ backend/local_storage/
 backend/uploads/
 data/uploads/
 data/results/
+backend/extracted_images
 
 # Vector Stores (FAISS, Chroma, etc.)
 chroma_db/

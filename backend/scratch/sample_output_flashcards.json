@@ -1,0 +1,232 @@
+{
+  "status": "exito",
+  "metadatos": {
+    "perfil_aplicado": "Principiante",
+    "formato_generado": "Flashcards",
+    "nicho_sector": "General",
+    "nivel_detalle": "Didactico",
+    "nivel_cantidad": "Estandar",
+    "items_solicitados": 10,
+    "items_generados": 10,
+    "aviso_cantidad": null,
+    "tiempo_estimado_estudio_minutos": 20,
+    "conceptos_clave": [],
+    "prerrequisitos": [],
+    "proveedor_llm": "gemini",
+    "modelo_llm": "gemini-3.5-flash-lite",
+    "modelos_usados": "google(1), groq(1)",
+    "proveedor_critico": "groq",
+    "modelo_critico": "openai/gpt-oss-20b",
+    "proveedor_embeddings": "gemini",
+    "modelo_embeddings": null,
+    "recuperacion_degradada": false,
+    "modo_recuperacion": "hibrido_rrf_reranker",
+    "fallback_usado": false,
+    "degradaciones": [],
+    "resumen_ingesta": null,
+    "prompt_hash": null,
+    "origen": "llm",
+    "timings": {
+      "ingesta_extraccion": 9.85,
+      "chunking": 0.0,
+      "recuperacion_hybrid": 3236.67,
+      "planificador": 0.3,
+      "generacion_lotes": 34604.68,
+      "deduplicacion": 3.99,
+      "verificacion_anclaje": 0.45,
+      "serializacion_respuesta": 0.02
+    },
+    "llm_calls": {
+      "planificar": 1,
+      "generar": 4,
+      "verificar": 0,
+      "embeddings_llamadas": 1,
+      "embeddings_chunks_total": 21,
+      "embeddings_chunks_cache": 0,
+      "tokens_estimados": 0,
+      "retries_429": 0,
+      "espera_429_s": 0.0
+    },
+    "orquestacion_grafo": true,
+    "nodos_grafo_ejecutados": [
+      "planner",
+      "writer",
+      "deduplicator",
+      "grounding_verifier",
+      "critic",
+      "refiner",
+      "formatter"
+    ],
+    "revisiones_grafo": 1
+  },
+  "contenido_adaptado": {
+    "titulo": "Mazo de Flashcards (10 Tarjetas): Manual Técnico Sistema NuevaMente   RAG",
+    "introduccion_contextualizada": "Adapted version of 'Manual Técnico Sistema NuevaMente   RAG' structured into 10 elements for profile 'Principiante' in the 'General' sector.",
+    "resumen_ejecutivo": null,
+    "items": [
+      {
+        "frente": "¿Cuál es la versión y la fecha de publicación del Manual Técnico Sistema NuevaMente?",
+        "dorso": "La versión del manual es 1.0 y su fecha de publicación es octubre de 2026.",
+        "pista_didactica": "Busca la línea que indica la versión y la fecha.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_0",
+            "seccion": "# MANUAL TÉCNICO: SISTEMA NUEVAMENTE",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > # MANUAL TÉCNICO: SISTEMA NUEVAMENTE",
+            "extracto": "*Versión 1.0 - Octubre 2026*",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Cuál es el propósito principal del documento técnico sobre RAG y conceptos del backend?",
+        "dorso": "Explica cómo funciona el pipeline de ingesta, embeddings y RAG dentro del sistema NuevaMente, sirviendo además como archivo de prueba para el script de ingestión.",
+        "pista_didactica": "Piensa en el documento como una guía técnica que también funciona como banco de pruebas.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "seccion": "Anexos: Métricas",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. Anexos: Métricas",
+            "extracto": "Este documento es una guía técnica que explica cómo funciona el pipeline de ingesta, embeddings y RAG dentro del sistema NuevaMente. Su propósito no es solo ser informativo, sino también servir como un archivo de prueba ideal para test_ingestion_sample.py",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Qué significa la técnica RAG (Retrieval-Augmented Generation) en el contexto del sistema?",
+        "dorso": "Es una técnica diseñada para mejorar las respuestas generadas por un modelo de lenguaje (LLM) al proporcionarle contexto externo y actualizado antes de procesarlas.",
+        "pista_didactica": "Asocia RAG con 'enriquecer la respuesta del modelo' usando información externa.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "seccion": "Anexos: Métricas",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. Anexos: Métricas",
+            "extracto": "RAG es una técnica que mejora las respuestas de un modelo de lenguaje (LLM) al proporcionarle contexto externo y actualizado antes de que gene",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Por qué la estructura de este documento técnico es ideal para el script de prueba?",
+        "dorso": "Porque cuenta con una organización específica basada en encabezados y contenido técnico que facilita la validación automatizada.",
+        "pista_didactica": "La clave está en cómo los encabezados y la estructura facilitan las pruebas de software.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "seccion": "Anexos: Métricas",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. Anexos: Métricas",
+            "extracto": "debido a su estructura con encabezados y contenido técnico",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Qué componentes principales abarca la guía técnica del sistema NuevaMente?",
+        "dorso": "Abarca el pipeline de ingesta, la generación de embeddings y los conceptos fundamentales del funcionamiento de RAG.",
+        "pista_didactica": "Recuerda los tres pilares del procesamiento de datos mencionados al inicio del documento.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "seccion": "Anexos: Métricas",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. Anexos: Métricas",
+            "extracto": "explica cómo funciona el pipeline de ingesta, embeddings y RAG dentro del sistema NuevaMente",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Cómo se relaciona el script test_ingestion_sample.py con la documentación técnica?",
+        "dorso": "Utiliza este documento como un archivo de prueba ideal gracias a su formato estructurado para evaluar el proceso de ingesta.",
+        "pista_didactica": "Relaciona el nombre del script de prueba con el uso del documento como muestra.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "seccion": "Anexos: Métricas",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. Anexos: Métricas",
+            "extracto": "servir como un archivo de prueba ideal para test_ingestion_sample.py",
+            "verificado": true
+          }
+        ],
+        "grounded": true
+      },
+      {
+        "frente": "¿Cuál es el propósito y la aplicación de '# MANUAL TÉCNICO: SISTEMA NUEVAMENTE'?",
+        "dorso": "0 - Octubre 2026*\n*Autor: Equipo G10 LATAM*\n\n---\n## Índice Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de General.",
+        "pista_didactica": "Pista: Evalúa el impacto operativo directo de # MANUAL TÉCNICO: SISTEMA NUEVAMENTE.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_0",
+            "extracto": "0 - Octubre 2026*\n*Autor: Equipo G10 LATAM*\n\n---\n## Índice",
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": true,
+            "seccion": "# MANUAL TÉCNICO: SISTEMA NUEVAMENTE",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > # MANUAL TÉCNICO: SISTEMA NUEVAMENTE"
+          }
+        ]
+      },
+      {
+        "frente": "¿Cuál es el propósito y la aplicación de '4. [Embeddings y Vector Store](#3-embeddings-y-vector-store)' en el marco de [Embeddings y Vector Store](#3-embeddings-y-vector-store)?",
+        "dorso": "[Generación y Casos de Uso](#4-rag-tradicional-vs-generación-de-resúmenesflashcards) Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de General.",
+        "pista_didactica": "Pista: Evalúa el impacto operativo directo de 4. [Embeddings y Vector Store](#3-embeddings-y-vector-store).",
+        "fuentes": [
+          {
+            "chunk_id": "parent_1",
+            "extracto": "[Generación y Casos de Uso](#4-rag-tradicional-vs-generación-de-resúmenesflashcards)",
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": true,
+            "seccion": "4. [Embeddings y Vector Store](#3-embeddings-y-vector-store)",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 4. [Embeddings y Vector Store](#3-embeddings-y-vector-store)"
+          }
+        ]
+      },
+      {
+        "frente": "¿Cuál es el propósito y la aplicación de '6. [Anexos: Métricas](#5-anexos-métricas-de-rendimiento)' en el marco de [Anexos: Métricas](#5-anexos-métricas-de-rendimiento)?",
+        "dorso": "RAG es una técnica que mejora las respuestas de un modelo de lenguaje (LLM) al proporcionarle contexto externo y actualizado antes de que gene Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de General.",
+        "pista_didactica": "Pista: Evalúa el impacto operativo directo de 6. [Anexos: Métricas](#5-anexos-métricas-de-rendimiento).",
+        "fuentes": [
+          {
+            "chunk_id": "parent_2",
+            "extracto": "RAG es una técnica que mejora las respuestas de un modelo de lenguaje (LLM) al proporcionarle contex",
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": true,
+            "seccion": "6. [Anexos: Métricas](#5-anexos-métricas-de-rendimiento)",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > 6. [Anexos: Métricas](#5-anexos-métricas-de-rendimiento)"
+          }
+        ]
+      },
+      {
+        "frente": "¿Cuál es el propósito y la aplicación de '# MANUAL TÉCNICO: SISTEMA NUEVAMENTE'?",
+        "dorso": "*Documento Confidencial - Uso Interno Exclusivo*\n*Versión 1 Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de General.",
+        "pista_didactica": "Pista: Evalúa el impacto operativo directo de # MANUAL TÉCNICO: SISTEMA NUEVAMENTE.",
+        "fuentes": [
+          {
+            "chunk_id": "parent_0",
+            "extracto": "*Documento Confidencial - Uso Interno Exclusivo*\n*Versión 1",
+            "tipo_fuente": "contexto_estructural",
+            "es_fallback": true,
+            "seccion": "# MANUAL TÉCNICO: SISTEMA NUEVAMENTE",
+            "breadcrumb": "Manual Técnico Sistema NuevaMente - RAG > # MANUAL TÉCNICO: SISTEMA NUEVAMENTE"
+          }
+        ]
+      }
+    ],
+    "quizzes": null,
+    "secciones_tutorial": null
+  },
+  "evaluacion_calidad": {
+    "anclaje_fuente_score": 0.71,
+    "claridad_pedagogica": "Medium",
+    "observaciones": "Five of the seven items are fully supported by the source excerpts. Two items (indices 1 and 3) contain claims that are not grounded in the provided text, leading to partial clarity for a beginner audience."
+  },
+  "almacenamiento_oci": {
+    "bucket": "nuevamente-contenidos-educativos",
+    "objeto_id": "contenido-manual-t-cnico-siste-principiante-1791853273.json",
+    "status_upload": "completado"
+  },
+  "url_pdf": null
+}
