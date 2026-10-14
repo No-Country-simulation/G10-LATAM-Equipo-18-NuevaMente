@@ -36,6 +36,8 @@ from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import get_store
 from app.services.retrieval_service import retrieve_context
 from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
+from app.core.config import settings
 from app.schemas.adaptation import AdaptationRequest
 from app.core.labels import PROFILE_LABELS_ES, FORMAT_LABELS_ES, NICHE_LABELS_ES
 
@@ -375,10 +377,15 @@ def handle_agent_generation(
             outcome["request"] = request
             outcome["all_parent_chunks"] = all_parent_chunks
 
-            events.put({"stage": "generating", "message": "Ejecutando pipeline agéntico (planificador → lotes → deduplicación → verificación)…"})
             import asyncio
 
-            orchestrator = AgentOrchestrator()
+            if settings.ENABLE_LANGGRAPH:
+                events.put({"stage": "generating", "message": "Ejecutando pipeline multi-agente con LangGraph (Planner → Writer → Deduplicator → Grounding → Critic → Refiner/Formatter)…"})
+                orchestrator = LangGraphOrchestrator()
+            else:
+                events.put({"stage": "generating", "message": "Ejecutando pipeline agéntico secuencial (planificador → lotes → deduplicación → verificación)…"})
+                orchestrator = AgentOrchestrator()
+
             loop = asyncio.new_event_loop()
             try:
                 response = loop.run_until_complete(
@@ -451,6 +458,8 @@ def handle_agent_generation(
         "",
         "| Métrica | Valor |",
         "| :--- | :--- |",
+        f"| **Orquestador** | `{'LangGraph (StateGraph)' if getattr(meta, 'graph_orchestration', False) else 'Secuencial Clásico'}` |",
+        f"| **Trayectoria de Agentes** | `{' ➔ '.join(getattr(meta, 'graph_nodes_executed', [])) or 'Secuencial'}` |",
         f"| **Proveedor LLM** | `{meta.llm_provider or 'N/A'}` |",
         f"| **Modelos usados** | `{getattr(meta, 'models_used', '') or 'No registrado'}` |",
         f"| **Crítico (auditor)** | `{getattr(meta, 'critic_provider', 'N/A')} · {getattr(meta, 'critic_model', 'N/A')}` |",
@@ -462,6 +471,9 @@ def handle_agent_generation(
         f"| **Ubicación en Storage** | `{response.oci_storage.bucket}/{response.oci_storage.object_id}` |",
         "",
     ]
+
+    if getattr(meta, "graph_revision_count", 0) > 0:
+        md_lines.insert(len(md_lines) - 2, f"| **Revisiones / Refiner** | `{meta.graph_revision_count}` |")
 
     if meta.quantity_warning:
         md_lines.append(f"> ⚠️ **Aviso de Capacidad:** {meta.quantity_warning}\n")
