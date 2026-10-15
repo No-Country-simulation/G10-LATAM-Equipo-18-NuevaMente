@@ -90,8 +90,8 @@ appNuevamente/
 
 ### 1. Clonar Repositorio y Ubicar Rama
 ```bash
-git clone https://github.com/No-Country-simulation/G10-LATAM-equipo-18-NuevaMente-Sistema-Inteligente-de-Adaptaci-n-y-Generaci-n-de-Contenido-Educativo.git
-cd G10-LATAM-equipo-18-NuevaMente-Sistema-Inteligente-de-Adaptaci-n-y-Generaci-n-de-Contenido-Educativo
+git clone https://github.com/No-Country-simulation/G10-LATAM-Equipo-18-NuevaMente.git
+cd G10-LATAM-Equipo-18-NuevaMente
 git checkout devbackend
 ```
 
