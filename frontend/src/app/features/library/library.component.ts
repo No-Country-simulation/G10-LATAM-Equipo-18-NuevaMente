@@ -4,6 +4,7 @@ import { forkJoin } from 'rxjs';
 import { StateService, RecentProject } from '../../core/services/state.service';
 import { ExportService } from '../../core/services/export.service';
 import { NUEVAMENTE_API, NuevaMenteApi } from '../../core/api/nuevamente-api';
+import { JsonDrawerComponent } from '../workspace/json-drawer.component';
 
 interface ToastState {
   id: string;
@@ -14,7 +15,7 @@ interface ToastState {
 @Component({
   selector: 'app-library',
   standalone: true,
-  imports: [CommonModule],
+  imports: [CommonModule, JsonDrawerComponent],
   template: `
     <div class="library-container">
       <!-- TOAST NOTIFICATION (aria-live="polite") -->
@@ -171,6 +172,16 @@ interface ToastState {
                 </button>
 
                 <button 
+                  class="btn-action-secondary" 
+                  (click)="openJson(proj)" 
+                  title="Ver JSON"
+                  [attr.aria-label]="'Ver JSON de ' + proj.nombre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+                  JSON
+                </button>
+
+                <button 
                   class="btn-action-danger" 
                   (click)="moveToTrash(proj)" 
                   title="Mover a la papelera"
@@ -193,6 +204,14 @@ interface ToastState {
         <h3>No se encontraron documentos en la biblioteca</h3>
         <p>Prueba ajustando los filtros de búsqueda o crea una nueva adaptación educativa en el Workspace.</p>
       </div>
+
+      <app-json-drawer
+        *ngIf="isJsonDrawerOpen()"
+        [isOpen]="isJsonDrawerOpen()"
+        [data]="jsonProject()?.response || null"
+        (close)="closeJson()"
+        (closeDrawer)="closeJson()"
+      ></app-json-drawer>
     </div>
   `,
   styles: [`
@@ -537,6 +556,8 @@ export class LibraryComponent implements OnInit {
   selectedIds = signal<Set<string>>(new Set());
   exitingIds = signal<Set<string>>(new Set());
   toast = signal<ToastState | null>(null);
+  isJsonDrawerOpen = signal(false);
+  jsonProject = signal<RecentProject | null>(null);
 
   ngOnInit(): void {
     this.refreshProjects();
@@ -721,5 +742,15 @@ export class LibraryComponent implements OnInit {
     }
     this.toast.set(null);
     this.refreshProjects();
+  }
+
+  openJson(proj: RecentProject): void {
+    this.jsonProject.set(proj);
+    this.isJsonDrawerOpen.set(true);
+  }
+
+  closeJson(): void {
+    this.isJsonDrawerOpen.set(false);
+    this.jsonProject.set(null);
   }
 }

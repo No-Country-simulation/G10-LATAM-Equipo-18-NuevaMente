@@ -93,13 +93,21 @@ def _remove_quietly(local_path: str) -> None:
         logger.warning("Failed to remove temporary file %s: %s", local_path, exc)
 
 
-def _ingest(local_path: str, title: str, user_id: Optional[str], use_ai_vision: bool, on_progress) -> DocumentRecord:
+def _ingest(
+    local_path: str,
+    title: str,
+    user_id: Optional[str],
+    use_ai_vision: bool,
+    on_progress,
+    source_filename: Optional[str] = None,
+) -> DocumentRecord:
     """Registers the file and runs the full ingest + embed + index pipeline."""
     record = register_document(
         local_path=local_path,
         title=title,
         user_id=user_id,
         on_progress=on_progress,
+        source_filename=source_filename,
     )
     return process_registered_document(
         document_id=record.document_id,
@@ -157,18 +165,22 @@ async def create_document(
         )
 
     resolved_title = (title or Path(filename).stem.replace("_", " ").replace("-", " ")).strip()
+    # `filename` may carry client-side directory separators; keep only the
+    # basename so the documents table stores the real uploaded name
+    # ("manual_vcn.pdf") instead of the internal temporary file name.
+    source_filename = Path(filename).name
     local_path = _save_upload_to_temp(content_bytes, suffix)
 
     if stream:
         return StreamingResponse(
-            _ingest_event_stream(local_path, resolved_title, user_id, use_ai_vision),
+            _ingest_event_stream(local_path, resolved_title, user_id, use_ai_vision, source_filename),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     try:
         record = await anyio.to_thread.run_sync(
-            lambda: _ingest(local_path, resolved_title, user_id, use_ai_vision, None)
+            lambda: _ingest(local_path, resolved_title, user_id, use_ai_vision, None, source_filename)
         )
     finally:
         _remove_quietly(local_path)
@@ -180,6 +192,7 @@ def _ingest_event_stream(
     title: str,
     user_id: Optional[str],
     use_ai_vision: bool,
+    source_filename: Optional[str] = None,
 ) -> Generator[str, None, None]:
     """Runs ingestion in a worker thread and yields each progress event as SSE."""
     events: "queue.Queue[Optional[Dict[str, Any]]]" = queue.Queue()
@@ -187,7 +200,9 @@ def _ingest_event_stream(
 
     def worker() -> None:
         try:
-            outcome["record"] = _ingest(local_path, title, user_id, use_ai_vision, events.put)
+            outcome["record"] = _ingest(
+                local_path, title, user_id, use_ai_vision, events.put, source_filename
+            )
         except Exception as exc:  # surfaced to the client as a failed event
             outcome["error"] = str(exc)
         finally:

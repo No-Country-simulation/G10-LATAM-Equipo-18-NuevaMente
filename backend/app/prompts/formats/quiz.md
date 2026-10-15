@@ -21,11 +21,13 @@ INSTRUCTIONS FOR QUIZ:
    - All 4 options MUST be mutually exclusive and comparable in length and grammatical structure.
    - Distractors MUST be plausible misconceptions, alternative behaviors, or technical edge-cases, NOT random gibberish or unrelated fragments.
    - The correct answer MUST be an exact match to one of the 4 options in 'opciones'.
+   - RANDOMIZE where the correct option sits: across the quiz the correct answer must be spread over A, B, C and D — never concentrated on the first or second position.
 5. NO META-REFERENCES OR HIERARCHY DUMPS: NEVER include raw section numbers ("1.2", "Capítulo 3"), file paths, breadcrumbs ("A > B > C"), or author metadata in the questions or options. Focus purely on technical content.
 6. STRICT LANGUAGE PURITY: All text (question, options, correct answer, justification) MUST be written 100% in {target_language}. Do not mix languages.
 7. Each item MUST include its source provenance:
    "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<clean section title>", "breadcrumb": "<doc > section>", "extracto": "<concise relevant verbatim quote>"}}]
    Include "pagina": {page_number} ONLY if page_number is a positive integer (not "N/A").
+   Set "verificado": true only when the quote is taken verbatim from the excerpt above.
 
 OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the exact fields:

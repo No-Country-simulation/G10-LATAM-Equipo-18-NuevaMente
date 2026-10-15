@@ -69,9 +69,14 @@ def register_document(
     title: Optional[str] = None,
     user_id: Optional[str] = None,
     on_progress: Optional[ProgressCallback] = None,
+    source_filename: Optional[str] = None,
 ) -> DocumentRecord:
     """
     Registers the uploaded document by storing the file and creating the database record.
+
+    `source_filename` is the name the user originally uploaded; without it the
+    temporary random path (`tmpXXXX.pdf`) would end up in the documents table
+    and the UI would show a meaningless name.
     """
     document_id = str(uuid.uuid4())
     path = Path(local_path)
@@ -92,7 +97,7 @@ def register_document(
         return repo.create_document(
             document_id=document_id,
             title=resolved_title,
-            source_filename=path.name,
+            source_filename=source_filename or path.name,
             object_key=object_key,
             user_id=user_id,
         )

@@ -274,12 +274,18 @@ class StorageQueueService:
         niche: Optional[str] = None,
         detail_level: Optional[str] = None,
         object_key_json: Optional[str] = None,
+        response_json: Optional[str] = None,
     ) -> None:
         """
         Registra un paquete educativo generado en la tabla 'contenidos'.
 
         La biblioteca y la papelera leen de esa tabla; sin esta fila el
         contenido existe en Object Storage pero es invisible en la app.
+
+        `content` guarda únicamente el paquete adaptado (lo que el visor
+        renderiza) mientras que `response_json` guarda la respuesta completa
+        (metadatos + evaluación de calidad), que es la única forma de que la
+        Biblioteca muestre el anclaje RAG real en lugar de un valor fijo.
         """
         now = time.time()
         conn = get_db()
@@ -288,8 +294,9 @@ class StorageQueueService:
             cursor.execute("""
                 INSERT OR REPLACE INTO contenidos (
                     id, user_id, title, content, recipient_profile, output_format,
-                    niche, detail_level, status, object_key_json, created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?)
+                    niche, detail_level, status, object_key_json, response_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?)
             """, (
                 content_id,
                 user_id or "usr_demo_001",
@@ -300,6 +307,7 @@ class StorageQueueService:
                 niche,
                 detail_level,
                 object_key_json,
+                response_json,
                 now,
                 now,
             ))

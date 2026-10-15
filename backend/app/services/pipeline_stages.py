@@ -24,6 +24,7 @@ import difflib
 import hashlib
 import json
 import logging
+import random
 import re
 from typing import Any, Dict, List, Optional, Tuple
 from app.services.rate_guard import get_llm_guard
@@ -205,6 +206,7 @@ class PipelineStages:
             niche=request.niche,
             recipient_profile=request.recipient_profile,
             target_language=target_language,
+            detail_level=request.detail_level,
         )
 
         cascade = self.router.get_model_cascade(fmt_key)
@@ -977,6 +979,25 @@ class PipelineStages:
                 "fuentes": [fuente],
             }
 
+    def _shuffle_quiz_options(self, items: List[Dict[str, Any]]) -> None:
+        """Randomizes where the correct option sits in every quiz item.
+
+        The LLM (and the deterministic fallback generator) both tend to emit
+        `respuesta_correcta` as the first option, which clustered correct
+        answers in A/B. The renderer matches the answer by string equality
+        rather than by index, so reordering `opciones` is safe and leaves the
+        question, the justification and the sources untouched.
+        """
+        for item in items:
+            options = item.get("opciones")
+            correct = item.get("respuesta_correcta")
+            if not isinstance(options, list) or len(options) < 2:
+                continue
+            if not isinstance(correct, str) or correct not in options:
+                continue
+            random.shuffle(options)
+            item["opciones"] = options
+
     def _format_adapted_content(
         self,
         request: AdaptationRequest,
@@ -1002,6 +1023,8 @@ class PipelineStages:
         final_title = title_template.format(count=effective_count, doc_title=doc_title)
 
         if "quiz" in fmt:
+            # Reorder before building QuizItem so `items` and `quizzes` agree.
+            self._shuffle_quiz_options(items)
             default_justif = "Fundamento técnico verificado." if is_spanish else "Core technical foundation."
             quizzes = [
                 QuizItem(

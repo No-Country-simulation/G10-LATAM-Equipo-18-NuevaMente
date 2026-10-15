@@ -73,7 +73,9 @@ class SupabaseStorageService(BaseDocumentStorage):
         extension = path.suffix.lower()
 
         owner_prefix = user_id or "anonymous"
-        object_key = f"{owner_prefix}/{document_id}{extension}"
+        # Same layout as the OCI adapter and security.get_user_storage_prefix()
+        # so both storage backends produce identical, predictable object keys.
+        object_key = f"usuarios/{owner_prefix}/documentos/{document_id}{extension}"
 
         from app.infrastructure.supabase_client import get_supabase_client
         client = get_supabase_client()

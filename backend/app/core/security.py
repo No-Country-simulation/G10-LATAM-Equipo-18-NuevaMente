@@ -129,6 +129,7 @@ def init_auth_tables():
             status TEXT DEFAULT 'ready',
             object_key_source TEXT,
             object_key_json TEXT,
+            response_json TEXT,
             deleted_at TEXT,
             purge_at TEXT,
             deleted_by TEXT,
@@ -138,6 +139,13 @@ def init_auth_tables():
             FOREIGN KEY (user_id) REFERENCES users (id)
         )
     """)
+    # Migration for databases created before response_json existed. SQLite has
+    # no "ADD COLUMN IF NOT EXISTS", so the duplicate-column error on re-run is
+    # expected and ignored (same pattern as documents.storage_backend).
+    try:
+        cursor.execute("ALTER TABLE contenidos ADD COLUMN response_json TEXT")
+    except Exception:
+        pass
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_contenidos_purge_at ON contenidos (purge_at)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_contenidos_user_deleted ON contenidos (user_id, deleted_at)")
 

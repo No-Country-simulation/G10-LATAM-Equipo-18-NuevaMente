@@ -15,7 +15,9 @@ Input:
 
 Output:
     JSON packages with their metadata plus `contenido_adaptado`, the adapted
-    content parsed from the stored payload, matching what the frontend renders.
+    content parsed from the stored payload, matching what the frontend renders,
+    and `evaluacion_calidad`/`metadatos` (real RAG anchoring score, models used)
+    taken from the full response persisted at generation time.
 """
 
 import json
@@ -41,6 +43,20 @@ def _serialize_content(row: Dict[str, Any]) -> Dict[str, Any]:
             # Invalid/legacy payloads must not break the whole library list.
             contenido_adaptado = None
 
+    # `response_json` holds the full AdaptationResponse payload written at
+    # generation time. Rows created before it existed simply return null here.
+    evaluacion_calidad: Any = None
+    metadatos: Any = None
+    raw_response = row.get("response_json")
+    if raw_response:
+        try:
+            full_response = json.loads(raw_response)
+        except (TypeError, ValueError):
+            full_response = None
+        if isinstance(full_response, dict):
+            evaluacion_calidad = full_response.get("evaluacion_calidad")
+            metadatos = full_response.get("metadatos")
+
     return {
         "content_id": row.get("id"),
         "user_id": row.get("user_id"),
@@ -56,6 +72,8 @@ def _serialize_content(row: Dict[str, Any]) -> Dict[str, Any]:
         "deleted_at": row.get("deleted_at"),
         "purge_at": row.get("purge_at"),
         "contenido_adaptado": contenido_adaptado,
+        "evaluacion_calidad": evaluacion_calidad,
+        "metadatos": metadatos,
     }
 
 

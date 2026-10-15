@@ -502,6 +502,9 @@ class LangGraphOrchestrator(PipelineStages):
             niche=getattr(request, "niche", None),
             detail_level=getattr(request, "detail_level", None),
             object_key_json=job_info["objeto_id"],
+            # Full response (metadata + quality evaluation) so the Library can
+            # show the real RAG anchoring score instead of a hardcoded one.
+            response_json=json.dumps(response_payload, ensure_ascii=False),
         )
 
         storage_result = OCIStorageResult(

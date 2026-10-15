@@ -50,6 +50,10 @@ class RagFuente(BaseModel):
     breadcrumb: Optional[str] = None
     pagina: Optional[int] = None
     similitud_score: Optional[float] = None
+    verificado: Optional[bool] = Field(
+        None,
+        description="True when the quoted extract was matched against a retrieved passage.",
+    )
 
 
 class FlashcardItem(BaseModel):

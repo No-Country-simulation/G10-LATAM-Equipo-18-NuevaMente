@@ -308,28 +308,55 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
     return this.listTrash().pipe(map((list) => list.length));
   }
 
+  /**
+   * Reads the quality evaluation and metadata persisted with a content row.
+   *
+   * `/contenidos` returns them already parsed; `/papelera` returns the raw row
+   * with the full adaptation response serialized inside `response_json`. Legacy
+   * rows created before that column existed simply yield nulls.
+   */
+  private extractEvaluation(row: any): { evaluacion: any; metadatos: any } {
+    let evaluacion = row?.evaluacion_calidad;
+    let metadatos = row?.metadatos;
+    if ((!evaluacion || !metadatos) && typeof row?.response_json === 'string' && row.response_json.trim()) {
+      try {
+        const full = JSON.parse(row.response_json);
+        evaluacion = evaluacion ?? full?.evaluacion_calidad;
+        metadatos = metadatos ?? full?.metadatos;
+      } catch {
+        // Ignore malformed legacy payloads.
+      }
+    }
+    return {
+      evaluacion: evaluacion && typeof evaluacion === 'object' ? evaluacion : null,
+      metadatos: metadatos && typeof metadatos === 'object' ? metadatos : null
+    };
+  }
+
   /** Maps a backend `contenidos` row to the `RecentProject` view model. */
   private mapContentToProject(row: any): RecentProject {
     const adapted = this.extractAdaptedContent(row);
     const items = Array.isArray(adapted.items) ? adapted.items : [];
+    const { evaluacion, metadatos } = this.extractEvaluation(row);
 
     const response: AdaptationResponse = {
       status: 'exito',
       metadatos: {
-        perfil_aplicado: row?.recipient_profile || 'General',
-        formato_generado: row?.output_format || 'Tutorial',
-        nicho_sector: row?.niche || undefined,
-        nivel_detalle: row?.detail_level || undefined,
-        items_generados: items.length,
-        items_solicitados: items.length,
-        tiempo_estimado_estudio_minutos: Math.max(1, items.length * 3),
-        conceptos_clave: []
+        perfil_aplicado: metadatos?.perfil_aplicado ?? row?.recipient_profile ?? 'General',
+        formato_generado: metadatos?.formato_generado ?? row?.output_format ?? 'Tutorial',
+        nicho_sector: metadatos?.nicho_sector ?? row?.niche ?? undefined,
+        nivel_detalle: metadatos?.nivel_detalle ?? row?.detail_level ?? undefined,
+        nivel_cantidad: metadatos?.nivel_cantidad,
+        items_generados: metadatos?.items_generados ?? items.length,
+        items_solicitados: metadatos?.items_solicitados ?? items.length,
+        tiempo_estimado_estudio_minutos: metadatos?.tiempo_estimado_estudio_minutos ?? Math.max(1, items.length * 3),
+        conceptos_clave: metadatos?.conceptos_clave ?? []
       },
       contenido_adaptado: adapted,
       evaluacion_calidad: {
-        anclaje_fuente_score: 0.98,
-        claridad_pedagogica: 'Alta',
-        observaciones: 'Paquete recuperado de la biblioteca persistida.'
+        anclaje_fuente_score: evaluacion?.anclaje_fuente_score ?? 0.98,
+        claridad_pedagogica: evaluacion?.claridad_pedagogica ?? 'Alta',
+        observaciones: evaluacion?.observaciones ?? 'Paquete recuperado de la biblioteca persistida.'
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-contenidos-educativos',
