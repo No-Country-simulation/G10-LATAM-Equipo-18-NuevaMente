@@ -18,7 +18,7 @@
 
 ## 🔍 Top-3 Cuellos de Botella Resueltos
 
-1. **Bucle Secuencial de Lotes LLM (`backend/app/services/agent_orchestrator.py:353`)**
+1. **Bucle Secuencial de Lotes LLM (`backend/app/services/pipeline_stages.py`)**
    - **Causa Raíz**: Para solicitudes de alto volumen (25 - 80 items), la tubería ejecutaba llamados HTTP síncronos y secuenciales por cada tema.
    - **Solución Aplicada**: Paralelización controlada de lotes por tema con `ThreadPoolExecutor` (4 trabajadores concurrentes), reduciendo la latencia de generación de **~65s a <1.5s**.
 

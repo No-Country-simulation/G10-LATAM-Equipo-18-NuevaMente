@@ -31,7 +31,7 @@ from app.schemas.adaptation import (
     QualityEvaluation,
     ResponseMetadata,
 )
-from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.pipeline_stages import PipelineStages
 from app.services.coverage_planner import CoveragePlan, CoveragePlanner
 from app.services.pdf_export_service import PDFExportService
 
@@ -79,12 +79,11 @@ class AgentState(TypedDict, total=False):
     final_response: Optional[AdaptationResponse]
 
 
-class LangGraphOrchestrator:
+class LangGraphOrchestrator(PipelineStages):
     """Orchestrates the multi-agent adaptation workflow using a compiled LangGraph StateGraph."""
 
-    def __init__(self, base_orchestrator: Optional[AgentOrchestrator] = None):
-        self._orchestrator = base_orchestrator or AgentOrchestrator()
-        self._response_cache: Dict[str, AdaptationResponse] = {}
+    def __init__(self):
+        super().__init__()
         self.graph = self._build_graph()
 
     def _build_graph(self):
@@ -151,13 +150,13 @@ class LangGraphOrchestrator:
             language=target_language,
         )
 
-        target_quantity, effective_target, capacity_warning = self._orchestrator._calculate_target_quantity(
+        target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
             request=request,
             coverage_plan=coverage_plan,
             language=target_language,
         )
 
-        topics = self._orchestrator._stage_planner(
+        topics = self._stage_planner(
             doc_title=doc_title,
             key_concepts=key_concepts,
             coverage_plan=coverage_plan,
@@ -196,7 +195,7 @@ class LangGraphOrchestrator:
         if tracer:
             tracer.start_stage("generacion_lotes")
 
-        raw_items = self._orchestrator._stage_batch_generators(
+        raw_items = self._stage_batch_generators(
             request=request,
             doc_title=doc_title,
             topics=topics,
@@ -227,7 +226,7 @@ class LangGraphOrchestrator:
         if tracer:
             tracer.start_stage("deduplicacion")
 
-        dedup_items = self._orchestrator._stage_deduplicate(raw_items)
+        dedup_items = self._stage_deduplicate(raw_items)
 
         if tracer:
             tracer.end_stage("deduplicacion")
@@ -252,7 +251,7 @@ class LangGraphOrchestrator:
         if tracer:
             tracer.start_stage("verificacion_anclaje")
 
-        verified_items = self._orchestrator._stage_verify_grounding(
+        verified_items = self._stage_verify_grounding(
             dedup_items,
             top_passages,
             all_chunks=all_parent_chunks,
@@ -281,7 +280,7 @@ class LangGraphOrchestrator:
         grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
         preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
 
-        evaluation, audited_items = self._orchestrator._evaluate_quality_with_critic(
+        evaluation, audited_items = self._evaluate_quality_with_critic(
             request=request,
             generated_items=verified_items,
             passages=top_passages,
@@ -346,7 +345,7 @@ class LangGraphOrchestrator:
 
         needed = effective_target - len(audited_items)
         if needed > 0:
-            extra_items = self._orchestrator._stage_completion(
+            extra_items = self._stage_completion(
                 request=request,
                 doc_title=doc_title,
                 topics=topics,
@@ -392,7 +391,7 @@ class LangGraphOrchestrator:
         final_items = audited_items[:effective_target]
         items_generated = len(final_items)
 
-        adapted_content = self._orchestrator._format_adapted_content(
+        adapted_content = self._format_adapted_content(
             request=request,
             doc_title=doc_title,
             items=final_items,
@@ -448,11 +447,11 @@ class LangGraphOrchestrator:
             estimated_study_time_minutes=max(3, items_generated * 2),
             key_concepts=key_concepts[:8],
             prerequisites=prerequisites[:5],
-            llm_provider=self._orchestrator.last_provider,
-            llm_model=self._orchestrator.last_model,
-            models_used=self._orchestrator._format_models_used(),
-            critic_provider=self._orchestrator.critic_provider,
-            critic_model=self._orchestrator.critic_model,
+            llm_provider=self.last_provider,
+            llm_model=self.last_model,
+            models_used=self._format_models_used(),
+            critic_provider=self.critic_provider,
+            critic_model=self.critic_model,
             embedding_provider=embedding_provider,
             embedding_model=embedding_model_name,
             retrieval_mode="hibrido_rrf_reranker",
@@ -464,8 +463,8 @@ class LangGraphOrchestrator:
         )
 
         object_name = (
-            f"contenido-{self._orchestrator._slugify(doc_title)[:20]}-"
-            f"{self._orchestrator._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
+            f"contenido-{self._slugify(doc_title)[:20]}-"
+            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
         )
         from app.services.storage_queue_service import StorageQueueService
         content_id = f"cnt_{int(time.time() * 1000)}"
@@ -550,9 +549,9 @@ class LangGraphOrchestrator:
         document_id: Optional[str] = None,
     ) -> AdaptationResponse:
         """Executes the compiled multi-agent LangGraph pipeline."""
-        doc_title = self._orchestrator._clean_document_title(request)
+        doc_title = self._clean_document_title(request)
         target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
-        prompt_hash = self._orchestrator._compute_request_hash(request, doc_title, target_language)
+        prompt_hash = self._compute_request_hash(request, doc_title, target_language)
 
         force_regenerate = getattr(request, "force_regenerate", False) or getattr(request, "forzar_regenerar", False)
         if not force_regenerate and prompt_hash in self._response_cache:

@@ -56,7 +56,7 @@ def _make_mock_response(title: str, text_content: str, items_count: int, groundi
     return AdaptationResponse(status="exito", metadata=meta, adapted_content=content, quality_evaluation=qual, oci_storage=oci)
 
 
-@patch("scripts.diagnose_adaptation.AgentOrchestrator")
+@patch("scripts.diagnose_adaptation.LangGraphOrchestrator")
 @patch("scripts.diagnose_adaptation.PdfParserService")
 @patch("scripts.diagnose_adaptation.IngesterService")
 @patch("scripts.diagnose_adaptation.HybridRAGService")
@@ -78,7 +78,7 @@ def test_diagnose_script_detects_fixed_template_failure(mock_exists, mock_graph,
     assert any("Aumenta la eficiencia" in f or "idénticos" in f or "0.98" in f for f in failures)
 
 
-@patch("scripts.diagnose_adaptation.AgentOrchestrator")
+@patch("scripts.diagnose_adaptation.LangGraphOrchestrator")
 @patch("scripts.diagnose_adaptation.PdfParserService")
 @patch("scripts.diagnose_adaptation.IngesterService")
 @patch("scripts.diagnose_adaptation.HybridRAGService")

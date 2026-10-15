@@ -69,7 +69,6 @@ class Settings(BaseModel):
     DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
 
     # ── Multi-Agent LangGraph Orchestration ─────────────────────────────────
-    ENABLE_LANGGRAPH: bool = os.getenv("ENABLE_LANGGRAPH", "true").lower() in ("true", "1", "yes")
     LANGGRAPH_MAX_REVISIONS: int = int(os.getenv("LANGGRAPH_MAX_REVISIONS", "2"))
 
     LLM_CASCADES: Dict[str, List[Dict[str, str]]] = {

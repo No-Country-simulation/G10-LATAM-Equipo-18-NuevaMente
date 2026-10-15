@@ -52,7 +52,7 @@ from app.schemas.adaptation import AdaptationRequest, AdaptationResponse
 from app.services.ingester_service import IngesterService
 from app.services.hybrid_rag_service import HybridRAGService
 from app.services.graph_rag_service import GraphRAGService
-from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
 from app.services.embedding_service import EmbeddingService
 from app.services.pdf_parser_service import PdfParserService
 
@@ -211,7 +211,7 @@ def run_adaptation_diagnostics(save_report: bool = True) -> Tuple[bool, List[str
     embedding_service = EmbeddingService()
     hybrid_rag = HybridRAGService(embedding_service=embedding_service)
     graph_rag = GraphRAGService()
-    orchestrator = AgentOrchestrator()
+    orchestrator = LangGraphOrchestrator()
     orchestrator._response_cache.clear()
 
     # 1. Ingesta y Extracción de Documento Completo

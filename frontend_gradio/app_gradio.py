@@ -35,7 +35,6 @@ from app.services.document_repository import get_document_repository
 from app.services.embedding_service import EmbeddingService
 from app.services.vector_store_service import get_store
 from app.services.retrieval_service import retrieve_context
-from app.services.agent_orchestrator import AgentOrchestrator
 from app.services.langgraph_orchestrator import LangGraphOrchestrator
 from app.core.config import settings
 from app.schemas.adaptation import AdaptationRequest
@@ -48,7 +47,7 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logging.getLogger("AgentOrchestrator").setLevel(logging.DEBUG)
+logging.getLogger("LangGraphOrchestrator").setLevel(logging.DEBUG)
 
 
 DOCUMENT_TABLE_HEADERS = [
@@ -379,12 +378,8 @@ def handle_agent_generation(
 
             import asyncio
 
-            if settings.ENABLE_LANGGRAPH:
-                events.put({"stage": "generating", "message": "Ejecutando pipeline multi-agente con LangGraph (Planner → Writer → Deduplicator → Grounding → Critic → Refiner/Formatter)…"})
-                orchestrator = LangGraphOrchestrator()
-            else:
-                events.put({"stage": "generating", "message": "Ejecutando pipeline agéntico secuencial (planificador → lotes → deduplicación → verificación)…"})
-                orchestrator = AgentOrchestrator()
+            events.put({"stage": "generating", "message": "Ejecutando pipeline multi-agente con LangGraph (Planner → Writer → Deduplicator → Grounding → Critic → Refiner/Formatter)…"})
+            orchestrator = LangGraphOrchestrator()
 
             loop = asyncio.new_event_loop()
             try:

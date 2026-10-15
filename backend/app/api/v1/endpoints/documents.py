@@ -41,7 +41,6 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import settings
 from app.schemas.adaptation import AdaptationRequest, AdaptationResponse
 from app.schemas.document_record import DocumentRecord
-from app.services.agent_orchestrator import AgentOrchestrator
 from app.services.document_pipeline_service import (
     process_registered_document,
     register_document,
@@ -55,8 +54,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
-agent_orchestrator = AgentOrchestrator()
-langgraph_orchestrator = LangGraphOrchestrator(base_orchestrator=agent_orchestrator)
+langgraph_orchestrator = LangGraphOrchestrator()
 
 
 class DocumentAdaptRequest(BaseModel):
@@ -303,9 +301,8 @@ async def adapt_document(
         user_id=user_id or record.user_id,
     )
 
-    orchestrator = langgraph_orchestrator if settings.ENABLE_LANGGRAPH else agent_orchestrator
     try:
-        return await orchestrator.run_pipeline(
+        return await langgraph_orchestrator.run_pipeline(
             request=adaptation_request,
             top_passages=top_passages,
             key_concepts=[],

@@ -1,11 +1,12 @@
 """
-agent_orchestrator.py
+pipeline_stages.py
 
 Purpose:
-    Multi-stage agentic pipeline for educational content adaptation.
-    Orchestrates document coverage planning, batch content generation with LLMs,
-    deduplication, source citation verification, and capacity capping.
-    Integrates external prompt templates and multilingual output support.
+    Reusable stages and helpers for the educational content adaptation pipeline:
+    coverage planning, batch generation with LLM cascades, deduplication, source
+    citation verification, quality auditing, capacity capping and response
+    assembly. LangGraphOrchestrator composes these stages as graph nodes; this
+    module owns the shared logic and the per-run model tracking.
 
 Input:
     - request (AdaptationRequest): user customization preferences and constraints.
@@ -23,20 +24,14 @@ import difflib
 import hashlib
 import json
 import logging
-import math
-import os
 import re
-import time
 from typing import Any, Dict, List, Optional, Tuple
 from app.services.rate_guard import get_llm_guard
 
 from app.core.config import settings
 from app.core.labels import (
-    FORMAT_LABELS_ES,
-    PROFILE_LABELS_ES,
     TITLE_TEMPLATES_ES,
     get_capacity_warning,
-    get_capacity_warning_es,
     get_contextualized_intro,
 )
 from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
@@ -45,19 +40,14 @@ from app.schemas.adaptation import (
     AdaptationRequest,
     AdaptationResponse,
     AdaptedContent,
-    FlashcardItem,
-    OCIStorageResult,
     QualityEvaluation,
     QuizItem,
     RagFuente,
-    ResponseMetadata,
 )
-from app.services.coverage_planner import CoveragePlan, CoveragePlanner, SectionPlan
-from app.services.document_storage_service import get_document_storage
+from app.services.coverage_planner import CoveragePlan, SectionPlan
 from app.services.multi_agent_router import MultiAgentRouter
-from app.services.pdf_export_service import PDFExportService
 
-logger = logging.getLogger("AgentOrchestrator")
+logger = logging.getLogger("PipelineStages")
 
 
 def _is_spanish(target_language: Optional[str]) -> bool:
@@ -91,8 +81,8 @@ FORMAT_CAPACITY_FACTOR: Dict[str, int] = {
 }
 
 
-class AgentOrchestrator:
-    """Orchestrates multi-stage agentic adaptation pipeline."""
+class PipelineStages:
+    """Reusable stages and helpers composing the adaptation pipeline."""
 
     def __init__(self):
         self.gemini_client = GeminiClient()
@@ -112,271 +102,6 @@ class AgentOrchestrator:
         self._models_used: Dict[str, set] = {}
         self.router = MultiAgentRouter()
         self._response_cache: Dict[str, AdaptationResponse] = {}
-
-
-    async def run_pipeline(
-        self,
-        request: AdaptationRequest,
-        top_passages: List[Dict[str, Any]],
-        key_concepts: List[str],
-        prerequisites: List[str],
-        tracer: Optional[Any] = None,
-        all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
-        document_id: Optional[str] = None,
-    ) -> AdaptationResponse:
-        """Executes full multi-stage pipeline with coverage planning, batching, deduplication, and RAG grounding."""
-        doc_title = self._clean_document_title(request)
-        target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
-
-        prompt_hash = self._compute_request_hash(request, doc_title, target_language)
-        force_regenerate = getattr(request, "force_regenerate", False) or getattr(request, "forzar_regenerar", False)
-        if not force_regenerate and prompt_hash in self._response_cache:
-            cached_resp = self._response_cache[prompt_hash].model_copy(deep=True)
-            cached_resp.metadata = cached_resp.metadata.model_copy(deep=True)
-            cached_resp.metadata.origin = "cache"
-            cached_resp.metadata.prompt_hash = prompt_hash
-            if tracer:
-                cached_resp.metadata.timings = {"cache": tracer.total_elapsed_ms()}
-            return cached_resp
-
-        # Reset per-run model/critic tracking (cached responses never call any model)
-        self._models_used = {}
-        self.critic_provider = "fallback"
-        self.critic_model = None
-
-        # Resolve intended target quantity considering quantity level and explicit overrides
-        fmt_key = (request.output_format or "flashcards").lower()
-        lvl_key = (request.quantity_level or "estandar").lower()
-        format_canonical_map = {
-            "resumen ejecutivo": settings.FORMAT_SUMMARY,
-            "guion de clase": settings.FORMAT_CLASS_SCRIPT,
-        }
-        lookup_fmt = format_canonical_map.get(fmt_key, fmt_key)
-        base_target = QUANTITY_TABLE.get(lookup_fmt, {}).get(lvl_key, 20)
-        requested_count = request.target_quantity if request.target_quantity is not None else (
-            base_target if request.quantity_level else (request.quantity or base_target)
-        )
-
-        # Build document coverage plan using full parent chunk set when available
-        chunks_for_planning = all_parent_chunks or top_passages
-        coverage_plan = CoveragePlanner().plan(
-            parent_chunks=chunks_for_planning,
-            output_format=request.output_format or "flashcards",
-            requested_items=requested_count,
-            language=target_language,
-        )
-
-        target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
-            request=request,
-            coverage_plan=coverage_plan,
-            language=target_language,
-        )
-
-        if tracer:
-            tracer.start_stage("planificador")
-        topics = self._stage_planner(
-            doc_title=doc_title,
-            key_concepts=key_concepts,
-            coverage_plan=coverage_plan,
-            target=effective_target,
-            target_language=target_language,
-        )
-        if tracer:
-            tracer.end_stage("planificador")
-            tracer.record_llm_call("planificar")
-
-        if tracer:
-            tracer.start_stage("generacion_lotes")
-        raw_items = self._stage_batch_generators(
-            request=request,
-            doc_title=doc_title,
-            topics=topics,
-            passages=top_passages,
-            target=effective_target,
-            target_language=target_language,
-            tracer=tracer,
-        )
-        if tracer:
-            tracer.end_stage("generacion_lotes")
-
-        if tracer:
-            tracer.start_stage("deduplicacion")
-        dedup_items = self._stage_deduplicate(raw_items)
-        if tracer:
-            tracer.end_stage("deduplicacion")
-
-        if tracer:
-            tracer.start_stage("verificacion_anclaje")
-        verified_items = self._stage_verify_grounding(
-            dedup_items, top_passages, all_chunks=all_parent_chunks
-        )
-        if tracer:
-            tracer.end_stage("verificacion_anclaje")
-
-        # Evaluate quality and factual grounding with the critic/auditor
-        grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
-        preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
-
-        evaluation, audited_items = self._evaluate_quality_with_critic(
-            request=request,
-            generated_items=verified_items,
-            passages=top_passages,
-            all_chunks=all_parent_chunks,
-            fallback_score=preliminary_score,
-        )
-
-        # If items were dropped by the auditor, attempt completion only when the
-        # coverage plan confirmed sufficient capacity — otherwise skip to avoid fabrication.
-        if len(audited_items) < effective_target and coverage_plan.total_capacity > len(audited_items):
-            needed = effective_target - len(audited_items)
-            extra_items = self._stage_completion(
-                request=request,
-                doc_title=doc_title,
-                topics=topics,
-                needed=needed,
-                existing_items=audited_items,
-                target_language=target_language,
-            )
-            for extra in extra_items:
-                if len(audited_items) < effective_target:
-                    audited_items.append(extra)
-
-        final_items = audited_items[:effective_target]
-        items_generated = len(final_items)
-
-        if tracer:
-            tracer.start_stage("serializacion_respuesta")
-        adapted_content = self._format_adapted_content(
-            request=request,
-            doc_title=doc_title,
-            items=final_items,
-            effective_count=items_generated,
-            target_language=target_language,
-        )
-        if tracer:
-            tracer.end_stage("serializacion_respuesta")
-
-        # True grounding score: heuristic based on verified citations.
-        # Use the higher of the heuristic and the critic's own score so that a valid
-        # critic evaluation is never overridden by a chunk_id-lookup failure.
-        verified_citations = sum(1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or [])))
-        heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
-        grounding_score = max(heuristic_score, evaluation.source_grounding_score)
-        evaluation.source_grounding_score = round(grounding_score, 2)
-
-        # Try to infer embedding model from vector store if available
-        embedding_provider = "gemini"
-        embedding_model_name = None
-        try:
-            from app.services.vector_store_service import get_store
-
-            store = get_store(document_id)
-            if store and store.model_name:
-                embedding_model_name = store.model_name.split("@")[0].replace("models/", "")
-                lower_em = embedding_model_name.lower()
-                if "gemini" in lower_em:
-                    embedding_provider = "gemini"
-                elif "jina" in lower_em:
-                    embedding_provider = "jina"
-                else:
-                    embedding_provider = "local"
-        except Exception:
-            pass
-
-        metadata = ResponseMetadata(
-            profile_applied=request.recipient_profile,
-            format_generated=request.output_format,
-            niche_sector=request.niche,
-            detail_level=request.detail_level,
-            quantity_level=request.quantity_level,
-            requested_items=target_quantity,
-            generated_items=items_generated,
-            quantity_warning=capacity_warning,
-            estimated_study_time_minutes=max(3, items_generated * 2),
-            key_concepts=key_concepts[:8],
-            prerequisites=prerequisites[:5],
-            llm_provider=self.last_provider,
-            llm_model=self.last_model,
-            models_used=self._format_models_used(),
-            critic_provider=self.critic_provider,
-            critic_model=self.critic_model,
-            embedding_provider=embedding_provider,
-            embedding_model=embedding_model_name,
-            retrieval_mode="hibrido_rrf_reranker",
-            timings=tracer.timings if tracer else {},
-            llm_calls=tracer.llm_calls if tracer else {},
-        )
-
-        object_name = (
-            f"contenido-{self._slugify(doc_title)[:20]}-"
-            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
-        )
-
-        content_id = f"cnt_{int(time.time() * 1000)}"
-        user_id = getattr(request, "user_id", None) or "usr_demo_001"
-        version_num = getattr(request, "version", 1) or 1
-
-        response_payload = {
-            "status": "exito",
-            "content_id": content_id,
-            "metadatos": metadata.model_dump(by_alias=True),
-            "contenido_adaptado": adapted_content.model_dump(by_alias=True),
-            "evaluacion_calidad": evaluation.model_dump(by_alias=True),
-        }
-
-        from app.services.storage_queue_service import StorageQueueService
-        queue_service = StorageQueueService.get_instance()
-        job_info = queue_service.enqueue_content_job(
-            content_id=content_id,
-            user_id=user_id,
-            json_data=response_payload,
-            version=version_num,
-        )
-
-        # Intento inicial inmediato; si OCI responde, marca 'completado'; de lo contrario queda 'pendiente' para reintento
-        immediate_ok = queue_service.process_job(job_info["job_id"])
-        upload_status_val = "completado" if immediate_ok else "pendiente"
-
-        # Record the generated package in `contenidos`: the library and trash
-        # flows read that table, so without this row the content exists in
-        # storage but is invisible in the app.
-        queue_service.save_content_metadata(
-            content_id=content_id,
-            user_id=user_id,
-            title=doc_title,
-            content=json.dumps(adapted_content.model_dump(by_alias=True), ensure_ascii=False),
-            recipient_profile=request.recipient_profile,
-            output_format=request.output_format,
-            niche=getattr(request, "niche", None),
-            detail_level=getattr(request, "detail_level", None),
-            object_key_json=job_info["objeto_id"],
-        )
-
-        storage_result = OCIStorageResult(
-            bucket=job_info["bucket"],
-            object_id=job_info["objeto_id"],
-            upload_status=upload_status_val,
-        )
-
-        pdf_path = None
-        try:
-            from app.services.pdf_export_service import PDFExportService
-            os.makedirs("scratch", exist_ok=True)
-            pdf_service = PDFExportService()
-            output_name = os.path.join("scratch", f"{content_id}.pdf")
-            pdf_path = pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
-        except Exception as e:
-            logger.warning(f"Error generando PDF: {e}")
-
-        final_response = AdaptationResponse(
-            status="exito",
-            metadata=metadata,
-            adapted_content=adapted_content,
-            quality_evaluation=evaluation,
-            oci_storage=storage_result,
-        )
-        self._response_cache[prompt_hash] = final_response.model_copy(deep=True)
-        return final_response
 
     # ---------------------------------------------------------------------------
     # STAGE A: PLANNER

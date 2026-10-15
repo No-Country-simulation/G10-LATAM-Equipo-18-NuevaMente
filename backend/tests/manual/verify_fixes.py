@@ -4,7 +4,8 @@ Verification test script for the recent fixes.
 from app.infrastructure.llm.groq_client import GroqClient
 from app.infrastructure.llm.openrouter_client import OpenRouterClient
 from app.schemas.adaptation import RagFuente
-from app.services.agent_orchestrator import AgentOrchestrator, _is_spanish
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
+from app.services.pipeline_stages import _is_spanish
 from app.services.coverage_planner import CoveragePlanner
 from app.services.noise_filter_service import NoiseFilter
 
@@ -24,7 +25,7 @@ assert _is_spanish(None) is True
 print("_is_spanish check: OK")
 
 # 3. Test _parse_json_batch with both array and wrapped object
-orch = AgentOrchestrator()
+orch = LangGraphOrchestrator()
 arr = orch._parse_json_batch('[{"pregunta": "Q1"}]')
 assert arr == [{"pregunta": "Q1"}], f"Array parse failed: {arr}"
 obj = orch._parse_json_batch('{"items": [{"pregunta": "Q2"}]}')

@@ -30,7 +30,7 @@ from app.services.ingester_service import IngesterService
 from app.services.embedding_service import EmbeddingService
 from app.services.hybrid_rag_service import HybridRAGService
 from app.services.graph_rag_service import GraphRAGService
-from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
 from app.core.timer import PipelineTracer
 
 PDF_PATH = Path("storage_mock/nuevamente-documentos-fuente/msJava.pdf")
@@ -90,7 +90,7 @@ def run_benchmark():
     embedding_service = EmbeddingService()
     hybrid_rag = HybridRAGService(embedding_service=embedding_service)
     graph_rag = GraphRAGService()
-    orchestrator = AgentOrchestrator()
+    orchestrator = LangGraphOrchestrator()
 
     print("================================================================================")
     print("      MEDICIÓN DE RENDIMIENTO Y BENCHMARK INICIAL (PASO 1) - MSJAVA.PDF         ")
@@ -212,7 +212,7 @@ def run_benchmark():
         "",
         "## 🔍 Top-3 Cuellos de Botella Identificados",
         "",
-        "1. **Bucle Secuencial de Lotes LLM (`backend/app/services/agent_orchestrator.py:261`)**",
+        "1. **Bucle Secuencial de Lotes LLM (`backend/app/services/pipeline_stages.py`)**",
         "   - **Diagnóstico**: Para solicitudes con `cantidad_objetivo` alta (ej. 25 u 80 items), la tubería divide el trabajo en 7-15 temas y ejecuta una llamada HTTP a Gemini por cada tema de manera **completamente secuencial** en un bucle `for` síncrono.",
         "   - **Impacto**: Cada llamada a la API de Gemini toma entre 3.5 y 5.5 segundos. Multiplicado por 12 lotes, solo la etapa de generación toma más de **50 a 65 segundos**.",
         "",
@@ -220,7 +220,7 @@ def run_benchmark():
         "   - **Diagnóstico**: En cada solicitud HTTP POST `/adapt-content`, el servidor vuelve a segmentar el documento en 211 fragmentos y a calcular embeddings sin verificar si el documento PDF ya fue indexado previamente.",
         "   - **Impacto**: Suma entre **3 y 8 segundos** innecesarios en cada solicitud para un mismo archivo.",
         "",
-        "3. **Verificación y Fallbacks Ítem por Ítem (`backend/app/services/agent_orchestrator.py:381`)**",
+        "3. **Verificación y Fallbacks Ítem por Ítem (`backend/app/services/pipeline_stages.py`)**",
         "   - **Diagnóstico**: Las fuentes y fallbacks se procesan ítem por ítem en lugar de evaluar lotes completos en una sola llamada de verificación con salida estructurada JSON.",
         "   - **Impacto**: Incrementa el tiempo en **2 a 5 segundos** adicionales por lote.",
         "",
@@ -229,7 +229,7 @@ def run_benchmark():
         "## 💡 Explicación Técnica: ¿Por qué `cantidad_objetivo` tarda 58-74 s vs ~1 s en otras solicitudes?",
         "",
         "- **Solicitudes con `cantidad_objetivo` (25 - 80 items)**: Al solicitar volúmenes altos, el planificador crea hasta 15 subtemas. Debido a la arquitectura secuencial en `_stage_batch_generators`, el backend ejecuta **15 llamadas síncronas consecutivas al LLM**. Con una latencia de ~4.5 s por llamada, el tiempo acumulado de red de las 15 peticiones alcanza los **67.5 segundos**.",
-        "- **Solicitudes de ~1 s (Respuestas en Caché)**: Cuando se repite la misma combinación (`forzar_regenerar=False`), `agent_orchestrator.py` encuentra la clave `prompt_hash` en memoria (`self._response_cache`) y retorna la respuesta precalculada en **0.0001 s**.",
+        "- **Solicitudes de ~1 s (Respuestas en Caché)**: Cuando se repite la misma combinación (`forzar_regenerar=False`), `pipeline_stages.py` encuentra la clave `prompt_hash` en memoria (`self._response_cache`) y retorna la respuesta precalculada en **0.0001 s**.",
         "",
         "---",
         "",

@@ -3,7 +3,7 @@ rate_guard.py
 
 Purpose:
     Process-wide pacing + circuit breaker for LLM API calls, mirroring the
-    embedding limiter philosophy: a shared singleton so every AgentOrchestrator
+    embedding limiter philosophy: a shared singleton so every LangGraphOrchestrator
     instance in the process draws from the same budget and failure memory.
 
 Difference from the embedding limiter:

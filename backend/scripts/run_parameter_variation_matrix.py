@@ -29,7 +29,7 @@ if hasattr(sys.stderr, "reconfigure"):
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
 from app.schemas.adaptation import AdaptationRequest
-from app.services.agent_orchestrator import AgentOrchestrator
+from app.services.langgraph_orchestrator import LangGraphOrchestrator
 
 SAMPLE_DOC = """
 Microservicios y Arquitecturas Basadas en Eventos:
@@ -81,7 +81,7 @@ async def run_variation_matrix():
     print("   NUEVAMENTE — MATRIZ DE VARIACIÓN MULTIAGENTE Y PARÁMETROS (CLI)")
     print("================================================================================\n")
 
-    orchestrator = AgentOrchestrator()
+    orchestrator = LangGraphOrchestrator()
     top_passages = [
         {
             "id": "chunk-ms-01",
