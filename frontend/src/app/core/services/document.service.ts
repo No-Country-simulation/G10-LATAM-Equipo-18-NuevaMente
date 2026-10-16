@@ -106,7 +106,16 @@ Este documento detalla la combinación de Embeddings Densos (Gemini 001) y Búsq
     try {
       localStorage.setItem(STORAGE_KEY, JSON.stringify(docs));
     } catch (e) {
-      console.warn('Could not save documents to localStorage:', e);
+      console.warn('Could not save full documents to localStorage (quota exceeded), caching metadata preview:', e);
+      try {
+        const lightweightDocs = docs.map(d => ({
+          ...d,
+          content: (d.content && d.content.length > 50000) ? d.content.slice(0, 50000) : d.content
+        }));
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(lightweightDocs));
+      } catch (err2) {
+        console.warn('LocalStorage quota critical:', err2);
+      }
     }
   }
 
