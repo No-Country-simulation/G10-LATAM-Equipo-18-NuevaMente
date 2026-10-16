@@ -1,7 +1,6 @@
 import { Component, Output, EventEmitter } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule } from '@angular/forms';
-import { HttpClient } from '@angular/common/http';
 
 @Component({
   selector: 'app-document-uploader',
@@ -75,8 +74,6 @@ export class DocumentUploaderComponent {
 
   @Output() documentLoaded = new EventEmitter<any>();
 
-  constructor(private http: HttpClient) {}
-
   onFileSelected(event: any): void {
     const files = event.target.files;
     if (files && files.length > 0) {
@@ -95,17 +92,8 @@ export class DocumentUploaderComponent {
         };
         reader.readAsText(file);
       } else if (ext === 'pdf') {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        this.http.post<any>('http://localhost:8000/api/v1/parse-pdf', formData).subscribe({
-          next: (data) => {
-            if (data.texto_extraido) {
-              this.documentoContenido = data.texto_extraido;
-            }
-          },
-          error: (err) => console.error('Error parseando PDF:', err)
-        });
+        // PDF text is extracted server-side during ingestion (POST /documents);
+        // this legacy standalone uploader only keeps the file name and title.
       }
     }
   }

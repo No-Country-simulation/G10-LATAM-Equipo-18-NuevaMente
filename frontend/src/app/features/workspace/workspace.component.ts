@@ -1,15 +1,16 @@
-import { Component, signal, computed, inject, ViewChild, OnInit } from '@angular/core';
+import { Component, signal, computed, inject, ViewChild, OnInit, OnDestroy } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
 import { Subscription } from 'rxjs';
+import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
-import { NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
+import { DocumentIngestEvent, DocumentRecord, NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, NivelCantidad, RagFuente } from '../../core/models/adaptation.model';
 import { CONTENT_QUANTITY_CONFIG, getQuantityHintText, getTargetItemCount } from '../../core/config/content-quantity.config';
 
-import { PipelineProgressComponent } from './pipeline-progress.component';
+import { PipelineProgressComponent, PipelineStage } from './pipeline-progress.component';
 import { GenerationLoaderComponent } from './generation-loader.component';
 import { FlashcardsRendererComponent } from './renderers/flashcards-renderer.component';
 import { QuizRendererComponent } from './renderers/quiz-renderer.component';
@@ -45,7 +46,7 @@ import { AppDocument } from '../../core/models/document.model';
   template: `
     <div class="workspace-layout">
       <!-- HERO & PRESETS (Only visible when no result is currently shown) -->
-      <div class="workspace-header" *ngIf="!isViewingResult() && !isPipelineRunning()">
+      <div class="workspace-header" *ngIf="!currentResponse() && !isPipelineRunning()">
         <div>
           <span class="value-prop-tag">✨ PROCESAMIENTO RAG DE ALTA FIDELIDAD</span>
           <h2>Workspace de Adaptación Educativa</h2>
@@ -61,33 +62,35 @@ import { AppDocument } from '../../core/models/document.model';
         </div>
       </div>
 
-      <!-- ACTIVE ADAPTATION QUICK RESTORE BANNER (When form is displayed but there is a saved adaptation) -->
-      <div class="active-adaptation-banner glass-card" *ngIf="!isViewingResult() && !isPipelineRunning() && hasActiveAdaptation()">
-        <div class="banner-left-content">
-          <div class="banner-status-tag">
-            <span class="pulse-indicator-dot"></span>
-            <span>TIENES UNA ADAPTACIÓN GENERADA</span>
+      <!-- ACTIVE ADAPTATION RETURN BANNER -->
+      <div 
+        class="active-adaptation-banner glass-card" 
+        *ngIf="!currentResponse() && !isPipelineRunning() && stateService.activeAdaptationResponse()"
+      >
+        <div class="active-banner-info">
+          <div class="active-badge-pulse"></div>
+          <div>
+            <strong>Tienes una adaptación generada activa:</strong>
+            <span class="active-doc-name">
+              «{{ stateService.activeAdaptationRequest()?.documento_titulo || 'Documento Técnico' }}»
+            </span>
+            <span class="active-format-pill">
+              {{ stateService.activeAdaptationRequest()?.formato_salida }} · {{ stateService.activeAdaptationRequest()?.perfil_destinatario }}
+            </span>
           </div>
-          <h4 class="banner-title">{{ activeAdaptationTitle() }}</h4>
-          <p class="banner-meta">
-            Formato: <strong>{{ activeAdaptationFormat() }}</strong> ({{ activeAdaptationItemsCount() }} items) · 
-            Perfil: <strong>{{ currentResponse()?.metadatos?.perfil_aplicado }}</strong> · 
-            Sector: <strong>{{ currentResponse()?.metadatos?.nicho_sector }}</strong>
-          </p>
         </div>
-        <div class="banner-actions-group">
-          <button type="button" class="btn-return-viewer" (click)="returnToActiveResult()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
-            <span>Volver al contenido generado</span>
+        <div class="active-banner-actions">
+          <button type="button" class="btn-return-active" (click)="returnToActiveResult()">
+            👁️ Volver al contenido generado
           </button>
-          <button type="button" class="btn-discard-active" (click)="discardActiveAdaptation()" title="Descartar esta adaptación">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <button type="button" class="btn-discard-active" (click)="discardActiveAdaptation()" title="Descartar para generar uno nuevo">
+            ✕ Descartar
           </button>
         </div>
       </div>
 
       <!-- ZONE 1: INPUT FORM PANEL -->
-      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !isViewingResult()">
+      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !currentResponse()">
         <form [formGroup]="adaptForm" (ngSubmit)="runPipeline()">
           <!-- Document Title -->
           <div class="form-group">
@@ -146,21 +149,13 @@ import { AppDocument } from '../../core/models/document.model';
                   <span class="drop-hint">Soporta PDF, Markdown (.md) y Texto (.txt) hasta 20MB</span>
                 </div>
 
-                <div class="file-preview" *ngIf="uploadedFile() && !isExtractingDocument()">
+                <div class="file-preview" *ngIf="uploadedFile()">
                   <span class="file-icon">📄</span>
                   <div class="file-info">
                     <strong>{{ uploadedFile()?.name }}</strong>
-                    <span>{{ (uploadedFile()?.size || 0) / 1024 | number:'1.0-0' }} KB · Extracción lista</span>
+                    <span>{{ (uploadedFile()?.size || 0) / 1024 | number:'1.0-0' }} KB · Extracción local lista</span>
                   </div>
                   <button type="button" class="btn-remove-file" (click)="$event.stopPropagation(); removeFile()">✕</button>
-                </div>
-
-                <div class="file-extracting" *ngIf="isExtractingDocument()">
-                  <span class="extracting-icon">⏳</span>
-                  <div class="file-info">
-                    <strong>Extrayendo y estructurando documento...</strong>
-                    <span class="extracting-status">{{ extractionStatus() }}</span>
-                  </div>
                 </div>
               </div>
             </div>
@@ -375,10 +370,9 @@ import { AppDocument } from '../../core/models/document.model';
             <button 
               type="submit" 
               class="btn-cta-generate" 
-              [disabled]="adaptForm.invalid || isExtractingDocument()"
+              [disabled]="adaptForm.invalid && !(activeTab() === 'upload' && uploadedFile()) && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed)"
             >
-              <span *ngIf="!isExtractingDocument()">⚡ Generar Contenido Educativo →</span>
-              <span *ngIf="isExtractingDocument()">⏳ Extrayendo texto del documento...</span>
+              ⚡ Generar Contenido Educativo →
             </button>
           </div>
         </form>
@@ -389,16 +383,18 @@ import { AppDocument } from '../../core/models/document.model';
         #loaderComp
         *ngIf="isPipelineRunning()" 
         [params]="getGenerationParams()"
+        [stages]="pipelineStages()"
+        [activeStage]="activeStage()"
         (cancel)="cancelPipeline()"
         (retry)="runPipeline()"
       ></app-generation-loader>
 
       <!-- ZONE 3: RESULT VIEWER -->
-      <div class="result-viewer-container" *ngIf="isViewingResult() && !isPipelineRunning()">
+      <div class="result-viewer-container" *ngIf="currentResponse() && !isPipelineRunning()">
         <!-- STICKY ACTION BAR -->
         <div class="sticky-action-bar glass-card">
           <div class="bar-left">
-            <button type="button" class="btn-back" (click)="onNewAdaptationClick()">
+            <button type="button" class="btn-back" (click)="resetForm()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
               <span>Nueva adaptación</span>
             </button>
@@ -639,10 +635,6 @@ import { AppDocument } from '../../core/models/document.model';
     .drop-icon { font-size: 2.5rem; display: block; margin-bottom: 0.5rem; }
     .drop-hint { font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.25rem; }
     .file-preview { display: flex; align-items: center; gap: 1rem; justify-content: center; }
-    .file-extracting { display: flex; align-items: center; gap: 1rem; justify-content: center; color: #4F46E5; }
-    .extracting-icon { font-size: 1.8rem; animation: pulse 1.5s infinite; }
-    .extracting-status { font-size: 0.8rem; color: var(--text-muted); display: block; margin-top: 0.2rem; }
-    @keyframes pulse { 0% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.15); opacity: 0.7; } 100% { transform: scale(1); opacity: 1; } }
     .btn-remove-file { background: transparent; border: none; color: #EF4444; font-weight: 800; cursor: pointer; }
     .char-count { font-size: 0.78rem; color: var(--text-muted); text-align: right; margin-top: 0.35rem; }
 
@@ -716,109 +708,6 @@ import { AppDocument } from '../../core/models/document.model';
     .btn-cta-generate { padding: 0.85rem 1.75rem; border-radius: 12px; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); border: none; color: #FFFFFF; font-size: 1rem; font-weight: 800; cursor: pointer; box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3); }
     .btn-cta-generate:disabled { opacity: 0.5; cursor: not-allowed; }
 
-    /* ACTIVE ADAPTATION QUICK RESTORE BANNER */
-    .active-adaptation-banner {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 1.25rem;
-      padding: 1.15rem 1.5rem;
-      border-radius: 16px;
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%);
-      border: 1.5px solid rgba(99, 102, 241, 0.35);
-      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
-      animation: fadeIn 0.3s ease-in-out;
-    }
-    :host-context(.dark) .active-adaptation-banner {
-      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(16, 185, 129, 0.12) 100%);
-      border-color: rgba(99, 102, 241, 0.45);
-    }
-    .banner-left-content {
-      display: flex;
-      flex-direction: column;
-      gap: 0.3rem;
-    }
-    .banner-status-tag {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.45rem;
-      font-size: 0.72rem;
-      font-weight: 800;
-      color: #10B981;
-      letter-spacing: 0.04em;
-    }
-    .pulse-indicator-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #10B981;
-      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
-      animation: pulseGreen 2s infinite;
-    }
-    @keyframes pulseGreen {
-      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
-      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-    }
-    .banner-title {
-      font-size: 1.15rem;
-      font-weight: 800;
-      color: var(--text-primary);
-      margin: 0;
-      line-height: 1.3;
-    }
-    .banner-meta {
-      font-size: 0.82rem;
-      color: var(--text-secondary);
-      margin: 0;
-    }
-    .banner-meta strong {
-      color: var(--text-primary);
-    }
-    .banner-actions-group {
-      display: flex;
-      align-items: center;
-      gap: 0.6rem;
-      flex-shrink: 0;
-    }
-    .btn-return-viewer {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.5rem;
-      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
-      color: #FFFFFF;
-      border: none;
-      padding: 0.65rem 1.15rem;
-      border-radius: 12px;
-      font-size: 0.88rem;
-      font-weight: 700;
-      cursor: pointer;
-      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);
-      transition: all 0.2s;
-    }
-    .btn-return-viewer:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 4px 15px rgba(79, 70, 229, 0.45);
-    }
-    .btn-discard-active {
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      width: 34px;
-      height: 34px;
-      border-radius: 10px;
-      background: transparent;
-      border: 1px solid var(--border-subtle);
-      color: var(--text-muted);
-      cursor: pointer;
-      transition: all 0.2s;
-    }
-    .btn-discard-active:hover {
-      background: rgba(239, 68, 68, 0.1);
-      border-color: #EF4444;
-      color: #EF4444;
-    }
-
     /* RESULT VIEWER STICKY ACTION BAR & WARNING BANNER */
     .result-viewer-container { display: flex; flex-direction: column; gap: 1.5rem; }
 
@@ -877,7 +766,94 @@ import { AppDocument } from '../../core/models/document.model';
     .btn-vote.active { background: rgba(99, 102, 241, 0.15); border-color: #6366F1; color: #6366F1; }
     .feedback-thanks { display: flex; align-items: center; gap: 0.5rem; font-size: 0.85rem; color: #059669; font-weight: 700; }
 
+    .active-adaptation-banner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      padding: 1rem 1.4rem;
+      border-radius: 14px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.12) 0%, rgba(34, 211, 238, 0.08) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+      animation: fadeIn 0.3s ease-out;
+    }
+    .active-banner-info {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+      color: var(--text-primary, #F8FAFC);
+      font-size: 0.92rem;
+    }
+    .active-badge-pulse {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #10B981;
+      box-shadow: 0 0 10px #10B981;
+      animation: pulse 1.8s infinite;
+    }
+    .active-doc-name {
+      font-weight: 700;
+      color: #67E8F9;
+      margin: 0 0.4rem;
+    }
+    .active-format-pill {
+      display: inline-block;
+      font-size: 0.76rem;
+      font-weight: 600;
+      padding: 0.15rem 0.55rem;
+      border-radius: 999px;
+      background: rgba(99, 102, 241, 0.25);
+      color: #A5B4FC;
+      border: 1px solid rgba(99, 102, 241, 0.4);
+    }
+    .active-banner-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+    }
+    .btn-return-active {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+      color: #FFFFFF;
+      font-weight: 600;
+      font-size: 0.86rem;
+      padding: 0.55rem 1.1rem;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.35);
+    }
+    .btn-return-active:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 14px rgba(79, 70, 229, 0.5);
+    }
+    .btn-discard-active {
+      background: transparent;
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #F87171;
+      font-size: 0.82rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-discard-active:hover {
+      background: rgba(239, 68, 68, 0.15);
+    }
+
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); opacity: 1; }
+      50% { transform: scale(1.25); opacity: 0.75; }
+    }
+
     @media (max-width: 768px) {
+      .active-adaptation-banner { flex-direction: column; align-items: stretch; }
+      .active-banner-actions { justify-content: flex-end; }
       .cards-selector-grid, .formats-grid { grid-template-columns: 1fr 1fr; }
       .form-row-dual { flex-direction: column; }
       .sticky-action-bar { flex-direction: column; gap: 0.75rem; align-items: stretch; }
@@ -885,20 +861,18 @@ import { AppDocument } from '../../core/models/document.model';
     }
   `]
 })
-export class WorkspaceComponent implements OnInit {
+export class WorkspaceComponent implements OnInit, OnDestroy {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
-  private stateService = inject(StateService);
+  readonly stateService = inject(StateService);
   readonly documentService = inject(DocumentService);
   private router = inject(Router);
 
-  activeTab = signal<'upload' | 'text' | 'from_documents'>('from_documents');
+  activeTab = signal<'upload' | 'text' | 'from_documents'>('upload');
   isDragging = signal<boolean>(false);
   uploadedFile = signal<File | null>(null);
   selectedWorkspaceDoc = signal<AppDocument | null>(null);
-  isExtractingDocument = signal<boolean>(false);
-  extractionStatus = signal<string>('');
 
   pickerSearchQuery = signal<string>('');
   pickerTypeFilter = signal<string>('all');
@@ -917,6 +891,12 @@ export class WorkspaceComponent implements OnInit {
   feedbackSubmitted = signal<boolean>(false);
 
   private pipelineSub?: Subscription;
+
+  /** Live pipeline stages shown by the generation loader, driven by real SSE events. */
+  pipelineStages = signal<PipelineStage[]>(this.buildPipelineStages());
+  activeStage = computed<PipelineStage | null>(
+    () => this.pipelineStages().find(stage => stage.estado === 'activo') || null
+  );
 
   perfiles = [
     { value: 'Principiante', label: 'Principiante', icon: '🌱', desc: 'Explicaciones didácticas y analogías sencillas' },
@@ -938,8 +918,8 @@ export class WorkspaceComponent implements OnInit {
   nivelesCantidad: NivelCantidad[] = ['Breve', 'Estandar', 'Amplio', 'Exhaustivo', 'Personalizado'];
 
   adaptForm = this.fb.group({
-    documento_titulo: ['Especificación de Redes VCN en Oracle Cloud Infrastructure (OCI)', [Validators.required]],
-    documento_contenido: ['Una Virtual Cloud Network (VCN) en Oracle Cloud Infrastructure es una red privada definida por software...', [Validators.required]],
+    documento_titulo: ['', [Validators.required]],
+    documento_contenido: ['', [Validators.required]],
     perfil_destinatario: ['Desarrollador' as PerfilDestinatario, [Validators.required]],
     formato_salida: ['Flashcards' as FormatoSalida, [Validators.required]],
     nicho_sector: ['Fintech' as NichoSector, [Validators.required]],
@@ -950,55 +930,32 @@ export class WorkspaceComponent implements OnInit {
 
   readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
 
-  isViewingResult = computed(() => {
-    return !!this.currentResponse() && this.stateService.isViewingActiveResult();
-  });
-
-  hasActiveAdaptation = computed(() => {
-    return !!this.currentResponse();
-  });
-
-  activeAdaptationTitle = computed(() => {
-    return this.currentResponse()?.contenido_adaptado?.titulo || this.adaptForm.value.documento_titulo || 'Adaptación Educativa';
-  });
-
-  activeAdaptationFormat = computed(() => {
-    return this.currentResponse()?.metadatos?.formato_generado || this.adaptForm.value.formato_salida || 'Educativo';
-  });
-
-  activeAdaptationItemsCount = computed(() => {
-    return this.getTypedItems().length;
-  });
-
   ngOnInit(): void {
-    // 1. Restore active generated adaptation from StateService if one exists
-    const savedResponse = this.stateService.activeAdaptationResponse();
-    if (savedResponse) {
-      this.currentResponse.set(savedResponse);
-      const savedRequest = this.stateService.activeAdaptationRequest();
-      if (savedRequest) {
+    // Keep the "Desde Mis Documentos" picker in sync with the backend.
+    void this.documentService.refresh();
+
+    // Restore active adaptation if user previously generated one and is in viewing mode
+    if (this.stateService.activeAdaptationResponse() && this.stateService.isViewingActiveResult()) {
+      this.currentResponse.set(this.stateService.activeAdaptationResponse());
+      if (this.stateService.activeAdaptationRequest()) {
+        const req = this.stateService.activeAdaptationRequest()!;
         this.adaptForm.patchValue({
-          documento_titulo: savedRequest.documento_titulo,
-          documento_contenido: savedRequest.documento_contenido,
-          perfil_destinatario: savedRequest.perfil_destinatario,
-          formato_salida: savedRequest.formato_salida,
-          nicho_sector: savedRequest.nicho_sector,
-          nivel_detalle: savedRequest.nivel_detalle,
-          nivel_cantidad: savedRequest.nivel_cantidad,
-          cantidad_objetivo: savedRequest.cantidad_objetivo
-        });
+          documento_titulo: req.documento_titulo,
+          perfil_destinatario: req.perfil_destinatario,
+          formato_salida: req.formato_salida,
+          nicho_sector: req.nicho_sector,
+          nivel_detalle: req.nivel_detalle,
+          nivel_cantidad: req.nivel_cantidad,
+          cantidad_objetivo: req.cantidad_objetivo
+        }, { emitEvent: false });
       }
     }
 
-    // 2. Check if document was pre-selected from DocumentService
+    // Only preload a document when the user explicitly sent one from the
+    // documents page ("Usar en Workspace"). Nothing is selected by default.
     const preselected = this.documentService.selectedWorkspaceDocument();
     if (preselected) {
       this.selectDocFromPicker(preselected);
-    } else if (!savedResponse) {
-      const activeDocs = this.documentService.activeDocuments();
-      if (activeDocs.length > 0) {
-        this.selectDocFromPicker(activeDocs[0]);
-      }
     }
   }
 
@@ -1006,12 +963,14 @@ export class WorkspaceComponent implements OnInit {
     const query = this.pickerSearchQuery().toLowerCase();
     const type = this.pickerTypeFilter();
 
-    return this.documentService.activeDocuments().filter(doc => {
-      const matchQuery = doc.name.toLowerCase().includes(query) ||
-        (doc.tags && doc.tags.some(t => t.toLowerCase().includes(query)));
-      const matchType = type === 'all' || doc.type === type;
-      return matchQuery && matchType;
-    });
+    return this.documentService.activeDocuments()
+      .filter(doc => doc.indexed)
+      .filter(doc => {
+        const matchQuery = doc.name.toLowerCase().includes(query) ||
+          (doc.tags && doc.tags.some(t => t.toLowerCase().includes(query)));
+        const matchType = type === 'all' || doc.type === type;
+        return matchQuery && matchType;
+      });
   });
 
   selectDocFromPicker(doc: AppDocument): void {
@@ -1019,77 +978,11 @@ export class WorkspaceComponent implements OnInit {
     this.activeTab.set('from_documents');
     this.documentService.selectForWorkspace(doc);
 
-    // Clean title from extension
-    const cleanTitle = doc.name.replace(/\.(pdf|md|txt)$/i, '');
-    let cleanContent = doc.content || `Contenido de ${doc.name}`;
-    cleanContent = cleanContent.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
-    cleanContent = cleanContent.replace(/stream[\s\S]*?endstream/gi, '');
-    cleanContent = cleanContent.replace(/<<[\s\S]*?>>/g, '');
-    cleanContent = cleanContent.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
-    cleanContent = cleanContent.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
-
-    if ((!cleanContent || cleanContent.length < 150) && (doc.name.toLowerCase().includes('java') || doc.name.toLowerCase().includes('spring') || doc.name.toLowerCase().includes('ms'))) {
-      cleanContent = `# Guía Integral de Microservicios con Spring Boot y MsJava
-## 1. Fundamentos y Arquitectura de Microservicios
-Spring Boot simplifica el desarrollo de microservicios mediante auto-configuración y servidor embebido Tomcat/Netty. En una arquitectura distribuida, cada microservicio gestiona su propio Bounded Context bajo principios de Domain-Driven Design (DDD), exponiendo contratos limpios mediante APIs RESTful.
-
-## 2. Persistencia y Transacciones Distribuidas
-La persistencia se implementa mediante Spring Data JPA y Hibernate con PostgreSQL y Oracle DB. El aislamiento transaccional se gestiona con la anotación @Transactional y patrones de consistencia eventual como Saga Pattern para flujos distribuidos.
-
-## 3. Resiliencia, Fallback y Tolerancia a Fallos
-La comunicación entre microservicios se protege mediante Resilience4j, implementando Circuit Breaker, Rate Limiter, Retry con backoff exponencial y mecanismos de Fallback graceful para evitar caídas en cascada ante intermitencias de red.
-
-## 4. Seguridad, Autenticación y Criptografía
-La capa de seguridad utiliza Spring Security con flujos OAuth2 y OpenID Connect. Los tokens JWT criptográficamente firmados transportan claims de autorización RBAC validados en el API Gateway.
-
-## 5. Mensajería Asíncrona y Streaming de Eventos
-El desacoplamiento reactivo se realiza mediante Apache Kafka y RabbitMQ, permitiendo arquitectura orientada a eventos (EDA) y entrega confiable con idempotencia de consumidores.
-
-## 6. Observabilidad, Métricas y Despliegue en la Nube
-Para monitoreo empresarial se integra Spring Boot Actuator con Micrometer, exportando métricas a Prometheus y paneles en Grafana. El rastreo distribuido se implementa con OpenTelemetry hacia Jaeger/Zipkin.`;
-    }
-
-    if ((!cleanContent || cleanContent.length < 300) && (doc.name.toLowerCase().includes('software architecture') || doc.name.toLowerCase().includes('hard parts') || doc.name.toLowerCase().includes('trade-off') || doc.name.toLowerCase().includes('ford') || doc.name.toLowerCase().includes('richards'))) {
-      cleanContent = `# Software Architecture: The Hard Parts (Modern Trade-Off Analysis)
-Por Neal Ford, Mark Richards, Pramod Sadalage y Zhamak Dehghani
-
-## 1. ¿Qué es la Arquitectura de Software y los Quanta Arquitectónicos?
-Un quantum arquitectónico es una unidad de despliegue independiente que posee alta cohesión funcional, acoplamiento síncrono interno y una base de datos propia. Al diseñar arquitecturas distribuidas, cada decisión implica un compromiso (trade-off) entre desacoplamiento y consistencia de datos.
-
-## 2. Descomposición de Monolitos y Análisis de Acoplamiento
-Estrategias para dividir monolitos en microservicios:
-- Descomposición orientada a componentes vs descomposición orientada a capacidades de negocio.
-- Identificación de dependencias aferentes y eferentes.
-- Aislamiento de módulos críticos y análisis de dominios mediante Event Storming y Domain-Driven Design (DDD).
-
-## 3. Patrones de Transaccionalidad Distribuida y Saga Pattern
-En sistemas distribuidos, ACID tradicional no escala. Se implementan transacciones de consistencia eventual con Saga:
-- Sagas Orquestadas: Un servicio central (Orchestrator) coordina cada paso y las acciones compensatorias si un paso falla.
-- Sagas Coreografiadas: Los servicios emiten y escuchan eventos de dominio sin coordinador central.
-- Patrón Outbox Transaccional para garantizar la publicación atómica de eventos hacia el broker de mensajería.
-
-## 4. Gestión de Datos Distribuidos y Replicación
-Patrones para acceso a datos en arquitecturas desacopladas:
-- Vistas Materializadas compartidas para lectura de alta velocidad.
-- Patrón CQRS (Command Query Responsibility Segregation) separando modelos de escritura de modelos de lectura optimizada.
-- Data Mesh: La descentralización de la propiedad de los datos como producto analítico gestionado por cada dominio.
-
-## 5. Comunicación y Gestión de Contratos (APIs)
-Trade-offs entre protocolos de comunicación:
-- Comunicación Síncrona (REST, gRPC) para consultas interactivas con baja latencia pero mayor acoplamiento temporal.
-- Comunicación Asíncrona (Apache Kafka, RabbitMQ) para mayor resiliencia y desacoplamiento temporal.
-- Evolución de esquemas con compatibilidad hacia atrás (backward compatibility) y versionado de contratos semánticos.
-
-## 6. Resiliencia, Gobernanza y Observabilidad
-Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
-- Circuit Breaker (disyuntores de circuito) y Timeouts adaptativos.
-- Bulkhead Pattern (compartimentos estancos para aislar fallas críticas).
-- Trazabilidad distribuida con OpenTelemetry (Correlation IDs y Spans) para monitorizar transacciones a través de múltiples microservicios.`;
-    }
-
+    // The backend already indexed this document, so generation runs against
+    // its vector store and only the title is kept as context.
     this.adaptForm.patchValue({
-      documento_titulo: cleanTitle,
-      documento_contenido: cleanContent || `Especificación técnica de ${cleanTitle}`
+      documento_titulo: doc.name.replace(/\.(pdf|md|txt)$/i, ''),
+      documento_contenido: ''
     });
   }
 
@@ -1263,42 +1156,12 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
   private handleFile(file: File): void {
     this.uploadedFile.set(file);
     const cleanName = file.name.replace(/\.(pdf|md|txt)$/i, '');
-    this.adaptForm.patchValue({ documento_titulo: cleanName });
+    this.adaptForm.patchValue({
+      documento_titulo: cleanName,
+      documento_contenido: file.name.toLowerCase().endsWith('.pdf') ? `[Archivo PDF adjunto: ${file.name}]` : ''
+    });
 
-    if (file.name.toLowerCase().endsWith('.pdf')) {
-      this.isExtractingDocument.set(true);
-      this.extractionStatus.set(`Extrayendo texto y estructura de ${file.name}...`);
-      this.api.parsePdf(file).subscribe({
-        next: (res) => {
-          this.isExtractingDocument.set(false);
-          this.extractionStatus.set('');
-          if (res && res.texto_extraido) {
-            this.adaptForm.patchValue({ documento_contenido: res.texto_extraido });
-          }
-        },
-        error: (err) => {
-          console.warn('Backend parsePdf failed, falling back:', err);
-          this.isExtractingDocument.set(false);
-          this.extractionStatus.set('');
-          const reader = new FileReader();
-          reader.onload = (e) => {
-            const raw = e.target?.result as string || '';
-            let text = raw.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f-\x9f\uFFFD]/g, '');
-            text = text.replace(/stream[\s\S]*?endstream/gi, '');
-            text = text.replace(/<<[\s\S]*?>>/g, '');
-            text = text.replace(/\d+\s+\d+\s+obj[\s\S]*?endobj/gi, '');
-            text = text.replace(/^.*(?:%PDF-|\b\d+\s+\d+\s+R\b|\/FlateDecode|\/Filter|\/FontDescriptor|\/MediaBox|\/Parent|\/Catalog|\/Length).*$/gm, '').trim();
-
-            if (text.length < 200 && (file.name.toLowerCase().includes('software architecture') || file.name.toLowerCase().includes('hard parts') || file.name.toLowerCase().includes('trade-off'))) {
-              text = `# Software Architecture: The Hard Parts (Modern Trade-Off Analysis)\nPor Neal Ford, Mark Richards, Pramod Sadalage y Zhamak Dehghani\n\n## 1. Quanta Arquitectónicos y Límites de Dominio\nUn quantum arquitectónico es una unidad de despliegue independiente con alta cohesión funcional y almacén de datos propio.\n\n## 2. Descomposición de Monolitos\nEstrategias para dividir monolitos en microservicios analizando dependencias y dominios con DDD.\n\n## 3. Transacciones Distribuidas y Patrón Saga\nSagas orquestadas y coreografiadas con consistencia eventual y Outbox Pattern.\n\n## 4. Gestión de Datos Distribuidos\nPatrón CQRS, Vistas Materializadas y Data Mesh.\n\n## 5. Comunicación y Gestión de Contratos\nTrade-offs entre APIs síncronas (REST, gRPC) y mensajería reactiva (Kafka, RabbitMQ).\n\n## 6. Resiliencia y Observabilidad\nCircuit Breaker, Bulkhead y telemetría distribuida con OpenTelemetry.`;
-            }
-
-            this.adaptForm.patchValue({ documento_contenido: text || `Especificación técnica de ${file.name}` });
-          };
-          reader.readAsText(file);
-        }
-      });
-    } else {
+    if (!file.name.toLowerCase().endsWith('.pdf')) {
       const reader = new FileReader();
       reader.onload = (e) => {
         const text = e.target?.result as string || `Contenido de ${file.name}`;
@@ -1310,17 +1173,30 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
 
   removeFile(): void {
     this.uploadedFile.set(null);
+    this.adaptForm.patchValue({ documento_contenido: '' });
   }
 
+  /**
+   * Runs the real two-step pipeline: ingest the document (streaming progress),
+   * then generate educational content from the indexed document.
+   */
   runPipeline(): void {
-    if (this.adaptForm.invalid) return;
+    const indexedDoc = this.activeTab() === 'from_documents' ? this.selectedWorkspaceDoc() : null;
+    const usingUpload = this.activeTab() === 'upload' && !!this.uploadedFile();
+    const usingIndexedDoc = !!indexedDoc?.indexed;
+    if (this.adaptForm.invalid && !usingUpload && !usingIndexedDoc) return;
 
     this.pipelineErrorMessage.set(null);
+    this.currentResponse.set(null);
     this.isPipelineRunning.set(true);
+    this.pipelineStages.set(this.buildPipelineStages());
+
     const formVal = this.adaptForm.value;
+    const title = formVal.documento_titulo || 'Documento Técnico';
+    const userId = this.currentUserId();
 
     const req: AdaptationRequest = {
-      documento_titulo: formVal.documento_titulo || 'Documento Técnico',
+      documento_titulo: title,
       documento_contenido: formVal.documento_contenido || '',
       perfil_destinatario: formVal.perfil_destinatario || 'Desarrollador',
       formato_salida: formVal.formato_salida || 'Flashcards',
@@ -1330,20 +1206,138 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
       cantidad_objetivo: formVal.cantidad_objetivo || 20
     };
 
-    this.pipelineSub = this.api.adaptContent(req).subscribe({
-      next: (resp) => {
+    if (usingIndexedDoc && indexedDoc) {
+      // The document is already ingested and indexed: step 1 is done, so mark
+      // the ingest stages complete and generate directly from its vector store.
+      this.pipelineStages.update(list => list.map((stage, i): PipelineStage =>
+        i < list.length - 1 ? { ...stage, estado: 'completado' } : stage));
+      this.startAdaptProgress();
+      this.pipelineSub = this.api.adaptDocument(indexedDoc.id, req, userId)
+        .subscribe(this.generationObserver(req));
+      return;
+    }
+
+    const ingestInput = {
+      file: usingUpload ? this.uploadedFile() : null,
+      text: usingUpload ? null : (formVal.documento_contenido || ''),
+      title,
+      userId
+    };
+
+    this.pipelineSub = this.api.ingestDocument(ingestInput, event => this.onIngestEvent(event))
+      .pipe(
+        switchMap((record: DocumentRecord) => {
+          // Step 1 finished: the document is indexed, now retrieve + generate.
+          this.startAdaptProgress();
+          return this.api.adaptDocument(record.document_id, req, userId);
+        })
+      )
+      .subscribe(this.generationObserver(req));
+  }
+
+  /** Subscribe handlers shared by both generation paths (new vs. indexed doc). */
+  private generationObserver(req: AdaptationRequest): { next: (r: AdaptationResponse) => void; error: (e: any) => void } {
+    return {
+      next: (resp: AdaptationResponse) => {
         this.currentResponse.set(resp);
         this.stateService.addProjectFromResponse(req, resp);
         this.stateService.setActiveAdaptation(req, resp, true);
+        this.completeStages();
         this.isPipelineRunning.set(false);
       },
-      error: (err) => {
+      error: (err: any) => {
         console.error('Error en pipeline RAG:', err);
         const detail = err?.error?.detail || err?.message || 'Error de procesamiento en backend';
         this.pipelineErrorMessage.set(typeof detail === 'string' ? detail : JSON.stringify(detail));
+        this.failStages(this.pipelineErrorMessage() || 'Error');
         this.isPipelineRunning.set(false);
       }
+    };
+  }
+
+  /**
+   * Builds the initial (all pending) list of pipeline stages for the loader.
+   * These mirror exactly what the backend reports over SSE: ingest, chunk,
+   * embed and index, followed by a single generation step (the generation
+   * endpoint is not streamed, so it stays active until the response arrives).
+   */
+  private buildPipelineStages(): PipelineStage[] {
+    return [
+      { id: 1, nombre: '1. Ingesta', microcopy: 'Leyendo el documento', estado: 'pendiente' },
+      { id: 2, nombre: '2. Chunking', microcopy: 'División en fragmentos semánticos', estado: 'pendiente' },
+      { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización semántica', estado: 'pendiente' },
+      { id: 4, nombre: '4. Indexado', microcopy: 'Guardando el índice de búsqueda', estado: 'pendiente' },
+      { id: 5, nombre: '5. Generación', microcopy: 'Recuperación RAG y redacción pedagógica', estado: 'pendiente' }
+    ];
+  }
+
+  /** Maps a backend ingestion stage name to its index in the UI stepper. */
+  private ingestStageIndex(stage: string): number {
+    switch (stage) {
+      case 'uploading': return 0;
+      case 'ingesting': return 1;
+      case 'embedding': return 2;
+      case 'indexing': return 3;
+      default: return -1;
+    }
+  }
+
+  private onIngestEvent(event: DocumentIngestEvent): void {
+    if (event.stage === 'failed') {
+      this.failStages(event.message || 'Falló la ingesta del documento.');
+      return;
+    }
+    if (event.stage === 'ready' || event.stage === 'done') {
+      this.setStageProgress(4, 'Documento indexado. Generando contenido…');
+      return;
+    }
+    const index = this.ingestStageIndex(event.stage);
+    if (index >= 0) {
+      this.setStageProgress(index, event.message);
+    }
+  }
+
+  /** Marks every stage before `index` completed and `index` itself active. */
+  private setStageProgress(index: number, message?: string): void {
+    this.pipelineStages.update(list => list.map((stage, i): PipelineStage => {
+      if (i < index) return { ...stage, estado: 'completado' };
+      if (i === index) return { ...stage, estado: 'activo', microcopy: message || stage.microcopy };
+      return { ...stage, estado: 'pendiente' };
+    }));
+  }
+
+  private startAdaptProgress(): void {
+    // Generation is a single non-streamed request: keep the last stage active
+    // until the response resolves, with no simulated progression.
+    this.setStageProgress(4, 'Recuperando fragmentos y generando contenido…');
+  }
+
+  private completeStages(): void {
+    this.pipelineStages.update(list => list.map((stage): PipelineStage => ({ ...stage, estado: 'completado' })));
+  }
+
+  private failStages(message: string): void {
+    this.pipelineStages.update(list => {
+      const activeIdx = Math.max(0, list.findIndex(stage => stage.estado === 'activo'));
+      return list.map((stage, i): PipelineStage => {
+        if (i < activeIdx) return { ...stage, estado: 'completado' };
+        if (i === activeIdx) return { ...stage, estado: 'error', microcopy: message };
+        return { ...stage, estado: 'pendiente' };
+      });
     });
+  }
+
+  private currentUserId(): string | null {
+    try {
+      const raw = sessionStorage.getItem('nuevamente_user');
+      if (raw) {
+        const user = JSON.parse(raw);
+        return user?.id || null;
+      }
+    } catch {
+      // Ignore corrupted session data; the backend falls back to the document owner.
+    }
+    return null;
   }
 
   cancelPipeline(): void {
@@ -1351,6 +1345,10 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
       this.pipelineSub.unsubscribe();
     }
     this.isPipelineRunning.set(false);
+  }
+
+  ngOnDestroy(): void {
+    if (this.pipelineSub) this.pipelineSub.unsubscribe();
   }
 
   getGenerationParams(): any {
@@ -1363,12 +1361,12 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
     };
   }
 
-  onNewAdaptationClick(): void {
-    this.stateService.setIsViewingActiveResult(false);
-  }
-
   returnToActiveResult(): void {
-    this.stateService.setIsViewingActiveResult(true);
+    const resp = this.stateService.activeAdaptationResponse();
+    if (resp) {
+      this.currentResponse.set(resp);
+      this.stateService.setIsViewingActiveResult(true);
+    }
   }
 
   discardActiveAdaptation(): void {
@@ -1378,6 +1376,7 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
 
   resetForm(): void {
     this.stateService.setIsViewingActiveResult(false);
+    this.currentResponse.set(null);
     this.pipelineErrorMessage.set(null);
     this.isPipelineRunning.set(false);
     this.feedbackSubmitted.set(false);
@@ -1418,12 +1417,12 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
 
   quickPrefillFormat(fmt: string): void {
     this.selectFormato(fmt);
-    this.stateService.setIsViewingActiveResult(false);
+    this.resetForm();
   }
 
   quickPrefillProfile(prof: string): void {
     this.selectPerfil(prof);
-    this.stateService.setIsViewingActiveResult(false);
+    this.resetForm();
   }
 
   submitFeedback(vote: 'up' | 'down'): void {
@@ -1432,6 +1431,7 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
   }
 
   formatSize(bytes: number): string {
+    if (!bytes) return '—';
     if (bytes < 1024) return `${bytes} B`;
     if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`;
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;

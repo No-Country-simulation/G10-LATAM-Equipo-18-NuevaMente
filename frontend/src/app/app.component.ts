@@ -42,7 +42,6 @@ import { DocumentService } from './core/services/document.service';
           >
             <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
-            <span class="nav-active-pill" *ngIf="hasActiveAdaptation() && !isSidebarCollapsed()" title="Contenido generado disponible">Activo</span>
           </a>
 
           <a 
@@ -141,10 +140,10 @@ import { DocumentService } from './core/services/document.service';
       display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; margin-bottom: 2rem; cursor: pointer;
     }
 
-    .brand-isotype { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(99, 102, 241, 0.4)); }
-    .brand-title { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); font-family: var(--font-heading); letter-spacing: -0.02em; display: inline-flex; align-items: center; }
-    .brand-m { color: #A855F7; }
-    .brand-ente { color: #38BDF8; }
+    .brand-isotype { width: 32px; height: 32px; flex-shrink: 0; object-fit: contain; }
+    .brand-title { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); font-family: var(--font-heading); }
+    .brand-m { color: #6366F1; }
+    .brand-ente { color: var(--text-primary); }
 
     .sidebar-nav { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
 
@@ -176,18 +175,6 @@ import { DocumentService } from './core/services/document.service';
       font-weight: 800;
       padding: 0.15rem 0.5rem;
       border-radius: 10px;
-    }
-
-    .nav-active-pill {
-      margin-left: auto;
-      background: rgba(16, 185, 129, 0.15);
-      border: 1px solid rgba(16, 185, 129, 0.4);
-      color: #10B981;
-      font-size: 0.68rem;
-      font-weight: 800;
-      padding: 0.15rem 0.45rem;
-      border-radius: 8px;
-      letter-spacing: 0.02em;
     }
 
     .sidebar-footer { border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
@@ -247,10 +234,6 @@ export class AppComponent implements OnInit {
 
   getTrashCount(): number {
     return this.stateService.getTrashProjects().length;
-  }
-
-  hasActiveAdaptation(): boolean {
-    return this.stateService.hasActiveAdaptation();
   }
 
   isAuthRoute(): boolean {

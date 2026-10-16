@@ -50,6 +50,36 @@ export class MockAuthApiService extends AuthApi {
       passwordHash: 'Password123!'
     });
 
+    // Additional demo accounts mirroring the backend seed (see security.py).
+    const demoUsers: User[] = [
+      {
+        id: 'usr_diego_002',
+        email: 'diego.fuentes@empresa.com',
+        name: 'Diego Fuentes',
+        role: 'Líder Técnico',
+        organization: 'Educación Corp',
+        avatarLetter: 'D',
+        isVerified: true,
+        mfaEnabled: false,
+        createdAt: Date.now() - 86400000 * 20
+      },
+      {
+        id: 'usr_laura_003',
+        email: 'laura.gomez@empresa.com',
+        name: 'Laura Gómez',
+        role: 'Gestora',
+        organization: 'Educación Corp',
+        avatarLetter: 'L',
+        isVerified: true,
+        mfaEnabled: false,
+        createdAt: Date.now() - 86400000 * 10
+      }
+    ];
+
+    demoUsers.forEach(user => {
+      this.usersMap.set(user.email, { user, passwordHash: 'Password123!' });
+    });
+
     // Load persisted users metadata (NO TOKENS) from localStorage
     try {
       if (typeof localStorage !== 'undefined') {

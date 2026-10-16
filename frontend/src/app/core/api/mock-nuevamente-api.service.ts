@@ -1,7 +1,7 @@
 import { Injectable, inject } from '@angular/core';
 import { Observable, of, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
-import { NuevaMenteApi } from './nuevamente-api';
+import { DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
 import { StateService, RecentProject } from '../services/state.service';
 import { getTargetItemCount } from '../config/content-quantity.config';
 import {
@@ -20,6 +20,50 @@ import {
 })
 export class MockNuevaMenteApiService implements NuevaMenteApi {
   private stateService = inject(StateService);
+
+  ingestDocument(input: DocumentIngestInput, onEvent?: (event: DocumentIngestEvent) => void): Observable<DocumentRecord> {
+    const documentId = 'doc_mock_' + Date.now();
+    const title = input.title || input.file?.name || 'Documento de prueba';
+    const events: DocumentIngestEvent[] = [
+      { stage: 'uploading', message: 'Preparando la ingesta…' },
+      { stage: 'ingesting', message: 'Leyendo y dividiendo el documento en fragmentos…' },
+      { stage: 'embedding', message: 'Generando embeddings…' },
+      { stage: 'indexing', message: 'Guardando el índice de búsqueda…' },
+      { stage: 'done', document_id: documentId, status: 'ready', title, total_parents: 8, total_children: 32, storage_backend: 'local' }
+    ];
+
+    return new Observable<DocumentRecord>((subscriber) => {
+      let index = 0;
+      const tick = () => {
+        const event = events[index];
+        if (onEvent) onEvent(event);
+        if (event.stage === 'done') {
+          subscriber.next({
+            document_id: documentId,
+            title,
+            status: 'ready',
+            total_parents: event.total_parents,
+            total_children: event.total_children,
+            storage_backend: event.storage_backend
+          });
+          subscriber.complete();
+          return;
+        }
+        index++;
+        setTimeout(tick, 250);
+      };
+      tick();
+      return () => {};
+    });
+  }
+
+  adaptDocument(_documentId: string, request: AdaptationRequest): Observable<AdaptationResponse> {
+    return this.adaptContent(request);
+  }
+
+  listDocuments(_userId?: string | null): Observable<DocumentRecord[]> {
+    return of([] as DocumentRecord[]);
+  }
 
   listLibrary(): Observable<RecentProject[]> {
     return of(this.stateService.getLibraryProjects());
@@ -90,7 +134,11 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
     return timer(600).pipe(map(() => responsePayload));
   }
 
-  parsePdf(file: File, _useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }> {
+  parseDocument(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
+    return this.parsePdf(file, useLlm);
+  }
+
+  parsePdf(file: File, _useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
     return new Observable(subscriber => {
       const isText = file.name.endsWith('.txt') || file.name.endsWith('.md') || file.name.endsWith('.json') || file.type.startsWith('text/');
       if (isText) {
@@ -108,44 +156,17 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
         reader.readAsText(file);
       } else {
         const isMsJava = file.name.toLowerCase().includes('java') || file.name.toLowerCase().includes('spring') || file.name.toLowerCase().includes('ms');
-        const extracted = isMsJava ? `# Guía Avanzada de Microservicios con Spring Boot y MsJava
-## 1. Fundamentos y Arquitectura de Microservicios
-Spring Boot es un framework opinionado que facilita la creación de aplicaciones autónomas y listas para producción. Incluye auto-configuración inteligente, servidor embebido Tomcat/Netty y gestión declarativa de dependencias con Spring Boot Starters.
-En una arquitectura distribuida, cada microservicio gestiona su propio Bounded Context bajo principios de Domain-Driven Design (DDD), exponiendo contratos limpios mediante APIs RESTful y especificaciones OpenAPI/Swagger.
-
-## 2. Persistencia de Datos y Transacciones
-La persistencia se implementa mediante Spring Data JPA y Hibernate para modelos relacionales (PostgreSQL, Oracle DB), y Spring Data MongoDB para modelos documentales. El aislamiento transaccional se garantiza con la anotación @Transactional y patrones de consistencia eventual como Saga Pattern para flujos de pago y transacciones fintech distribuidas.
-
-## 3. Resiliencia, Fallback y Tolerancia a Fallos
-La comunicación entre microservicios se protege mediante Resilience4j, implementando Circuit Breaker (disyuntores de circuito), Rate Limiter (control de tasa de peticiones), Retry con backoff exponencial y mecanismos de Fallback graceful para evitar caídas en cascada ante fallos de red o saturación de downstream services.
-
-## 4. Seguridad, Autenticación y Criptografía
-La capa de seguridad utiliza Spring Security con flujos OAuth2 y OpenID Connect. Los tokens JWT criptográficamente firmados transportan claims de autorización (roles RBAC). El API Gateway (Spring Cloud Gateway) actúa como Punto de Decisión de Políticas (PDP) validando tokens antes del enrutamiento.
-
-## 5. Mensajería Asíncrona y Streaming de Eventos
-La orquestación reactiva y desacoplada se realiza mediante Apache Kafka y RabbitMQ, permitiendo arquitectura orientada a eventos (Event-Driven Architecture), procesamiento de streams con Kafka Streams y entrega confiable con idempotencia de consumidores.
-
-## 6. Observabilidad, Métricas y Despliegue en la Nube
-Para monitoreo empresarial se integra Spring Boot Actuator con Micrometer, exportando métricas a Prometheus y visualización en dashboards de Grafana. El rastreo distribuido se implementa con Micrometer Tracing y OpenTelemetry hacia Jaeger/Zipkin. El empaquetado se realiza en contenedores Docker y orquestación con Kubernetes.` : `Documento Técnico: ${file.name}\nAnálisis de especificaciones de arquitectura, requerimientos de integración, reglas de negocio y configuración de componentes.`;
+        const extracted = isMsJava ? `Microservicios con Spring Boot 3 y 4. Agenda del Curso: 1. Spring Boot (Framework opinionado, auto-configuración, servidor embebido Tomcat), 2. Arquitectura de Microservicios (Bounded Contexts DDD, APIs REST, Swagger), 3. Persistencia y Testing (Spring Data JPA, SQL vs NoSQL, Testing con Testcontainers), 4. Gateway y Resiliencia (Spring Cloud Gateway, Resilience4j Circuit Breakers), 5. Seguridad y Mensajería (OAuth2, OpenID Connect, JWT, Apache Kafka), 6. Observabilidad y DevOps (Spring Boot Actuator, Micrometer Tracing, Prometheus, Grafana, Docker, Kubernetes).` : `Documento Técnico: ${file.name}\nAnálisis de especificaciones de arquitectura, requerimientos de integración, reglas de negocio y configuración de componentes.`;
         
         subscriber.next({
           status: 'exito',
           engine: 'PyMuPDF Local Parser',
           texto_extraido: extracted,
-          total_paginas: 64,
-          almacenamiento_oci: {
-            bucket: 'nuevamente-documentos-fuente',
-            objeto_id: `usuarios/anonimo/documentos/${file.name}`,
-            status_upload: 'completado'
-          }
+          total_paginas: 64
         });
         subscriber.complete();
       }
     });
-  }
-
-  parseDocument(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }> {
-    return this.parsePdf(file, useLlm);
   }
 
   checkHealth(): Observable<{ status: string; service: string }> {

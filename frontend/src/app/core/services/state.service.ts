@@ -1,4 +1,4 @@
-import { Injectable, signal, computed } from '@angular/core';
+import { Injectable, signal } from '@angular/core';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
 import { environment } from '../../../environments/environment';
 import { isExpired } from '../utils/trash-utils';
@@ -55,7 +55,37 @@ export class StateService {
   readonly activeAdaptationResponse = signal<AdaptationResponse | null>(null);
   readonly activeAdaptationRequest = signal<AdaptationRequest | null>(null);
   readonly isViewingActiveResult = signal<boolean>(false);
-  readonly hasActiveAdaptation = computed(() => !!this.activeAdaptationResponse());
+
+  setActiveAdaptation(request: AdaptationRequest, response: AdaptationResponse, viewNow: boolean = true): void {
+    this.activeAdaptationRequest.set(request);
+    this.activeAdaptationResponse.set(response);
+    this.isViewingActiveResult.set(viewNow);
+    try {
+      sessionStorage.setItem('nuevamente_active_req', JSON.stringify(request));
+      sessionStorage.setItem('nuevamente_active_resp', JSON.stringify(response));
+      sessionStorage.setItem('nuevamente_active_viewing', viewNow ? 'true' : 'false');
+    } catch (e) {
+      console.warn('[StateService] Error guardando adaptacion activa en sessionStorage:', e);
+    }
+  }
+
+  setIsViewingActiveResult(view: boolean): void {
+    this.isViewingActiveResult.set(view);
+    try {
+      sessionStorage.setItem('nuevamente_active_viewing', view ? 'true' : 'false');
+    } catch {}
+  }
+
+  clearActiveAdaptation(): void {
+    this.activeAdaptationRequest.set(null);
+    this.activeAdaptationResponse.set(null);
+    this.isViewingActiveResult.set(false);
+    try {
+      sessionStorage.removeItem('nuevamente_active_req');
+      sessionStorage.removeItem('nuevamente_active_resp');
+      sessionStorage.removeItem('nuevamente_active_viewing');
+    } catch {}
+  }
 
   constructor() {
     this.loadUserFromStorage();
@@ -63,9 +93,24 @@ export class StateService {
     this.loadActiveAdaptationFromStorage();
   }
 
+  private loadActiveAdaptationFromStorage(): void {
+    try {
+      const savedReq = sessionStorage.getItem('nuevamente_active_req');
+      const savedResp = sessionStorage.getItem('nuevamente_active_resp');
+      const savedViewing = sessionStorage.getItem('nuevamente_active_viewing');
+      if (savedReq && savedResp) {
+        this.activeAdaptationRequest.set(JSON.parse(savedReq));
+        this.activeAdaptationResponse.set(JSON.parse(savedResp));
+        this.isViewingActiveResult.set(savedViewing === 'true');
+      }
+    } catch (e) {
+      console.warn('[StateService] Error recuperando adaptacion activa de sessionStorage:', e);
+    }
+  }
+
   private loadUserFromStorage(): void {
     try {
-      const saved = localStorage.getItem('nuevamente_user');
+      const saved = sessionStorage.getItem('nuevamente_user');
       if (saved) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.email && parsed.isLoggedIn) {
@@ -79,7 +124,7 @@ export class StateService {
 
   private loadProjectsFromStorage(): void {
     try {
-      const savedProjects = localStorage.getItem('nuevamente_projects');
+      const savedProjects = sessionStorage.getItem('nuevamente_projects');
       if (savedProjects) {
         const parsed = JSON.parse(savedProjects);
         if (Array.isArray(parsed) && parsed.length > 0) {
@@ -103,7 +148,7 @@ export class StateService {
 
   private saveProjectsToStorage(): void {
     try {
-      localStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
+      sessionStorage.setItem('nuevamente_projects', JSON.stringify(this.projects));
     } catch (e) {
       console.log('Error al guardar proyectos en localStorage', e);
     }
@@ -141,9 +186,9 @@ export class StateService {
     };
 
     try {
-      localStorage.setItem('nuevamente_user', JSON.stringify(this.user));
+      sessionStorage.setItem('nuevamente_user', JSON.stringify(this.user));
       if (token) {
-        localStorage.setItem('nuevamente_jwt_token', token);
+        sessionStorage.setItem('nuevamente_jwt_token', token);
       }
     } catch (e) {
       console.log('Error al persistir sesión', e);
@@ -158,8 +203,8 @@ export class StateService {
       isLoggedIn: false
     };
     try {
-      localStorage.removeItem('nuevamente_user');
-      localStorage.removeItem('nuevamente_jwt_token');
+      sessionStorage.removeItem('nuevamente_user');
+      sessionStorage.removeItem('nuevamente_jwt_token');
     } catch (e) {
       console.log('Error al eliminar sesión', e);
     }
@@ -264,79 +309,6 @@ export class StateService {
     this.projects.unshift(newProject);
     this.updateMetrics();
     this.saveProjectsToStorage();
-    this.setActiveAdaptation(request, response, true);
     return newProject;
-  }
-
-  setActiveAdaptation(request: AdaptationRequest, response: AdaptationResponse, viewing: boolean = true): void {
-    this.activeAdaptationRequest.set(request);
-    this.activeAdaptationResponse.set(response);
-    this.isViewingActiveResult.set(viewing);
-    this.saveActiveAdaptationToStorage();
-  }
-
-  setIsViewingActiveResult(viewing: boolean): void {
-    this.isViewingActiveResult.set(viewing);
-    this.saveActiveAdaptationToStorage();
-  }
-
-  clearActiveAdaptation(): void {
-    this.activeAdaptationRequest.set(null);
-    this.activeAdaptationResponse.set(null);
-    this.isViewingActiveResult.set(false);
-    try {
-      localStorage.removeItem('nuevamente_active_adaptation');
-    } catch (e) {
-      console.log('Error al limpiar adaptación activa', e);
-    }
-  }
-
-  loadProjectIntoWorkspace(project: RecentProject): void {
-    if (project.response) {
-      const req: AdaptationRequest = project.request || {
-        documento_titulo: project.nombre,
-        documento_contenido: '',
-        perfil_destinatario: (project.perfil as any) || 'Desarrollador',
-        formato_salida: (project.formato as any) || 'Flashcards',
-        nicho_sector: 'General',
-        nivel_detalle: 'Tecnico',
-        nivel_cantidad: 'Estandar'
-      };
-      this.setActiveAdaptation(req, project.response, true);
-    }
-  }
-
-  private saveActiveAdaptationToStorage(): void {
-    try {
-      const resp = this.activeAdaptationResponse();
-      const req = this.activeAdaptationRequest();
-      if (resp && req) {
-        localStorage.setItem('nuevamente_active_adaptation', JSON.stringify({
-          request: req,
-          response: resp,
-          isViewing: this.isViewingActiveResult()
-        }));
-      } else {
-        localStorage.removeItem('nuevamente_active_adaptation');
-      }
-    } catch (e) {
-      console.log('Error al guardar adaptación activa en storage', e);
-    }
-  }
-
-  private loadActiveAdaptationFromStorage(): void {
-    try {
-      const saved = localStorage.getItem('nuevamente_active_adaptation');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (parsed && parsed.response) {
-          this.activeAdaptationResponse.set(parsed.response);
-          this.activeAdaptationRequest.set(parsed.request || null);
-          this.isViewingActiveResult.set(parsed.isViewing ?? true);
-        }
-      }
-    } catch (e) {
-      console.log('Error al cargar adaptación activa de storage', e);
-    }
   }
 }
