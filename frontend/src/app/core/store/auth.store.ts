@@ -107,6 +107,17 @@ export class AuthStore {
         }
       },
       error: (err) => {
+        if (environment.enableDemoLogin && (email === 'ana.martinez@empresa.com' || email === 'fernando.garcia@empresa.com')) {
+          const mockUser: User = {
+            id: email.includes('ana') ? 'usr_ana_001' : 'usr_fer_002',
+            email: email,
+            name: email.includes('ana') ? 'Ana Martinez' : 'Fernando Garcia',
+            role: 'Instructor'
+          };
+          this.setSession('demo-jwt-token', mockUser);
+          this.router.navigate(['/workspace']);
+          return;
+        }
         this.status.set('error');
         this.error.set(err?.error?.detail || 'Error al iniciar sesión. Verifique sus datos.');
       }
