@@ -218,7 +218,7 @@ export class ExportService {
 
         <div class="document-wrapper">
           <div class="pdf-header">
-            <div class="brand-title">🎓 NuevaMente — Adaptación Educativa</div>
+            <div class="brand-title"><img src="assets/branding/isotype.png" alt="NuevaMente" style="height:22px;vertical-align:middle;margin-right:8px;"/>NuevaMente — Adaptación Educativa</div>
             <div class="oracle-badge">Powered by Oracle Cloud Infrastructure</div>
           </div>
 

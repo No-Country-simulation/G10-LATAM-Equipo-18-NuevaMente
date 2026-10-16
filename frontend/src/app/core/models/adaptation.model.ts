@@ -21,8 +21,6 @@ export interface AdaptationRequest {
 export interface RagFuente {
   chunk_id: string;
   extracto: string;
-  seccion?: string;
-  breadcrumb?: string;
   pagina?: number;
   similitud_score?: number;
 }

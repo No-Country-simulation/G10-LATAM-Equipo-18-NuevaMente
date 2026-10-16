@@ -6,5 +6,5 @@ export const environment = {
   showDeveloperTools: false,
   trashRetentionDays: 15,
   useMock: false,
-  apiUrl: 'http://localhost:8001/api/v1'
+  apiUrl: '/api'
 };

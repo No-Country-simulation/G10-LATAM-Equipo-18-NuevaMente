@@ -1,9 +1,7 @@
 import { Component, signal, computed, inject, OnInit, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
-import { forkJoin } from 'rxjs';
 import { StateService, RecentProject } from '../../core/services/state.service';
 import { ExportService } from '../../core/services/export.service';
-import { NUEVAMENTE_API, NuevaMenteApi } from '../../core/api/nuevamente-api';
 import { environment } from '../../../environments/environment';
 import { getDaysRemainingStatus, DaysRemainingStatus } from '../../core/utils/trash-utils';
 
@@ -832,7 +830,6 @@ export type SortOption = 'vencimiento' | 'recientes' | 'titulo';
 })
 export class TrashComponent implements OnInit {
   private stateService = inject(StateService);
-  private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   readonly retentionDays = environment.trashRetentionDays ?? 15;
 
   @ViewChild('cancelBtn') cancelBtnRef?: ElementRef<HTMLButtonElement>;
@@ -870,23 +867,14 @@ export class TrashComponent implements OnInit {
     this.isLoading.set(true);
     this.hasError.set(false);
 
-    // The backend `contenidos` table is the source of truth for the trash,
-    // including the real purge deadline. The local state only renders if the
-    // backend is unreachable.
-    this.api.listTrash().subscribe({
-      next: (list) => {
-        this.projectsList.set([...list]);
-        this.isLoading.set(false);
-      },
-      error: () => {
-        try {
-          this.projectsList.set([...this.stateService.getTrashProjects()]);
-        } catch (e) {
-          this.hasError.set(true);
-        }
-        this.isLoading.set(false);
-      }
-    });
+    try {
+      const list = this.stateService.getTrashProjects();
+      this.projectsList.set([...list]);
+      this.isLoading.set(false);
+    } catch (e) {
+      this.isLoading.set(false);
+      this.hasError.set(true);
+    }
   }
 
   filteredProjects = computed(() => {
@@ -988,13 +976,6 @@ export class TrashComponent implements OnInit {
   }
 
   restoreSingle(proj: RecentProject): void {
-    this.api.restore(proj.id).subscribe({
-      next: () => this.afterRestoreSingle(proj),
-      error: () => this.afterRestoreSingle(proj)
-    });
-  }
-
-  private afterRestoreSingle(proj: RecentProject): void {
     this.stateService.restoreFromTrash(proj.id);
     this.showToast(`" ${proj.nombre} " restaurado a la biblioteca.`);
     this.refreshProjects();
@@ -1002,15 +983,6 @@ export class TrashComponent implements OnInit {
 
   restoreBatch(): void {
     const ids = Array.from(this.selectedIds());
-    if (ids.length === 0) return;
-
-    forkJoin(ids.map(id => this.api.restore(id))).subscribe({
-      next: () => this.afterRestoreBatch(ids),
-      error: () => this.afterRestoreBatch(ids)
-    });
-  }
-
-  private afterRestoreBatch(ids: string[]): void {
     ids.forEach(id => this.stateService.restoreFromTrash(id));
     this.selectedIds.set(new Set());
     this.showToast(`${ids.length} elementos restaurados a la biblioteca.`);
@@ -1056,39 +1028,19 @@ export class TrashComponent implements OnInit {
 
   executeModalAction(): void {
     const modal = this.confirmModal();
-    this.closeConfirmModal();
-
     if (modal.type === 'single' && modal.targetProject) {
-      const target = modal.targetProject;
-      this.api.deletePermanently(target.id).subscribe({
-        next: () => this.afterPermanentDelete([target.id], `"${target.nombre}" eliminado definitivamente.`),
-        error: () => this.afterPermanentDelete([target.id], `"${target.nombre}" eliminado definitivamente.`)
-      });
+      this.stateService.deletePermanently(modal.targetProject.id);
+      this.showToast(`"${modal.targetProject.nombre}" eliminado definitivamente.`);
     } else if (modal.type === 'batch') {
       const ids = Array.from(this.selectedIds());
-      if (ids.length === 0) return;
-      forkJoin(ids.map(id => this.api.deletePermanently(id))).subscribe({
-        next: () => this.afterPermanentDelete(ids, `${ids.length} elementos eliminados definitivamente.`),
-        error: () => this.afterPermanentDelete(ids, `${ids.length} elementos eliminados definitivamente.`)
-      });
+      ids.forEach(id => this.stateService.deletePermanently(id));
+      this.selectedIds.set(new Set());
+      this.showToast(`${ids.length} elementos eliminados definitivamente.`);
     } else if (modal.type === 'empty') {
-      this.api.emptyTrash().subscribe({
-        next: () => this.afterEmptyTrash(),
-        error: () => this.afterEmptyTrash()
-      });
+      this.stateService.emptyTrash();
+      this.showToast('La papelera ha sido vaciada completamente.');
     }
-  }
-
-  private afterPermanentDelete(ids: string[], message: string): void {
-    ids.forEach(id => this.stateService.deletePermanently(id));
-    this.selectedIds.set(new Set());
-    this.showToast(message);
-    this.refreshProjects();
-  }
-
-  private afterEmptyTrash(): void {
-    this.stateService.emptyTrash();
-    this.showToast('La papelera ha sido vaciada completamente.');
+    this.closeConfirmModal();
     this.refreshProjects();
   }
 

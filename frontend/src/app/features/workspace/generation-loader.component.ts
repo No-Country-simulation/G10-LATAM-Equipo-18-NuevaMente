@@ -103,16 +103,7 @@ export interface GenerationParams {
 
             <!-- Central NuevaMente Brand Core Isotype -->
             <div class="brand-core-nucleus">
-              <svg class="brand-core-isotype" viewBox="0 0 40 40" fill="none">
-                <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="url(#loader-grad-1)"/>
-                <path d="M4 12V24L20 32V20L4 12Z" fill="url(#loader-grad-2)"/>
-                <path d="M36 12V24L20 32V20L36 12Z" fill="url(#loader-grad-3)"/>
-                <defs>
-                  <linearGradient id="loader-grad-1" x1="4" y1="4" x2="36" y2="20"><stop stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
-                  <linearGradient id="loader-grad-2" x1="4" y1="12" x2="20" y2="32"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
-                  <linearGradient id="loader-grad-3" x1="36" y1="12" x2="20" y2="32"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#4F46E5"/></linearGradient>
-                </defs>
-              </svg>
+              <img src="assets/branding/isotype.png" alt="NuevaMente Core" class="brand-core-img" />
             </div>
           </div>
         </div>
@@ -190,7 +181,7 @@ export interface GenerationParams {
         *ngIf="isDetailsOpen()"
       >
         <div class="details-divider">
-          <span>Detalles Técnicos del Pipeline ({{ currentStages().length }} Etapas)</span>
+          <span>Detalles Técnicos del Pipeline (7 Etapas)</span>
         </div>
 
         <div class="stepper-grid">
@@ -370,9 +361,11 @@ export interface GenerationParams {
       50% { transform: scale(1.04); box-shadow: 0 0 28px rgba(34, 211, 238, 0.4); }
     }
 
-    .brand-core-isotype {
-      width: 32px;
-      height: 32px;
+    .brand-core-img {
+      width: 36px;
+      height: 36px;
+      object-fit: contain;
+      filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.6));
     }
 
     /* RINGS & PARTICLES (60FPS GPU ROTATIONS) */

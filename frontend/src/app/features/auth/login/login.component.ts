@@ -75,13 +75,13 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
               <g class="svg-node doc-node">
                 <rect x="20" y="35" width="70" height="70" rx="10" fill="rgba(255,255,255,0.08)" stroke="#6366F1" stroke-width="2"/>
                 <path d="M35 50h40M35 65h30M35 80h20" stroke="#E0E7FF" stroke-width="2" stroke-linecap="round"/>
-                <text x="55" y="122" text-anchor="middle" fill="#94A3B8" font-size="11" font-weight="600">Documento</text>
+                <text x="55" y="122" text-anchor="middle" fill="#FFFFFF" font-size="12" font-weight="700">Documento</text>
               </g>
               <path d="M95 70 H145" stroke="url(#flow1)" stroke-width="2" stroke-dasharray="4 4" class="animated-path"/>
               <g class="svg-node chunk-node">
                 <rect x="150" y="45" width="50" height="50" rx="8" fill="rgba(34, 211, 238, 0.1)" stroke="#22D3EE" stroke-width="2"/>
                 <circle cx="175" cy="70" r="10" stroke="#22D3EE" stroke-width="2"/>
-                <text x="175" y="122" text-anchor="middle" fill="#94A3B8" font-size="11" font-weight="600">Chunking</text>
+                <text x="175" y="122" text-anchor="middle" fill="#FFFFFF" font-size="12" font-weight="700">Chunking</text>
               </g>
               <path d="M205 70 H255" stroke="url(#flow2)" stroke-width="2" stroke-dasharray="4 4" class="animated-path"/>
               <g class="svg-node vector-node">
@@ -89,7 +89,7 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
                 <circle cx="280" cy="65" r="4" fill="#22D3EE"/>
                 <circle cx="298" cy="62" r="3" fill="#EC4899"/>
                 <circle cx="290" cy="82" r="4" fill="#10B981"/>
-                <text x="290" y="122" text-anchor="middle" fill="#94A3B8" font-size="11" font-weight="600">Vector Store</text>
+                <text x="290" y="122" text-anchor="middle" fill="#FFFFFF" font-size="12" font-weight="700">Vector Store</text>
               </g>
               <path d="M325 70 H375" stroke="url(#flow3)" stroke-width="2" stroke-dasharray="4 4" class="animated-path"/>
               <g class="svg-node card-node">
@@ -97,7 +97,7 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
                 <rect x="390" y="45" width="30" height="20" rx="4" fill="#EC4899"/>
                 <rect x="425" y="45" width="25" height="20" rx="4" fill="#8B5CF6"/>
                 <rect x="390" y="72" width="60" height="22" rx="4" fill="#3B82F6"/>
-                <text x="420" y="122" text-anchor="middle" fill="#94A3B8" font-size="11" font-weight="600">Tarjetas IA</text>
+                <text x="420" y="122" text-anchor="middle" fill="#FFFFFF" font-size="12" font-weight="700">Tarjetas IA</text>
               </g>
               <defs>
                 <linearGradient id="flow1" x1="0" y1="0" x2="1" y2="0"><stop offset="0%" stop-color="#6366F1"/><stop offset="100%" stop-color="#22D3EE"/></linearGradient>
@@ -131,25 +131,12 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
             <button class="tab-btn" [class.active]="mode() === 'magic_link'" (click)="setMode('magic_link')">Magic Link</button>
           </div>
 
-          <!-- DEMO USER PICKER (Shown ONLY if enableDemoLogin === true) -->
-          <div class="demo-banner" *ngIf="showDemoLoginBanner">
-            <div class="demo-badge">DEMO · SELECCIONA UN USUARIO</div>
+          <!-- DEMO QUICK-LOGIN BANNER (Shown ONLY if enableDemoLogin === true) -->
+          <div class="demo-banner" *ngIf="showDemoLoginBanner" (click)="fillDemoCredentials()">
+            <div class="demo-badge">DEMO QUICK-LOGIN</div>
             <div class="demo-info">
-              <span class="demo-click-hint">⚡ Un clic autocompleta e inicia sesión</span>
-            </div>
-            <div class="demo-users">
-              <button
-                type="button"
-                class="demo-user-btn"
-                *ngFor="let u of demoUsers"
-                (click)="fillDemoCredentials(u)"
-              >
-                <span class="demo-user-avatar">{{ u.name.charAt(0) }}</span>
-                <span class="demo-user-text">
-                  <strong>{{ u.name }}</strong>
-                  <small>{{ u.role }}</small>
-                </span>
-              </button>
+              <span><code>ana.martinez&#64;empresa.com</code> / <code>Password123!</code></span>
+              <span class="demo-click-hint">⚡ Clic para autocompletar</span>
             </div>
           </div>
 
@@ -354,7 +341,7 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     .brand-panel {
       flex: 1;
       position: relative;
-      background: linear-gradient(135deg, #0F172A 0%, #1E1B4B 50%, #090D16 100%);
+      background: linear-gradient(135deg, #0B1120 0%, #151D3B 50%, #090D16 100%);
       padding: 4rem 3rem;
       display: flex;
       flex-direction: column;
@@ -365,8 +352,8 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     .aurora-mesh {
       position: absolute;
       top: -20%; left: -20%; width: 140%; height: 140%;
-      background: radial-gradient(circle at 30% 30%, rgba(79, 70, 229, 0.25), transparent 50%),
-                  radial-gradient(circle at 70% 70%, rgba(34, 211, 238, 0.2), transparent 50%);
+      background: radial-gradient(circle at 30% 30%, rgba(99, 102, 241, 0.28), transparent 50%),
+                  radial-gradient(circle at 70% 70%, rgba(34, 211, 238, 0.22), transparent 50%);
       filter: blur(60px);
     }
 
@@ -376,25 +363,65 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
       pointer-events: none;
     }
 
-    .brand-content { position: relative; z-index: 10; max-width: 520px; margin: 0 auto; }
-    .brand-logo { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 2.5rem; }
-    .logo-icon { width: 44px; height: 44px; }
-    .logo-icon-img { width: 44px; height: 44px; object-fit: contain; }
-    .logo-text { font-size: 1.85rem; font-weight: 800; font-family: var(--font-heading); color: #FFFFFF; }
-    .logo-m { color: #6366F1; }
-    .logo-ente { color: #FFFFFF; }
+    .brand-content { position: relative; z-index: 10; max-width: 540px; margin: 0 auto; }
+    .brand-logo { display: flex; align-items: center; gap: 0.95rem; margin-bottom: 2.25rem; }
+    .logo-icon-img { width: 50px; height: 50px; object-fit: contain; filter: drop-shadow(0 4px 16px rgba(99, 102, 241, 0.5)); }
+    .logo-text { font-size: 2.2rem; font-weight: 800; font-family: var(--font-heading); color: #FFFFFF; letter-spacing: -0.02em; display: inline-flex; align-items: center; }
+    .logo-m { color: #A855F7; }
+    .logo-ente { color: #38BDF8; }
     
-    .text-block h1 { font-size: 2.4rem; font-weight: 800; line-height: 1.25; margin-bottom: 1rem; }
-    .subtitle { font-size: 1.05rem; color: #94A3B8; line-height: 1.65; margin-bottom: 2rem; }
+    .text-block h1, .accessible-title {
+      font-size: 2.6rem;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 1.15rem;
+      color: #FFFFFF !important;
+      letter-spacing: -0.02em;
+      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+    }
+    .subtitle {
+      font-size: 1.12rem;
+      color: #F1F5F9 !important;
+      line-height: 1.7;
+      margin-bottom: 2.25rem;
+      font-weight: 400;
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+    }
 
-    .floating-chips { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
-    .chip-item { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; border-radius: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); font-size: 0.82rem; color: #E2E8F0; font-weight: 600; }
+    .floating-chips { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 2.5rem; }
+    .chip-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.6rem 1.1rem;
+      border-radius: 24px;
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid rgba(129, 140, 248, 0.5);
+      font-size: 0.88rem;
+      color: #FFFFFF !important;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+    }
+    .chip-item svg {
+      color: #38BDF8;
+      filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+    }
 
-    .pipeline-svg-container { position: relative; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 2.5rem; }
-    .btn-pause-anim { position: absolute; top: 12px; right: 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #FFF; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
+    .pipeline-svg-container {
+      position: relative;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin-bottom: 2.5rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+    .btn-pause-anim { position: absolute; top: 12px; right: 12px; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.25); color: #FFF; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
     .pipeline-svg { width: 100%; height: auto; display: block; }
     
-    .brand-footer { font-size: 0.8rem; color: #64748B; }
+    .brand-footer { font-size: 0.85rem; color: #94A3B8; font-weight: 500; }
+    .oracle-tag { color: #CBD5E1; }
 
     /* RIGHT FORM PANEL */
     .form-panel { flex: 1; position: relative; padding: 3rem; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #090D16; }
@@ -409,17 +436,11 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     .tab-btn { flex: 1; padding: 0.6rem; border: none; background: transparent; color: #94A3B8; font-size: 0.85rem; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all 0.2s; }
     .tab-btn.active { background: #4F46E5; color: #FFFFFF; }
 
-    .demo-banner { background: rgba(34, 211, 238, 0.1); border: 1px dashed rgba(34, 211, 238, 0.4); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; }
+    .demo-banner { background: rgba(34, 211, 238, 0.1); border: 1px dashed rgba(34, 211, 238, 0.4); border-radius: 12px; padding: 0.85rem 1rem; margin-bottom: 1.25rem; cursor: pointer; transition: background 0.2s; }
+    .demo-banner:hover { background: rgba(34, 211, 238, 0.18); }
     .demo-badge { font-size: 0.7rem; font-weight: 800; color: #22D3EE; letter-spacing: 0.08em; margin-bottom: 0.25rem; }
-    .demo-info { display: flex; justify-content: flex-end; align-items: center; font-size: 0.82rem; color: #E2E8F0; }
+    .demo-info { display: flex; justify-content: space-between; align-items: center; font-size: 0.82rem; color: #E2E8F0; }
     .demo-click-hint { font-size: 0.75rem; color: #67E8F9; font-weight: 600; }
-    .demo-users { display: flex; flex-direction: column; gap: 0.4rem; margin-top: 0.6rem; }
-    .demo-user-btn { display: flex; align-items: center; gap: 0.6rem; width: 100%; padding: 0.5rem 0.65rem; border-radius: 10px; border: 1px solid rgba(34, 211, 238, 0.35); background: rgba(255, 255, 255, 0.04); color: #E2E8F0; cursor: pointer; text-align: left; transition: background 0.2s, border-color 0.2s; }
-    .demo-user-btn:hover { background: rgba(34, 211, 238, 0.16); border-color: #22D3EE; }
-    .demo-user-avatar { width: 28px; height: 28px; border-radius: 50%; background: #4F46E5; color: #FFF; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem; flex-shrink: 0; }
-    .demo-user-text { display: flex; flex-direction: column; line-height: 1.15; }
-    .demo-user-text strong { font-size: 0.82rem; }
-    .demo-user-text small { font-size: 0.72rem; color: #94A3B8; }
 
     .alert-banner { padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-bottom: 1.25rem; }
     .error-banner { background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.4); color: #FCA5A5; }
@@ -485,13 +506,6 @@ export class LoginComponent implements OnInit {
 
   showDemoLoginBanner = environment.enableDemoLogin;
   enableSocialLogin = environment.enableSocialLogin ?? false;
-
-  /** Demo accounts seeded in the backend; one click fills and logs in. */
-  readonly demoUsers = [
-    { name: 'Ana Martínez', email: 'ana.martinez@empresa.com', role: 'Instructor' },
-    { name: 'Diego Fuentes', email: 'diego.fuentes@empresa.com', role: 'Líder Técnico' },
-    { name: 'Laura Gómez', email: 'laura.gomez@empresa.com', role: 'Gestora' }
-  ];
 
   mode = signal<AuthMode>('login');
   showPassword = signal<boolean>(false);
@@ -559,14 +573,11 @@ export class LoginComponent implements OnInit {
     this.isAnimationPaused.update(v => !v);
   }
 
-  fillDemoCredentials(user: { email: string }): void {
-    this.mode.set('login');
-    this.authStore.error.set(null);
+  fillDemoCredentials(): void {
     this.loginForm.patchValue({
-      email: user.email,
+      email: 'ana.martinez@empresa.com',
       password: 'Password123!'
     });
-    this.onLoginSubmit();
   }
 
   evaluatePasswordStrength(): void {

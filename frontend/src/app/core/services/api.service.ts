@@ -1,7 +1,6 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable } from 'rxjs';
-import { environment } from '../../../environments/environment';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
 
 @Injectable({
@@ -9,17 +8,19 @@ import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.mode
 })
 export class ApiService {
   private get baseUrl(): string {
-    const configured = environment.apiUrl ? environment.apiUrl.replace(/\/+$/, '') : '';
-    if (configured) {
-      return configured;
+    if (typeof window !== 'undefined' && window.location) {
+      if (window.location.port === '4200') {
+        return 'http://localhost:8000/api/v1';
+      }
+      return '/api/v1';
     }
-    return '/api/v1';
+    return 'http://localhost:8000/api/v1';
   }
 
   constructor(private http: HttpClient) {}
 
   private getHeaders(): HttpHeaders {
-    const token = sessionStorage.getItem('nuevamente_jwt_token');
+    const token = localStorage.getItem('nuevamente_jwt_token');
     if (token) {
       return new HttpHeaders({
         'Content-Type': 'application/json',
@@ -38,7 +39,7 @@ export class ApiService {
   parseDocument(file: File, useLlm: boolean = false): Observable<{ status: string; filename: string; titulo_sugerido?: string; engine?: string; texto_extraido: string; total_chunks?: number; almacenamiento_oci?: any }> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = sessionStorage.getItem('nuevamente_jwt_token');
+    const token = localStorage.getItem('nuevamente_jwt_token');
     const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
     const url = useLlm ? `${this.baseUrl}/parse-document?use_llm=true` : `${this.baseUrl}/parse-document`;
     return this.http.post<{ status: string; filename: string; titulo_sugerido?: string; engine?: string; texto_extraido: string; total_chunks?: number; almacenamiento_oci?: any }>(url, formData, { headers });
@@ -47,7 +48,7 @@ export class ApiService {
   parsePdf(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = sessionStorage.getItem('nuevamente_jwt_token');
+    const token = localStorage.getItem('nuevamente_jwt_token');
     const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
     const url = useLlm ? `${this.baseUrl}/parse-pdf?use_llm=true` : `${this.baseUrl}/parse-pdf`;
     return this.http.post<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>(url, formData, { headers });
@@ -56,7 +57,7 @@ export class ApiService {
   parsePdfLlm(file: File): Observable<{ status: string; engine: string; texto_extraido: string; total_paginas: number; metadatos_ia: any }> {
     const formData = new FormData();
     formData.append('file', file);
-    const token = sessionStorage.getItem('nuevamente_jwt_token');
+    const token = localStorage.getItem('nuevamente_jwt_token');
     const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
     return this.http.post<{ status: string; engine: string; texto_extraido: string; total_paginas: number; metadatos_ia: any }>(`${this.baseUrl}/parse-pdf-llm`, formData, { headers });
   }
