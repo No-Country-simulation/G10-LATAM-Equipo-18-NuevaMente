@@ -123,7 +123,8 @@ Este documento detalla la combinación de Embeddings Densos (Gemini 001) y Búsq
     let ociMeta: any = null;
 
     try {
-      const parsed = await firstValueFrom(this.api.parseDocument(file));
+      const parseFn = this.api.parseDocument ? this.api.parseDocument.bind(this.api) : this.api.parsePdf.bind(this.api);
+      const parsed: any = await firstValueFrom(parseFn(file));
       if (parsed && parsed.texto_extraido) {
         content = parsed.texto_extraido;
       }

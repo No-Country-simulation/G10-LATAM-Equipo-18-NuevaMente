@@ -46,14 +46,14 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       );
   }
 
-  parsePdf(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }> {
+  parsePdf(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }> {
     const formData = new FormData();
     formData.append('file', file);
     const token = localStorage.getItem('nuevamente_jwt_token');
     const headers = token ? new HttpHeaders({ 'Authorization': `Bearer ${token}` }) : undefined;
     const url = useLlm ? `${this.baseUrl}/parse-pdf?use_llm=true` : `${this.baseUrl}/parse-pdf`;
     
-    return this.http.post<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>(url, formData, { headers })
+    return this.http.post<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }>(url, formData, { headers })
       .pipe(
         catchError(err => {
           console.error('[HttpNuevaMenteApi] Error en parsePdf:', err);
@@ -64,6 +64,10 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
           return throwError(() => err);
         })
       );
+  }
+
+  parseDocument(file: File, useLlm: boolean = false): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }> {
+    return this.parsePdf(file, useLlm);
   }
 
   checkHealth(): Observable<{ status: string; service: string }> {

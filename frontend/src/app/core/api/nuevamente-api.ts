@@ -5,7 +5,8 @@ import { RecentProject } from '../services/state.service';
 
 export interface NuevaMenteApi {
   adaptContent(request: AdaptationRequest): Observable<AdaptationResponse>;
-  parsePdf(file: File, useLlm?: boolean): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>;
+  parsePdf(file: File, useLlm?: boolean): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }>;
+  parseDocument?(file: File, useLlm?: boolean): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number; almacenamiento_oci?: any }>;
   checkHealth(): Observable<{ status: string; service: string }>;
   login(email: string, password: string): Observable<{ token: string; user: { name: string; email: string } }>;
   exportAnkiDeck(deckName: string, flashcards: any[]): Observable<Blob>;
