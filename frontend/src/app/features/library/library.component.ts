@@ -1,5 +1,6 @@
 import { Component, signal, computed, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { StateService, RecentProject } from '../../core/services/state.service';
 import { ExportService } from '../../core/services/export.service';
 import { AdaptationResponse, AdaptationRequest } from '../../core/models/adaptation.model';
@@ -150,6 +151,16 @@ interface ToastState {
                 </span>
               </td>
               <td class="td-actions">
+                <button 
+                  class="btn-action-workspace" 
+                  (click)="openInWorkspace(proj)" 
+                  title="Abrir y visualizar en Workspace"
+                  [attr.aria-label]="'Abrir en Workspace ' + proj.nombre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+                  Abrir
+                </button>
+
                 <button 
                   class="btn-action-primary" 
                   (click)="viewPdf(proj)" 
@@ -455,6 +466,32 @@ interface ToastState {
       gap: 0.5rem;
     }
 
+    .btn-action-workspace {
+      background: rgba(99, 102, 241, 0.12);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      color: #6366F1;
+      padding: 0.45rem 0.8rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s;
+    }
+    .btn-action-workspace:hover {
+      background: #4F46E5;
+      color: #ffffff;
+      border-color: #4F46E5;
+      transform: translateY(-1px);
+    }
+    :host-context(.dark) .btn-action-workspace {
+      background: rgba(99, 102, 241, 0.22);
+      color: #818CF8;
+      border-color: rgba(99, 102, 241, 0.5);
+    }
+
     .btn-action-primary {
       background: #4F46E5;
       color: #ffffff;
@@ -529,6 +566,7 @@ export class LibraryComponent implements OnInit {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private stateService = inject(StateService);
   private exportService = inject(ExportService);
+  private router = inject(Router);
 
   searchTerm = signal<string>('');
   selectedPerfil = signal<string>('');
@@ -665,6 +703,11 @@ export class LibraryComponent implements OnInit {
   updateFormato(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
     this.selectedFormato.set(val);
+  }
+
+  openInWorkspace(proj: RecentProject): void {
+    this.stateService.loadProjectIntoWorkspace(proj);
+    this.router.navigate(['/workspace']);
   }
 
   viewPdf(proj: RecentProject): void {

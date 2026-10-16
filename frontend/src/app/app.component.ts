@@ -42,6 +42,7 @@ import { DocumentService } from './core/services/document.service';
           >
             <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Workspace</span>
+            <span class="nav-active-pill" *ngIf="hasActiveAdaptation() && !isSidebarCollapsed()" title="Contenido generado disponible">Activo</span>
           </a>
 
           <a 
@@ -177,6 +178,18 @@ import { DocumentService } from './core/services/document.service';
       border-radius: 10px;
     }
 
+    .nav-active-pill {
+      margin-left: auto;
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      color: #10B981;
+      font-size: 0.68rem;
+      font-weight: 800;
+      padding: 0.15rem 0.45rem;
+      border-radius: 8px;
+      letter-spacing: 0.02em;
+    }
+
     .sidebar-footer { border-top: 1px solid var(--border-subtle); padding-top: 1rem; display: flex; flex-direction: column; gap: 0.5rem; }
 
     .user-badge-row { display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; }
@@ -234,6 +247,10 @@ export class AppComponent implements OnInit {
 
   getTrashCount(): number {
     return this.stateService.getTrashProjects().length;
+  }
+
+  hasActiveAdaptation(): boolean {
+    return this.stateService.hasActiveAdaptation();
   }
 
   isAuthRoute(): boolean {

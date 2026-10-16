@@ -39,8 +39,16 @@ describe('WorkspaceComponent', () => {
     parsePdf: () => of({ texto_extraido: 'Contenido extraido' })
   };
 
+  let isViewingSignal = false;
   const mockStateService = {
-    addProjectFromResponse: jasmine.createSpy('addProjectFromResponse')
+    addProjectFromResponse: jasmine.createSpy('addProjectFromResponse'),
+    activeAdaptationResponse: jasmine.createSpy('activeAdaptationResponse').and.returnValue(null),
+    activeAdaptationRequest: jasmine.createSpy('activeAdaptationRequest').and.returnValue(null),
+    isViewingActiveResult: jasmine.createSpy('isViewingActiveResult').and.callFake(() => isViewingSignal),
+    hasActiveAdaptation: jasmine.createSpy('hasActiveAdaptation').and.returnValue(false),
+    setActiveAdaptation: jasmine.createSpy('setActiveAdaptation').and.callFake((req: any, resp: any, view: any) => { isViewingSignal = view ?? true; }),
+    setIsViewingActiveResult: jasmine.createSpy('setIsViewingActiveResult').and.callFake((view: boolean) => { isViewingSignal = view; }),
+    clearActiveAdaptation: jasmine.createSpy('clearActiveAdaptation').and.callFake(() => { isViewingSignal = false; })
   };
 
   const mockExportService = {
@@ -54,6 +62,7 @@ describe('WorkspaceComponent', () => {
   };
 
   beforeEach(async () => {
+    isViewingSignal = false;
     await TestBed.configureTestingModule({
       imports: [WorkspaceComponent, ReactiveFormsModule],
       providers: [
@@ -98,7 +107,7 @@ describe('WorkspaceComponent', () => {
     component.currentResponse.set({} as any);
     component.resetForm();
 
-    expect(component.currentResponse()).toBeNull();
+    expect(component.isViewingResult()).toBeFalse();
     expect(component.isPipelineRunning()).toBeFalse();
   });
 });

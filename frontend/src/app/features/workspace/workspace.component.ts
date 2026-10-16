@@ -45,7 +45,7 @@ import { AppDocument } from '../../core/models/document.model';
   template: `
     <div class="workspace-layout">
       <!-- HERO & PRESETS (Only visible when no result is currently shown) -->
-      <div class="workspace-header" *ngIf="!currentResponse() && !isPipelineRunning()">
+      <div class="workspace-header" *ngIf="!isViewingResult() && !isPipelineRunning()">
         <div>
           <span class="value-prop-tag">✨ PROCESAMIENTO RAG DE ALTA FIDELIDAD</span>
           <h2>Workspace de Adaptación Educativa</h2>
@@ -61,8 +61,33 @@ import { AppDocument } from '../../core/models/document.model';
         </div>
       </div>
 
+      <!-- ACTIVE ADAPTATION QUICK RESTORE BANNER (When form is displayed but there is a saved adaptation) -->
+      <div class="active-adaptation-banner glass-card" *ngIf="!isViewingResult() && !isPipelineRunning() && hasActiveAdaptation()">
+        <div class="banner-left-content">
+          <div class="banner-status-tag">
+            <span class="pulse-indicator-dot"></span>
+            <span>TIENES UNA ADAPTACIÓN GENERADA</span>
+          </div>
+          <h4 class="banner-title">{{ activeAdaptationTitle() }}</h4>
+          <p class="banner-meta">
+            Formato: <strong>{{ activeAdaptationFormat() }}</strong> ({{ activeAdaptationItemsCount() }} items) · 
+            Perfil: <strong>{{ currentResponse()?.metadatos?.perfil_aplicado }}</strong> · 
+            Sector: <strong>{{ currentResponse()?.metadatos?.nicho_sector }}</strong>
+          </p>
+        </div>
+        <div class="banner-actions-group">
+          <button type="button" class="btn-return-viewer" (click)="returnToActiveResult()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            <span>Volver al contenido generado</span>
+          </button>
+          <button type="button" class="btn-discard-active" (click)="discardActiveAdaptation()" title="Descartar esta adaptación">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          </button>
+        </div>
+      </div>
+
       <!-- ZONE 1: INPUT FORM PANEL -->
-      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !currentResponse()">
+      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !isViewingResult()">
         <form [formGroup]="adaptForm" (ngSubmit)="runPipeline()">
           <!-- Document Title -->
           <div class="form-group">
@@ -360,11 +385,11 @@ import { AppDocument } from '../../core/models/document.model';
       ></app-generation-loader>
 
       <!-- ZONE 3: RESULT VIEWER -->
-      <div class="result-viewer-container" *ngIf="currentResponse() && !isPipelineRunning()">
+      <div class="result-viewer-container" *ngIf="isViewingResult() && !isPipelineRunning()">
         <!-- STICKY ACTION BAR -->
         <div class="sticky-action-bar glass-card">
           <div class="bar-left">
-            <button type="button" class="btn-back" (click)="resetForm()">
+            <button type="button" class="btn-back" (click)="onNewAdaptationClick()">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/></svg>
               <span>Nueva adaptación</span>
             </button>
@@ -678,6 +703,109 @@ import { AppDocument } from '../../core/models/document.model';
     .btn-cta-generate { padding: 0.85rem 1.75rem; border-radius: 12px; background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%); border: none; color: #FFFFFF; font-size: 1rem; font-weight: 800; cursor: pointer; box-shadow: 0 4px 15px rgba(79, 70, 229, 0.3); }
     .btn-cta-generate:disabled { opacity: 0.5; cursor: not-allowed; }
 
+    /* ACTIVE ADAPTATION QUICK RESTORE BANNER */
+    .active-adaptation-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 1.15rem 1.5rem;
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%);
+      border: 1.5px solid rgba(99, 102, 241, 0.35);
+      box-shadow: 0 4px 20px rgba(99, 102, 241, 0.08);
+      animation: fadeIn 0.3s ease-in-out;
+    }
+    :host-context(.dark) .active-adaptation-banner {
+      background: linear-gradient(135deg, rgba(99, 102, 241, 0.15) 0%, rgba(16, 185, 129, 0.12) 100%);
+      border-color: rgba(99, 102, 241, 0.45);
+    }
+    .banner-left-content {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3rem;
+    }
+    .banner-status-tag {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #10B981;
+      letter-spacing: 0.04em;
+    }
+    .pulse-indicator-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10B981;
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulseGreen 2s infinite;
+    }
+    @keyframes pulseGreen {
+      0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
+      100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+    .banner-title {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin: 0;
+      line-height: 1.3;
+    }
+    .banner-meta {
+      font-size: 0.82rem;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+    .banner-meta strong {
+      color: var(--text-primary);
+    }
+    .banner-actions-group {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      flex-shrink: 0;
+    }
+    .btn-return-viewer {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: linear-gradient(135deg, #4F46E5 0%, #7C3AED 100%);
+      color: #FFFFFF;
+      border: none;
+      padding: 0.65rem 1.15rem;
+      border-radius: 12px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.3);
+      transition: all 0.2s;
+    }
+    .btn-return-viewer:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 4px 15px rgba(79, 70, 229, 0.45);
+    }
+    .btn-discard-active {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 10px;
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-discard-active:hover {
+      background: rgba(239, 68, 68, 0.1);
+      border-color: #EF4444;
+      color: #EF4444;
+    }
+
     /* RESULT VIEWER STICKY ACTION BAR & WARNING BANNER */
     .result-viewer-container { display: flex; flex-direction: column; gap: 1.5rem; }
 
@@ -807,12 +935,51 @@ export class WorkspaceComponent implements OnInit {
 
   readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
 
+  isViewingResult = computed(() => {
+    return !!this.currentResponse() && this.stateService.isViewingActiveResult();
+  });
+
+  hasActiveAdaptation = computed(() => {
+    return !!this.currentResponse();
+  });
+
+  activeAdaptationTitle = computed(() => {
+    return this.currentResponse()?.contenido_adaptado?.titulo || this.adaptForm.value.documento_titulo || 'Adaptación Educativa';
+  });
+
+  activeAdaptationFormat = computed(() => {
+    return this.currentResponse()?.metadatos?.formato_generado || this.adaptForm.value.formato_salida || 'Educativo';
+  });
+
+  activeAdaptationItemsCount = computed(() => {
+    return this.getTypedItems().length;
+  });
+
   ngOnInit(): void {
-    // Check if document was pre-selected from DocumentService
+    // 1. Restore active generated adaptation from StateService if one exists
+    const savedResponse = this.stateService.activeAdaptationResponse();
+    if (savedResponse) {
+      this.currentResponse.set(savedResponse);
+      const savedRequest = this.stateService.activeAdaptationRequest();
+      if (savedRequest) {
+        this.adaptForm.patchValue({
+          documento_titulo: savedRequest.documento_titulo,
+          documento_contenido: savedRequest.documento_contenido,
+          perfil_destinatario: savedRequest.perfil_destinatario,
+          formato_salida: savedRequest.formato_salida,
+          nicho_sector: savedRequest.nicho_sector,
+          nivel_detalle: savedRequest.nivel_detalle,
+          nivel_cantidad: savedRequest.nivel_cantidad,
+          cantidad_objetivo: savedRequest.cantidad_objetivo
+        });
+      }
+    }
+
+    // 2. Check if document was pre-selected from DocumentService
     const preselected = this.documentService.selectedWorkspaceDocument();
     if (preselected) {
       this.selectDocFromPicker(preselected);
-    } else {
+    } else if (!savedResponse) {
       const activeDocs = this.documentService.activeDocuments();
       if (activeDocs.length > 0) {
         this.selectDocFromPicker(activeDocs[0]);
@@ -1081,6 +1248,7 @@ export class WorkspaceComponent implements OnInit {
       next: (resp) => {
         this.currentResponse.set(resp);
         this.stateService.addProjectFromResponse(req, resp);
+        this.stateService.setActiveAdaptation(req, resp, true);
         this.isPipelineRunning.set(false);
       },
       error: (err) => {
@@ -1109,8 +1277,21 @@ export class WorkspaceComponent implements OnInit {
     };
   }
 
-  resetForm(): void {
+  onNewAdaptationClick(): void {
+    this.stateService.setIsViewingActiveResult(false);
+  }
+
+  returnToActiveResult(): void {
+    this.stateService.setIsViewingActiveResult(true);
+  }
+
+  discardActiveAdaptation(): void {
+    this.stateService.clearActiveAdaptation();
     this.currentResponse.set(null);
+  }
+
+  resetForm(): void {
+    this.stateService.setIsViewingActiveResult(false);
     this.pipelineErrorMessage.set(null);
     this.isPipelineRunning.set(false);
     this.feedbackSubmitted.set(false);
@@ -1151,12 +1332,12 @@ export class WorkspaceComponent implements OnInit {
 
   quickPrefillFormat(fmt: string): void {
     this.selectFormato(fmt);
-    this.resetForm();
+    this.stateService.setIsViewingActiveResult(false);
   }
 
   quickPrefillProfile(prof: string): void {
     this.selectPerfil(prof);
-    this.resetForm();
+    this.stateService.setIsViewingActiveResult(false);
   }
 
   submitFeedback(vote: 'up' | 'down'): void {
