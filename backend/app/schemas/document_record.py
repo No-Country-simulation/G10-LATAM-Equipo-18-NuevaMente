@@ -35,5 +35,6 @@ class DocumentRecord(BaseModel):
     total_parents: Optional[int] = None
     total_children: Optional[int] = None
     error_message: Optional[str] = None
+    storage_backend: Optional[str] = None
     created_at: Optional[str] = None
     updated_at: Optional[str] = None

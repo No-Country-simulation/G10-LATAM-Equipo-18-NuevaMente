@@ -20,7 +20,6 @@ from app.core.config import settings
 from app.services.storage import get_storage_backend, reset_storage_backend
 from app.services.storage.oci_backend import OciStorageBackend
 from app.services.storage.local_backend import LocalStorageBackend
-from app.services.oci_storage_service import OCIStorageService
 
 
 @pytest.fixture(autouse=True)
@@ -134,23 +133,27 @@ def test_oci_self_check_detects_degraded_when_bucket_public():
 
 
 def test_status_upload_never_completed_when_put_fails():
-    """Si el backend de OCI lanza error, upload_json_artifact nunca devuelve status_upload='completado'."""
-    mock_backend = MagicMock()
-    mock_backend.put_object.side_effect = Exception("OCI 500 Internal Error")
-    mock_backend.is_connected = True
-    mock_backend.namespace = "test_ns"
+    """Si OCI rechaza la subida, put_object nunca reporta status_upload exitoso.
 
-    with patch("app.services.oci_storage_service.get_storage_backend", return_value=mock_backend), \
-         patch.object(settings, "APP_ENV", "development"):
-        
-        service = OCIStorageService()
-        result = service.upload_json_artifact(
-            bucket_name="nuevamente-contenidos-educativos",
-            object_name="contenido_test.json",
-            json_data={"data": "test"},
-            user_id="user_123",
-        )
+    En producción (sin fallback local permitido) la subida fallida lanza
+    RuntimeError en lugar de devolver 'completado'. En desarrollo el backend
+    hace fallback explícito a disco local, nunca una subida OCI falsa.
+    """
+    backend = OciStorageBackend.__new__(OciStorageBackend)
+    backend.is_connected = True
+    backend._client = MagicMock()
+    backend._client.put_object.side_effect = Exception("OCI 500 Internal Error")
+    backend._namespace = "test_ns"
 
-        assert result["status_upload"] == "error"
-        assert "completado" != result["status_upload"]
-        assert "OCI 500" in result["error"]
+    with patch.object(settings, "APP_ENV", "production"), \
+         patch.object(settings, "ALLOW_LOCAL_STORAGE", False), \
+         patch.object(backend, "head_object", return_value=None):
+
+        with pytest.raises(RuntimeError) as exc_info:
+            backend.put_object(
+                bucket_name="nuevamente-contenidos-educativos",
+                object_name="contenido_test.json",
+                data=b'{"data": "test"}',
+            )
+
+        assert "OCI 500" in str(exc_info.value)

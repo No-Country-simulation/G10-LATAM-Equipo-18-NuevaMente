@@ -1,13 +1,29 @@
-You are an AI fact-checking and educational quality auditor.
-Evaluate generated educational content against source technical facts.
-
-Generated Content:
-{generated_content}
+You are an expert pedagogical critic, fact-checker, and educational auditor.
+Evaluate each generated educational item against the provided source technical facts for the profile "{recipient_profile}".
 
 Source Factual Context:
 {source_facts}
 
-Audit criteria:
-1. Grounding Score (0.0 to 1.0): Determine if any claims hallucinate beyond the source material.
-2. Pedagogical Clarity: Assess whether the tone and explanation fit the student's target level.
-3. Actionable observations: Note strengths or discrepancies found.
+Generated Items to Audit:
+{generated_items}
+
+AUDIT INSTRUCTIONS:
+1. For EACH generated item, determine if all factual claims and details are strictly supported by the source excerpts (grounding).
+2. Flag items containing hallucinations, contradictory claims, or details not grounded in the source text.
+3. Check pedagogical clarity, accuracy, and tone suitability for "{recipient_profile}".
+
+OUTPUT FORMAT:
+Return strictly a valid JSON object matching this schema:
+{{
+  "overall_grounding_score": <float between 0.0 and 1.0>,
+  "pedagogical_clarity": "<High | Medium | Low>",
+  "observations": "<concise summary of findings>",
+  "item_evaluations": [
+    {{
+      "index": <integer 0-based index of item>,
+      "is_grounded": <boolean, true if fully supported, false if hallucinated or unsupported>,
+      "clarity": "<High | Medium | Low>",
+      "issues": ["<short description of issue if any>"]
+    }}
+  ]
+}}

@@ -1,165 +1,600 @@
-from typing import Annotated, TypedDict, List
+"""
+langgraph_orchestrator.py
+
+Purpose:
+    Multi-agent graph-based orchestration for educational content adaptation
+    using LangGraph (StateGraph).
+    Formalizes the pedagogical pipeline into specialized, decoupled nodes:
+      - Planner Node: document coverage and topic structuring.
+      - Writer Node: multi-model cascading generation by topic batches.
+      - Deduplicator Node: fuzzy string duplicate detection and pruning.
+      - Grounding Verifier Node: source citation and passage verification.
+      - Critic Node: educational quality audit and factual consistency scoring.
+      - Refiner Node: conditional self-correction and item completion loop.
+      - Formatter Node: Pydantic response assembly, artifact storage, and PDF export.
+
+Output:
+    AdaptationResponse schema strictly compatible with frontend and API contracts.
+"""
+
+import json
+import logging
+import time
+from typing import Any, Dict, List, Optional, TypedDict
 from langgraph.graph import StateGraph, END
-from app.schemas.adaptation import AdaptationRequest, AdaptedContent
-from app.infrastructure.llm import GroqClient as GroqAdapter
-from loguru import logger
-from pydantic import BaseModel
 
-# 1. Definimos el Estado del Grafo
-class AgentState(TypedDict):
+from app.core.config import settings
+from app.schemas.adaptation import (
+    AdaptationRequest,
+    AdaptationResponse,
+    OCIStorageResult,
+    QualityEvaluation,
+    ResponseMetadata,
+)
+from app.services.pipeline_stages import PipelineStages
+from app.services.coverage_planner import CoveragePlan, CoveragePlanner
+from app.services.pdf_export_service import PDFExportService
+
+logger = logging.getLogger("LangGraphOrchestrator")
+
+
+class AgentState(TypedDict, total=False):
+    """Shared state dictionary representing the workflow context across graph nodes."""
+    # Inputs
     request: AdaptationRequest
-    context: str
-    draft: AdaptedContent
-    feedback: str
+    doc_title: str
+    target_language: str
+    top_passages: List[Dict[str, Any]]
+    all_parent_chunks: List[Dict[str, Any]]
+    key_concepts: List[str]
+    prerequisites: List[str]
+    document_id: Optional[str]
+    prompt_hash: str
+    tracer: Optional[Any]
+
+    # Planning
+    coverage_plan: Optional[CoveragePlan]
+    target_quantity: int
+    effective_target: int
+    capacity_warning: Optional[str]
+    topics: List[Dict[str, Any]]
+
+    # Generation & Filtering
+    raw_items: List[Dict[str, Any]]
+    dedup_items: List[Dict[str, Any]]
+    verified_items: List[Dict[str, Any]]
+
+    # Critic & Quality Audit
+    evaluation: Optional[QualityEvaluation]
+    audited_items: List[Dict[str, Any]]
+    preliminary_score: float
+
+    # Refinement / Iteration loop
     revision_count: int
-    is_approved: bool
+    max_revisions: int
 
-# Definimos el esquema de evaluación del Crítico
-class ReviewEvaluation(BaseModel):
-    is_approved: bool
-    feedback: str
+    # Graph Trajectory & Final Result
+    nodes_executed: List[str]
+    final_items: List[Dict[str, Any]]
+    final_response: Optional[AdaptationResponse]
 
-class LangGraphOrchestrator:
-    """
-    Implementación del requisito diferencial de Hackathon ONE:
-    Sistema Multi-Agente con LangGraph (Investigador, Redactor, Revisor).
-    """
+
+class LangGraphOrchestrator(PipelineStages):
+    """Orchestrates the multi-agent adaptation workflow using a compiled LangGraph StateGraph."""
+
     def __init__(self):
-        self.llm_adapter = GroqAdapter()
-        self.max_revisions = 2
+        super().__init__()
+        self.graph = self._build_graph()
 
-    def _node_researcher(self, state: AgentState) -> dict:
-        """Agente Investigador: Extrae y resume el contexto relevante (Simulado aquí si ya viene en el state)."""
-        logger.info("🕵️ [Agente Investigador] Analizando el documento original...")
-        # Aquí normalmente haríamos la llamada a FAISS/VectorStore.
-        # Asumimos que el contexto ya está en el state o lo limpiamos.
-        return {"context": state['context']}
-
-    def _node_writer(self, state: AgentState) -> dict:
-        """Agente Redactor: Genera el contenido pedagógico estructurado."""
-        logger.info(f"✍️ [Agente Redactor] Escribiendo borrador (Revisión #{state.get('revision_count', 0)})...")
-        
-        profile = state['request'].recipient_profile
-        profile_str = profile.value if hasattr(profile, 'value') else str(profile)
-        
-        fmt = state['request'].output_format
-        fmt_str = fmt.value if hasattr(fmt, 'value') else str(fmt)
-        
-        prompt = f"""
-        Eres un experto pedagogo. Adapta el siguiente contenido técnico al perfil '{profile_str}'.
-        Formato requerido: '{fmt_str}'
-        Contexto original:
-        {state['context']}
-        
-        Feedback previo a corregir (si aplica): {state.get('feedback', 'Ninguno, es el primer borrador.')}
-        """
-        
-        # Usamos nuestro GroqAdapter resiliente para generar el JSON exacto de AdaptedContent
-        draft = self.llm_adapter.generate_structured(prompt, AdaptedContent)
-        
-        # Incrementamos el contador de revisiones
-        rev_count = state.get('revision_count', 0) + 1
-        return {"draft": draft, "revision_count": rev_count}
-
-    def _node_reviewer(self, state: AgentState) -> dict:
-        """Agente Crítico: Evalúa si el borrador cumple con la calidad y fidelidad."""
-        logger.info("🧐 [Agente Crítico] Evaluando calidad pedagógica y anclaje (fidelidad)...")
-        
-        profile = state['request'].recipient_profile
-        profile_str = profile.value if hasattr(profile, 'value') else str(profile)
-        
-        prompt = f"""
-        Eres un crítico técnico riguroso. Evalúa este borrador educativo.
-        Perfil objetivo: '{profile_str}'.
-        
-        Borrador generado: {state['draft'].model_dump_json()}
-        
-        ¿Cumple con el perfil objetivo de manera clara y no contiene alucinaciones técnicas?
-        Responde estrictamente con un JSON según el esquema solicitado. Si no apruebas, da un feedback claro de qué arreglar.
-        """
-        
-        eval_result = self.llm_adapter.generate_structured(prompt, ReviewEvaluation)
-        
-        logger.info(f"Resultado de Evaluación: Aprobado={eval_result.is_approved}, Feedback='{eval_result.feedback}'")
-        return {"is_approved": eval_result.is_approved, "feedback": eval_result.feedback}
-
-    def _router_needs_revision(self, state: AgentState) -> str:
-        """Enrutador de Decisión: Decide si el grafo termina o vuelve al redactor."""
-        if state["is_approved"] or state["revision_count"] >= self.max_revisions:
-            if not state["is_approved"]:
-                logger.warning("⚠️ Límite de revisiones alcanzado. Forzando aprobación del mejor borrador.")
-            return "end"
-        logger.info("🔄 Devolviendo al Redactor para correcciones...")
-        return "rewrite"
-
-    def _node_auto_validator(self, state: AgentState) -> dict:
-        """Nodo de Validación Automática: Verifica anclaje RAG, fidelidad pedagógica y métricas de seguridad."""
-        logger.info("🛡️ [Nodo de Validación Automática] Ejecutando control de calidad y fidelidad RAG...")
-        draft = state.get("draft")
-        context = state.get("context", "")
-        
-        # Validaciones automáticas de fidelidad y cobertura dinámicas
-        has_content = draft is not None and bool(getattr(draft, "items", None) or getattr(draft, "titulo", None))
-        if has_content and context:
-            draft_words = set(re.findall(r'\b\w{4,}\b', str(draft).lower()))
-            context_words = set(re.findall(r'\b\w{4,}\b', context.lower()))
-            if draft_words and context_words:
-                overlap = len(draft_words.intersection(context_words)) / len(draft_words)
-                grounding_score = round(min(0.96, max(0.50, 0.60 + 0.36 * overlap)), 3)
-            else:
-                grounding_score = 0.65
-        elif has_content:
-            grounding_score = 0.70
-        else:
-            grounding_score = 0.30
-
-        is_validated = has_content and grounding_score >= 0.65
-        
-        logger.info(f"✅ [Validación Automática] Anclaje RAG Score: {grounding_score * 100:.1f}%, Validado: {is_validated}")
-        return {
-            "is_approved": is_validated,
-            "feedback": "Validación automática de calidad aprobada exitosamente." if is_validated else "Se requiere ajustar el borrador para mejorar el anclaje a la fuente."
-        }
-
-    def build_graph(self) -> StateGraph:
-        """Construye y compila el flujo del grafo con el Nodo de Validación Automática."""
+    def _build_graph(self):
+        """Builds and compiles the StateGraph workflow."""
         workflow = StateGraph(AgentState)
 
-        # Añadimos los nodos (agentes + nodo de validación automática)
-        workflow.add_node("researcher", self._node_researcher)
+        # 1. Register graph nodes
+        workflow.add_node("planner", self._node_planner)
         workflow.add_node("writer", self._node_writer)
-        workflow.add_node("reviewer", self._node_reviewer)
-        workflow.add_node("auto_validator", self._node_auto_validator)
+        workflow.add_node("deduplicator", self._node_deduplicator)
+        workflow.add_node("grounding_verifier", self._node_grounding_verifier)
+        workflow.add_node("critic", self._node_critic)
+        workflow.add_node("refiner", self._node_refiner)
+        workflow.add_node("formatter", self._node_formatter)
 
-        # Definimos el flujo lógico
-        workflow.set_entry_point("researcher")
-        workflow.add_edge("researcher", "writer")
-        workflow.add_edge("writer", "reviewer")
-        workflow.add_edge("reviewer", "auto_validator")
-        
-        # Añadimos la condicional basada en la validación automática
+        # 2. Define standard linear transitions
+        workflow.set_entry_point("planner")
+        workflow.add_edge("planner", "writer")
+        workflow.add_edge("writer", "deduplicator")
+        workflow.add_edge("deduplicator", "grounding_verifier")
+        workflow.add_edge("grounding_verifier", "critic")
+
+        # 3. Add conditional router from Critic
         workflow.add_conditional_edges(
-            "auto_validator",
-            self._router_needs_revision,
+            "critic",
+            self._should_refine_or_complete,
             {
-                "rewrite": "writer",
-                "end": END
-            }
+                "refiner": "refiner",
+                "formatter": "formatter",
+            },
         )
 
-        return workflow.compile()
+        # 4. Refiner leads to formatter (or back to review)
+        workflow.add_edge("refiner", "formatter")
+        workflow.add_edge("formatter", END)
 
-    def run(self, request: AdaptationRequest, context: str) -> AdaptedContent:
-        graph = self.build_graph()
-        initial_state = {
-            "request": request,
-            "context": context,
-            "revision_count": 0,
-            "is_approved": False,
-            "feedback": ""
+        compiled_graph = workflow.compile()
+        logger.info("LangGraph workflow compiled successfully with 7 agentic nodes.")
+        return compiled_graph
+
+    # ---------------------------------------------------------------------------
+    # NODE 1: PLANNER
+    # ---------------------------------------------------------------------------
+    def _node_planner(self, state: AgentState) -> Dict[str, Any]:
+        """Analyzes content coverage and derives structured pedagogical topics."""
+        logger.info("📋 [LangGraph Node: Planner] Planificando cobertura y tópicos pedagógicos...")
+        request = state["request"]
+        doc_title = state["doc_title"]
+        target_language = state["target_language"]
+        top_passages = state.get("top_passages", [])
+        all_parent_chunks = state.get("all_parent_chunks") or top_passages
+        key_concepts = state.get("key_concepts", [])
+        tracer = state.get("tracer")
+
+        if tracer:
+            tracer.start_stage("planificador")
+
+        chunks_for_planning = all_parent_chunks or top_passages
+        fmt_key = (request.output_format or "flashcards").lower()
+        coverage_plan = CoveragePlanner().plan(
+            parent_chunks=chunks_for_planning,
+            output_format=fmt_key,
+            requested_items=request.target_quantity or request.quantity or 20,
+            language=target_language,
+        )
+
+        target_quantity, effective_target, capacity_warning = self._calculate_target_quantity(
+            request=request,
+            coverage_plan=coverage_plan,
+            language=target_language,
+        )
+
+        topics = self._stage_planner(
+            doc_title=doc_title,
+            key_concepts=key_concepts,
+            coverage_plan=coverage_plan,
+            target=effective_target,
+            target_language=target_language,
+        )
+
+        if tracer:
+            tracer.end_stage("planificador")
+            tracer.record_llm_call("planificar")
+
+        nodes = state.get("nodes_executed", []) + ["planner"]
+        return {
+            "coverage_plan": coverage_plan,
+            "target_quantity": target_quantity,
+            "effective_target": effective_target,
+            "capacity_warning": capacity_warning,
+            "topics": topics,
+            "nodes_executed": nodes,
         }
-        
-        # Ejecutamos el grafo hasta el final
-        final_state = graph.invoke(initial_state)
-        logger.success("🎉 Flujo Multi-Agente de LangGraph completado exitosamente.")
-        return final_state["draft"]
+
+    # ---------------------------------------------------------------------------
+    # NODE 2: WRITER (BATCH GENERATION)
+    # ---------------------------------------------------------------------------
+    def _node_writer(self, state: AgentState) -> Dict[str, Any]:
+        """Generates educational items using multi-model fallback cascade in batches."""
+        logger.info("✍️ [LangGraph Node: Writer] Generando borradores por lotes...")
+        request = state["request"]
+        doc_title = state["doc_title"]
+        topics = state.get("topics", [])
+        top_passages = state.get("top_passages", [])
+        effective_target = state.get("effective_target", 20)
+        target_language = state["target_language"]
+        tracer = state.get("tracer")
+
+        if tracer:
+            tracer.start_stage("generacion_lotes")
+
+        raw_items = self._stage_batch_generators(
+            request=request,
+            doc_title=doc_title,
+            topics=topics,
+            passages=top_passages,
+            target=effective_target,
+            target_language=target_language,
+            tracer=tracer,
+        )
+
+        if tracer:
+            tracer.end_stage("generacion_lotes")
+
+        nodes = state.get("nodes_executed", []) + ["writer"]
+        return {
+            "raw_items": raw_items,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # NODE 3: DEDUPLICATOR
+    # ---------------------------------------------------------------------------
+    def _node_deduplicator(self, state: AgentState) -> Dict[str, Any]:
+        """Removes duplicate and near-duplicate educational items."""
+        logger.info("🧹 [LangGraph Node: Deduplicator] Limpiando ítems duplicados...")
+        raw_items = state.get("raw_items", [])
+        tracer = state.get("tracer")
+
+        if tracer:
+            tracer.start_stage("deduplicacion")
+
+        dedup_items = self._stage_deduplicate(raw_items)
+
+        if tracer:
+            tracer.end_stage("deduplicacion")
+
+        nodes = state.get("nodes_executed", []) + ["deduplicator"]
+        return {
+            "dedup_items": dedup_items,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # NODE 4: GROUNDING VERIFIER
+    # ---------------------------------------------------------------------------
+    def _node_grounding_verifier(self, state: AgentState) -> Dict[str, Any]:
+        """Validates that each item is supported by retrieved passages and assigns citations."""
+        logger.info("🔍 [LangGraph Node: Grounding Verifier] Verificando citas y anclaje RAG...")
+        dedup_items = state.get("dedup_items", [])
+        top_passages = state.get("top_passages", [])
+        all_parent_chunks = state.get("all_parent_chunks")
+        tracer = state.get("tracer")
+
+        if tracer:
+            tracer.start_stage("verificacion_anclaje")
+
+        verified_items = self._stage_verify_grounding(
+            dedup_items,
+            top_passages,
+            all_chunks=all_parent_chunks,
+        )
+
+        if tracer:
+            tracer.end_stage("verificacion_anclaje")
+
+        nodes = state.get("nodes_executed", []) + ["grounding_verifier"]
+        return {
+            "verified_items": verified_items,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # NODE 5: CRITIC / AUDITOR
+    # ---------------------------------------------------------------------------
+    def _node_critic(self, state: AgentState) -> Dict[str, Any]:
+        """Audits pedagogical clarity and factual precision according to user profile."""
+        logger.info("🧐 [LangGraph Node: Critic] Auditando calidad pedagógica y fidelidad...")
+        request = state["request"]
+        verified_items = state.get("verified_items", [])
+        top_passages = state.get("top_passages", [])
+        all_parent_chunks = state.get("all_parent_chunks")
+
+        grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
+        preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
+
+        evaluation, audited_items = self._evaluate_quality_with_critic(
+            request=request,
+            generated_items=verified_items,
+            passages=top_passages,
+            all_chunks=all_parent_chunks,
+            fallback_score=preliminary_score,
+        )
+
+        nodes = state.get("nodes_executed", []) + ["critic"]
+        return {
+            "evaluation": evaluation,
+            "audited_items": audited_items,
+            "preliminary_score": preliminary_score,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # CONDITIONAL EDGE: SHOULD REFINE OR COMPLETE
+    # ---------------------------------------------------------------------------
+    def _should_refine_or_complete(self, state: AgentState) -> str:
+        """Determines whether to trigger self-correction/completion or proceed to formatting."""
+        audited_items = state.get("audited_items", [])
+        effective_target = state.get("effective_target", 0)
+        coverage_plan = state.get("coverage_plan")
+        revision_count = state.get("revision_count", 0)
+        max_revisions = state.get("max_revisions", settings.LANGGRAPH_MAX_REVISIONS)
+
+        total_capacity = getattr(coverage_plan, "total_capacity", len(audited_items))
+
+        # Check if items were dropped and document capacity permits generating more
+        if len(audited_items) < effective_target and total_capacity > len(audited_items) and revision_count < max_revisions:
+            logger.info(
+                "LangGraph Conditional Router: Se requieren items complementarios "
+                "(actual: %d, objetivo: %d, revisión: %d/%d). Derivando a 'refiner'.",
+                len(audited_items),
+                effective_target,
+                revision_count,
+                max_revisions,
+            )
+            return "refiner"
+
+        logger.info(
+            "LangGraph Conditional Router: Calidad aprobada (actual: %d, objetivo: %d). "
+            "Derivando a 'formatter'.",
+            len(audited_items),
+            effective_target,
+        )
+        return "formatter"
+
+    # ---------------------------------------------------------------------------
+    # NODE 6: REFINER / COMPLETION
+    # ---------------------------------------------------------------------------
+    def _node_refiner(self, state: AgentState) -> Dict[str, Any]:
+        """Self-correction loop: generates targeted items to fill gaps detected by the Critic."""
+        logger.info("🔄 [LangGraph Node: Refiner] Ejecutando auto-corrección y generación complementaria...")
+        request = state["request"]
+        doc_title = state["doc_title"]
+        topics = state.get("topics", [])
+        audited_items = list(state.get("audited_items", []))
+        effective_target = state.get("effective_target", 20)
+        target_language = state["target_language"]
+        revision_count = state.get("revision_count", 0)
+
+        needed = effective_target - len(audited_items)
+        if needed > 0:
+            extra_items = self._stage_completion(
+                request=request,
+                doc_title=doc_title,
+                topics=topics,
+                needed=needed,
+                existing_items=audited_items,
+                target_language=target_language,
+            )
+            for extra in extra_items:
+                if len(audited_items) < effective_target:
+                    audited_items.append(extra)
+
+        nodes = state.get("nodes_executed", []) + ["refiner"]
+        return {
+            "audited_items": audited_items,
+            "revision_count": revision_count + 1,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # NODE 7: FORMATTER & STORAGE
+    # ---------------------------------------------------------------------------
+    def _node_formatter(self, state: AgentState) -> Dict[str, Any]:
+        """Formats the final educational structure, uploads to OCI, and builds AdaptationResponse."""
+        logger.info("📦 [LangGraph Node: Formatter] Serializando respuesta y guardando artefactos...")
+        request = state["request"]
+        doc_title = state["doc_title"]
+        audited_items = state.get("audited_items", [])
+        effective_target = state.get("effective_target", 20)
+        target_quantity = state.get("target_quantity", 20)
+        capacity_warning = state.get("capacity_warning")
+        target_language = state["target_language"]
+        evaluation = state.get("evaluation")
+        key_concepts = state.get("key_concepts", [])
+        prerequisites = state.get("prerequisites", [])
+        document_id = state.get("document_id")
+        tracer = state.get("tracer")
+        nodes_executed = state.get("nodes_executed", []) + ["formatter"]
+        revision_count = state.get("revision_count", 0)
+
+        if tracer:
+            tracer.start_stage("serializacion_respuesta")
+
+        final_items = audited_items[:effective_target]
+        items_generated = len(final_items)
+
+        adapted_content = self._format_adapted_content(
+            request=request,
+            doc_title=doc_title,
+            items=final_items,
+            effective_count=items_generated,
+            target_language=target_language,
+        )
+
+        if tracer:
+            tracer.end_stage("serializacion_respuesta")
+
+        # Grounding verification score
+        verified_citations = sum(
+            1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or []))
+        )
+        heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        if evaluation:
+            grounding_score = max(heuristic_score, evaluation.source_grounding_score)
+            evaluation.source_grounding_score = round(grounding_score, 2)
+        else:
+            evaluation = QualityEvaluation(
+                source_grounding_score=heuristic_score,
+                pedagogical_clarity="Alta",
+                observations="Validado contra pasajes fuente.",
+            )
+
+        # Resolve vector store model if available
+        embedding_provider = "gemini"
+        embedding_model_name = None
+        try:
+            from app.services.vector_store_service import get_store
+            store = get_store(document_id)
+            if store and store.model_name:
+                embedding_model_name = store.model_name.split("@")[0].replace("models/", "")
+                lower_em = embedding_model_name.lower()
+                if "gemini" in lower_em:
+                    embedding_provider = "gemini"
+                elif "jina" in lower_em:
+                    embedding_provider = "jina"
+                else:
+                    embedding_provider = "local"
+        except Exception:
+            pass
+
+        metadata = ResponseMetadata(
+            profile_applied=request.recipient_profile,
+            format_generated=request.output_format,
+            niche_sector=request.niche,
+            detail_level=request.detail_level,
+            quantity_level=request.quantity_level,
+            requested_items=target_quantity,
+            generated_items=items_generated,
+            quantity_warning=capacity_warning,
+            estimated_study_time_minutes=max(3, items_generated * 2),
+            key_concepts=key_concepts[:8],
+            prerequisites=prerequisites[:5],
+            llm_provider=self.last_provider,
+            llm_model=self.last_model,
+            models_used=self._format_models_used(),
+            critic_provider=self.critic_provider,
+            critic_model=self.critic_model,
+            embedding_provider=embedding_provider,
+            embedding_model=embedding_model_name,
+            retrieval_mode="hibrido_rrf_reranker",
+            timings=tracer.timings if tracer else {},
+            llm_calls=tracer.llm_calls if tracer else {},
+            graph_orchestration=True,
+            graph_nodes_executed=nodes_executed,
+            graph_revision_count=revision_count,
+        )
+
+        object_name = (
+            f"contenido-{self._slugify(doc_title)[:20]}-"
+            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
+        )
+        from app.services.storage_queue_service import StorageQueueService
+        content_id = f"cnt_{int(time.time() * 1000)}"
+        user_id = getattr(request, "user_id", None) or "usr_demo_001"
+        version_num = getattr(request, "version", 1) or 1
+
+        response_payload = {
+            "status": "exito",
+            "content_id": content_id,
+            "metadatos": metadata.model_dump(by_alias=True),
+            "contenido_adaptado": adapted_content.model_dump(by_alias=True),
+            "evaluacion_calidad": evaluation.model_dump(by_alias=True),
+        }
+
+        queue_service = StorageQueueService.get_instance()
+        job_info = queue_service.enqueue_content_job(
+            content_id=content_id,
+            user_id=user_id,
+            json_data=response_payload,
+            version=version_num,
+        )
+        immediate_ok = queue_service.process_job(job_info["job_id"])
+        upload_status_val = "completado" if immediate_ok else "pendiente"
+
+        # Record the generated package in `contenidos`: the library and trash
+        # flows read that table, so without this row the content exists in
+        # storage but is invisible in the app.
+        queue_service.save_content_metadata(
+            content_id=content_id,
+            user_id=user_id,
+            title=doc_title,
+            content=json.dumps(adapted_content.model_dump(by_alias=True), ensure_ascii=False),
+            recipient_profile=request.recipient_profile,
+            output_format=request.output_format,
+            niche=getattr(request, "niche", None),
+            detail_level=getattr(request, "detail_level", None),
+            object_key_json=job_info["objeto_id"],
+            # Full response (metadata + quality evaluation) so the Library can
+            # show the real RAG anchoring score instead of a hardcoded one.
+            response_json=json.dumps(response_payload, ensure_ascii=False),
+        )
+
+        storage_result = OCIStorageResult(
+            bucket=job_info["bucket"],
+            object_id=job_info["objeto_id"],
+            upload_status=upload_status_val,
+        )
+
+        try:
+            pdf_service = PDFExportService()
+            output_name = f"scratch/{object_name.replace('.json', '.pdf')}"
+            pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
+        except Exception as e:
+            logger.warning("Error generando PDF en LangGraph Formatter: %s", e)
+
+        final_response = AdaptationResponse(
+            status="exito",
+            metadata=metadata,
+            adapted_content=adapted_content,
+            quality_evaluation=evaluation,
+            oci_storage=storage_result,
+        )
+
+        prompt_hash = state.get("prompt_hash")
+        if prompt_hash:
+            self._response_cache[prompt_hash] = final_response
+
+        return {
+            "final_items": final_items,
+            "final_response": final_response,
+            "nodes_executed": nodes_executed,
+        }
+
+    # ---------------------------------------------------------------------------
+    # ENTRY POINT PIPELINE
+    # ---------------------------------------------------------------------------
+    async def run_pipeline(
+        self,
+        request: AdaptationRequest,
+        top_passages: List[Dict[str, Any]],
+        key_concepts: List[str],
+        prerequisites: List[str],
+        tracer: Optional[Any] = None,
+        all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
+        document_id: Optional[str] = None,
+    ) -> AdaptationResponse:
+        """Executes the compiled multi-agent LangGraph pipeline."""
+        doc_title = self._clean_document_title(request)
+        target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
+        prompt_hash = self._compute_request_hash(request, doc_title, target_language)
+
+        force_regenerate = getattr(request, "force_regenerate", False) or getattr(request, "forzar_regenerar", False)
+        if not force_regenerate and prompt_hash in self._response_cache:
+            cached_resp = self._response_cache[prompt_hash]
+            cached_resp.metadata.origin = "cache"
+            cached_resp.metadata.prompt_hash = prompt_hash
+            if tracer:
+                cached_resp.metadata.timings = {"cache": tracer.total_elapsed_ms()}
+                cached_resp.metadata.llm_calls = tracer.llm_calls
+            return cached_resp
+
+        # Initial graph state
+        initial_state: AgentState = {
+            "request": request,
+            "doc_title": doc_title,
+            "target_language": target_language,
+            "top_passages": top_passages,
+            "all_parent_chunks": all_parent_chunks or top_passages,
+            "key_concepts": key_concepts,
+            "prerequisites": prerequisites,
+            "document_id": document_id,
+            "prompt_hash": prompt_hash,
+            "tracer": tracer,
+            "revision_count": 0,
+            "max_revisions": settings.LANGGRAPH_MAX_REVISIONS,
+            "nodes_executed": [],
+        }
+
+        # Run the LangGraph execution
+        logger.info("🚀 Iniciando ejecución del grafo de LangGraph para doc='%s'...", doc_title)
+        final_state = await self.graph.ainvoke(initial_state)
+
+        final_response = final_state.get("final_response")
+        if not final_response:
+            logger.warning("El grafo no produjo final_response directamente; ejecutando formatter de respaldo.")
+            formatter_output = self._node_formatter(final_state)
+            final_response = formatter_output["final_response"]
+
+        logger.info(
+            "🎉 LangGraph completado exitosamente. Nodos ejecutados: %s",
+            final_response.metadata.graph_nodes_executed,
+        )
+        return final_response

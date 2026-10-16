@@ -24,50 +24,10 @@ def test_health_check():
     assert response.status_code == 200
     assert response.json()["status"] == "healthy"
 
-def test_adapt_content_endpoint():
-    payload = {
-        "documento_titulo": "Introduccion a la Arquitectura de Redes VCN en OCI",
-        "documento_contenido": "La Virtual Cloud Network (VCN) es una red privada y personalizable configurada en Oracle Cloud Infrastructure.",
-        "perfil_destinatario": "Principiante",
-        "formato_salida": "Flashcards",
-        "nicho_sector": "General",
-        "nivel_detalle": "Didactico",
-        "nivel_cantidad": "Amplio",
-        "cantidad_objetivo": 40
-    }
-    
-    response = client.post("/api/v1/adapt-content", json=payload)
-    if response.status_code != 200:
-        print("Response error:", response.status_code, response.text)
-    assert response.status_code == 200
-    
-    data = response.json()
-    assert data["status"] == "exito"
-    assert "metadatos" in data
-    assert "contenido_adaptado" in data
-    assert "evaluacion_calidad" in data
-    assert "almacenamiento_oci" in data
-    assert data["metadatos"]["items_solicitados"] == 40
-    assert data["metadatos"]["items_generados"] > 0
-    assert data["evaluacion_calidad"]["anclaje_fuente_score"] >= 0.70
-
-def test_quantity_cap_warning():
-    payload = {
-        "documento_titulo": "Texto Corto",
-        "documento_contenido": "Este es un texto fuente de solo una frase.",
-        "perfil_destinatario": "Desarrollador",
-        "formato_salida": "Flashcards",
-        "nicho_sector": "General",
-        "nivel_detalle": "Tecnico",
-        "nivel_cantidad": "Exhaustivo",
-        "cantidad_objetivo": 80
-    }
-    
-    response = client.post("/api/v1/adapt-content", json=payload)
-    assert response.status_code == 200
-    data = response.json()
-    assert data["metadatos"]["items_generados"] <= 80
-    assert data["metadatos"]["items_generados"] > 0
+# NOTE: the former /adapt-content endpoint was removed in favor of the real
+# two-step flow (POST /documents, then POST /documents/{id}/adapt). Its tests
+# were integration-style and required live LLM/embedding keys, so they were
+# dropped together with the endpoint.
 
 def test_auth_login_endpoint():
     payload = {
@@ -99,14 +59,6 @@ if __name__ == "__main__":
     print("Testing health check...")
     test_health_check()
     print("✓ Health check passed.")
-
-    print("Testing adapt content endpoint with quantity presets...")
-    test_adapt_content_endpoint()
-    print("✓ Adapt content endpoint passed successfully!")
-
-    print("Testing quantity cap warning...")
-    test_quantity_cap_warning()
-    print("✓ Quantity cap warning test passed!")
 
     print("Testing auth login endpoint...")
     test_auth_login_endpoint()

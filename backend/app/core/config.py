@@ -49,7 +49,7 @@ except ImportError:
 # Module-level constants used inside the class to avoid cross-field references.
 _GEMINI_EMBED_MODEL = "models/gemini-embedding-001"
 _JINA_EMBED_MODEL = "jina-embeddings-v3"
-_LOCAL_EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+_LOCAL_EMBED_MODEL = "intfloat/multilingual-e5-base"
 
 
 class Settings(BaseModel):
@@ -63,12 +63,59 @@ class Settings(BaseModel):
     OPENROUTER_API_KEY: str = os.getenv("OPENROUTER_API_KEY", "")
     DEFAULT_OUTPUT_LANGUAGE: str = os.getenv("DEFAULT_OUTPUT_LANGUAGE", "Spanish")
 
-    # LLM model identifiers - defined here, not in .env (which is only for API keys)
-    GEMINI_LLM_MODEL: str = os.getenv("DEFAULT_GEMINI_MODEL_FLASH", "gemini-flash-lite-latest")
-    DEFAULT_GEMINI_MODEL_PRO: str = "gemini-flash-lite-latest"
-    DEFAULT_GEMINI_MODEL_FLASH: str = os.getenv("DEFAULT_GEMINI_MODEL_FLASH", "gemini-flash-lite-latest")
+    # LLM model identifiers
+    DEFAULT_GEMINI_MODEL_FLASH: str = "gemini-3.6-flash"
     DEFAULT_GROQ_MODEL: str = "openai/gpt-oss-20b"
     DEFAULT_OPENROUTER_MODEL: str = "mistralai/mistral-small-3.2-24b-instruct"
+
+    # ── Multi-Agent LangGraph Orchestration ─────────────────────────────────
+    LANGGRAPH_MAX_REVISIONS: int = int(os.getenv("LANGGRAPH_MAX_REVISIONS", "2"))
+
+    LLM_CASCADES: Dict[str, List[Dict[str, str]]] = {
+        "flashcards": [
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "openrouter", "model": "mistralai/mistral-small-3.2-24b-instruct"},
+        ],
+        "quiz": [
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+        ],
+        "tutorial": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "groq", "model": "openai/gpt-oss-20b"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+        ],
+        "executive_summary": [
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+            {"provider": "gemini", "model": "gemini-3.7-flash"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+        ],
+        "class_script": [
+            {"provider": "gemini", "model": "gemini-3.8-flash"},
+            {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+            {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+            {"provider": "gemini", "model": "gemini-3.5-flash-lite"},
+        ],
+        "vision_diagram": [
+            {"provider": "gemini", "model": "gemini-2.5-flash"},
+            {"provider": "gemini", "model": "gemini-3.6-flash"},
+        ],
+    }
+
+    CRITIC_CASCADE: List[Dict[str, str]] = [
+        {"provider": "groq", "model": "openai/gpt-oss-20b"},
+        {"provider": "groq", "model": "qwen/qwen3.8-27b"},
+        {"provider": "gemini", "model": "gemini-3.7-flash"},
+        {"provider": "gemini", "model": "gemini-3.6-flash"},
+        {"provider": "openrouter", "model": "nvidia/nemotron-3.5-lightning:free"},
+    ]
 
     # ── Embedding Configuration ───────────────────────────────────────────────
     EMBEDDING_METHOD: str = os.getenv("EMBEDDING_METHOD", "api")
@@ -134,9 +181,13 @@ class Settings(BaseModel):
     VECTOR_STORE_DIR: str = os.getenv("VECTOR_STORE_DIR", "vector_store")
 
     # ── Document Storage Configuration (original uploaded files) ──────────────
-    # STORAGE_METHOD: "oci" (OCI Object Storage Always Free) or "supabase".
+    # STORAGE_METHOD: "oci" (default) or "supabase". The effective backend is
+    # decided by resolve_storage_backend(); this field only sets the preference.
     STORAGE_METHOD: str = os.getenv("STORAGE_METHOD", "oci")
- 
+
+    # Local disk fallback used when neither OCI nor Supabase is available.
+    LOCAL_STORAGE_DIR: str = os.getenv("STORAGE_LOCAL_DIR", "storage_mock")
+
     # Supabase project credentials. SUPABASE_KEY must be the service_role key
     # (backend-only, bypasses Row Level Security) — never the anon/public key,
     # and never committed; it belongs in .env only.
@@ -146,6 +197,10 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
     # ── Environment & Storage Mode ───────────────────────────────────────────
+    # Server bind address/port. Kept as constants (not .env) so changing the
+    # port is a deliberate code change; .env holds secrets/credentials only.
+    APP_HOST: str = "0.0.0.0"
+    APP_PORT: int = 8001
     APP_ENV: str = os.getenv("APP_ENV", "development")
     ALLOW_LOCAL_STORAGE: bool = os.getenv("ALLOW_LOCAL_STORAGE", "false").lower() == "true"
     STORAGE_MAX_UPLOAD_MB: int = int(os.getenv("STORAGE_MAX_UPLOAD_MB", "25"))
@@ -155,26 +210,39 @@ class Settings(BaseModel):
     # ── OCI Object Storage Configuration (Always Free) ───────────────────────
     OCI_AUTH_MODE: str = os.getenv("OCI_AUTH_MODE", "auto")
     OCI_REGION: str = os.getenv("OCI_REGION", "mx-monterrey-1")
-    OCI_NAMESPACE: Optional[str] = os.getenv("OCI_NAMESPACE", None)
     OCI_CONFIG_FILE: str = os.getenv("OCI_CONFIG_FILE", os.path.expanduser("~/.oci/config"))
-    OCI_BUCKET_SOURCES: str = os.getenv("OCI_BUCKET_SOURCES", os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente"))
-    OCI_BUCKET_CONTENT: str = os.getenv("OCI_BUCKET_CONTENT", os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos"))
+    OCI_NAMESPACE: str = os.getenv("OCI_NAMESPACE", "")
     OCI_BUCKET_DOCS: str = os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente")
     OCI_BUCKET_ARTIFACTS: str = os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos")
+    OCI_BUCKET_SOURCES: str = os.getenv("OCI_BUCKET_SOURCES", os.getenv("OCI_BUCKET_DOCS", "nuevamente-documentos-fuente"))
+    OCI_BUCKET_CONTENT: str = os.getenv("OCI_BUCKET_CONTENT", os.getenv("OCI_BUCKET_ARTIFACTS", "nuevamente-contenidos-educativos"))
+
+    @property
+    def supabase_configured(self) -> bool:
+        return bool(self.SUPABASE_URL and self.SUPABASE_KEY)
 
     @property
     def OCI_ENABLED(self) -> bool:
-        env_val = os.getenv("OCI_ENABLED")
-        if env_val is not None:
-            return env_val.lower() == "true"
-        if self.OCI_AUTH_MODE in ("auto", "instance_principal"):
-            return True
-        return os.path.exists(self.OCI_CONFIG_FILE)
+        from app.infrastructure.oci_client import get_oci_client
+        return get_oci_client() is not None
+
+    def resolve_storage_backend(self) -> str:
+        """Effective backend decided by availability: oci -> supabase -> local.
+        STORAGE_METHOD only sets the preference; it never forces a broken one."""
+        if self.STORAGE_METHOD == "supabase" and self.supabase_configured:
+            return "supabase"
+        if self.OCI_ENABLED:
+            return "oci"
+        if self.supabase_configured:
+            return "supabase"
+        return "local"
 
     # ── RAG Configuration ─────────────────────────────────────────────────────
     MAX_TOP_K_CHUNKS: int = 5
     RRF_DENSE_WEIGHT: float = 0.6
     RRF_SPARSE_WEIGHT: float = 0.4
+    RAG_CONTEXT_SNIPPET_SIZE: int = 1500
+    RAG_RERANK_POOL_SIZE: int = 10
 
     # ── Ingestion Configuration ───────────────────────────────────────────────
     SUPPORTED_EXTENSIONS: List[str] = [".pdf", ".md", ".markdown", ".txt"]

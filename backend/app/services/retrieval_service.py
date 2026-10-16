@@ -8,7 +8,7 @@ Purpose:
     (Jina, falling back to Cohere) for a final relevance-ordered list.
 
     This stage only returns text — it never calls an LLM. Content generation
-    is a separate stage (agent_orchestrator / the LangGraph pipeline) that
+    is a separate stage (the LangGraph pipeline) that
     consumes this service's output.
 
 Input:

@@ -46,6 +46,9 @@ class IngestionOptions(BaseModel):
     noise_categories: Optional[List[NoiseCategory]] = None
     # When True the filter only reports what it would discard, and discards nothing.
     noise_dry_run: bool = False
+    # Multimodal vision for diagrams in PDFs
+    use_ai_vision: bool = False
+    image_output_dir: str = "./extracted_images"
 
 
 class NoiseReportEntry(BaseModel):
@@ -90,3 +93,5 @@ class IngestedDocument(BaseModel):
     chunks: List[DocumentChunk] = Field(default_factory=list)
     # Present only when the noise filter ran on this document.
     noise_report: Optional[NoiseReport] = None
+    # Embedded images/diagrams extracted from the document
+    extracted_images: List[dict] = Field(default_factory=list)

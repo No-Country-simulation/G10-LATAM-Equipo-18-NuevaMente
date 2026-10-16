@@ -43,12 +43,12 @@ class StorageQueueService:
         return cls._instance
 
     def init_storage_tables(self) -> None:
-        """Crea las tablas storage_jobs y documentos en SQLite si no existen."""
+        """Crea la tabla storage_jobs en SQLite si no existe."""
         try:
             conn = get_db()
             cursor = conn.cursor()
 
-            # 1. Tabla de trabajos en segundo plano (storage_jobs)
+            # Persistent background jobs queue (storage_jobs)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS storage_jobs (
                     id TEXT PRIMARY KEY,
@@ -70,7 +70,7 @@ class StorageQueueService:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_content ON storage_jobs (content_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_storage_jobs_estado ON storage_jobs (estado)")
 
-            # 2. Tabla de documentos originales (documentos)
+            # Tabla de documentos originales (documentos)
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS documentos (
                     id TEXT PRIMARY KEY,
@@ -281,6 +281,59 @@ class StorageQueueService:
             self.process_job(row["id"])
 
         return True
+
+    def save_content_metadata(
+        self,
+        content_id: str,
+        user_id: Optional[str],
+        title: str,
+        content: str,
+        recipient_profile: Optional[str] = None,
+        output_format: Optional[str] = None,
+        niche: Optional[str] = None,
+        detail_level: Optional[str] = None,
+        object_key_json: Optional[str] = None,
+        response_json: Optional[str] = None,
+    ) -> None:
+        """
+        Registra un paquete educativo generado en la tabla 'contenidos'.
+
+        La biblioteca y la papelera leen de esa tabla; sin esta fila el
+        contenido existe en Object Storage pero es invisible en la app.
+
+        `content` guarda únicamente el paquete adaptado (lo que el visor
+        renderiza) mientras que `response_json` guarda la respuesta completa
+        (metadatos + evaluación de calidad), que es la única forma de que la
+        Biblioteca muestre el anclaje RAG real en lugar de un valor fijo.
+        """
+        now = time.time()
+        conn = get_db()
+        try:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT OR REPLACE INTO contenidos (
+                    id, user_id, title, content, recipient_profile, output_format,
+                    niche, detail_level, status, object_key_json, response_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'ready', ?, ?, ?, ?)
+            """, (
+                content_id,
+                user_id or "usr_demo_001",
+                title,
+                content,
+                recipient_profile,
+                output_format,
+                niche,
+                detail_level,
+                object_key_json,
+                response_json,
+                now,
+                now,
+            ))
+            conn.commit()
+            logger.info("Contenido registrado en la biblioteca: content_id=%s, user_id=%s", content_id, user_id)
+        finally:
+            conn.close()
 
     def save_source_document(
         self,

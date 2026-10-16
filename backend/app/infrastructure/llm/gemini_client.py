@@ -73,7 +73,7 @@ class GeminiClient(BaseLLMClient):
 
         from google.genai import types  # noqa: PLC0415
 
-        model_name = kwargs.get("model_name") or settings.GEMINI_LLM_MODEL
+        model_name = kwargs.get("model_name") or settings.DEFAULT_GEMINI_MODEL_FLASH
         image_path = kwargs.get("image_path")
 
         # Build generation config

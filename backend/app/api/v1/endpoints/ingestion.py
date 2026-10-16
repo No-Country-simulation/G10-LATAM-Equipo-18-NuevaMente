@@ -42,10 +42,9 @@ def _save_and_process_document(
         temp_path = Path(temp_file.name)
 
     try:
-        if use_llm and extension == ".pdf":
-            parsed_llm = pdf_parser_service.parse_pdf_with_llm(str(temp_path))
-            extracted_text = parsed_llm.get("markdown_text", "")
-            engine_used = parsed_llm.get("engine", "Gemini 1.5 LLM Vision Parser")
+        if extension == ".pdf" and pdf_parser_service.is_available:
+            extracted_text = pdf_parser_service.parse_pdf_to_markdown(str(temp_path), use_ai_vision=use_llm)
+            engine_used = "PyMuPDF4LLM + Gemini Vision" if use_llm else "PyMuPDF4LLM Layout Parser"
             ingested_doc = ingester_service.process_text(extracted_text, title=suggested_title)
         else:
             ingested_doc = ingester_service.process_document(temp_path, title=suggested_title)
@@ -63,7 +62,15 @@ def _save_and_parse_pdf_llm(content_bytes: bytes) -> dict:
         temp_path = Path(temp_file.name)
 
     try:
-        return pdf_parser_service.parse_pdf_with_llm(str(temp_path))
+        md_text = pdf_parser_service.parse_pdf_to_markdown(str(temp_path), use_ai_vision=True)
+        return {
+            "engine": "PyMuPDF4LLM + Gemini Vision Parser",
+            "markdown_text": md_text,
+            "page_count": 1,
+            "detected_tables": 0,
+            "key_concepts": [],
+            "summary": md_text[:300] if md_text else "",
+        }
     finally:
         if temp_path.exists():
             temp_path.unlink()

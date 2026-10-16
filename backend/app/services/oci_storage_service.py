@@ -133,3 +133,22 @@ class OCIStorageService:
             settings.OCI_BUCKET_DOCS if "documentos" in object_name else settings.OCI_BUCKET_ARTIFACTS
         )
         return self.backend.delete_object(target_bucket, object_name)
+
+    def ensure_bucket(self, bucket_name: str) -> None:
+        """Asegura la disponibilidad del bucket."""
+        pass
+
+    def download_object(self, bucket_name: str, object_name: str) -> bytes:
+        """Descarga el contenido del objeto o lanza FileNotFoundError si no existe."""
+        data = self.backend.get_object(bucket_name, object_name)
+        if data is None:
+            raise FileNotFoundError(f"{bucket_name}/{object_name} no encontrado.")
+        return data
+
+    def health(self) -> Dict[str, Any]:
+        """Reporte de salud del servicio de almacenamiento."""
+        return {
+            "connected": getattr(self.backend, "is_connected", True),
+            "namespace": self.namespace,
+            "mode": getattr(self.backend, "auth_mode", "oci"),
+        }
