@@ -38,30 +38,8 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
         <div class="brand-content">
           <!-- Logo Header -->
           <div class="brand-logo">
-            <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="url(#logo-grad-1)"/>
-              <path d="M4 12V24L20 32V20L4 12Z" fill="url(#logo-grad-2)" fill-opacity="0.8"/>
-              <path d="M36 12V24L20 32V20L36 12Z" fill="url(#logo-grad-3)" fill-opacity="0.9"/>
-              <circle cx="20" cy="4" r="3" fill="#22D3EE"/>
-              <circle cx="4" cy="12" r="3" fill="#6366F1"/>
-              <circle cx="36" cy="12" r="3" fill="#A855F7"/>
-              <circle cx="20" cy="32" r="3.5" fill="#22D3EE"/>
-              <defs>
-                <linearGradient id="logo-grad-1" x1="4" y1="4" x2="36" y2="20" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#4F46E5"/>
-                  <stop offset="1" stop-color="#7C3AED"/>
-                </linearGradient>
-                <linearGradient id="logo-grad-2" x1="4" y1="12" x2="20" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#6366F1"/>
-                  <stop offset="1" stop-color="#22D3EE"/>
-                </linearGradient>
-                <linearGradient id="logo-grad-3" x1="36" y1="12" x2="20" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#7C3AED"/>
-                  <stop offset="1" stop-color="#4F46E5"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <span class="logo-text">NuevaMente</span>
+            <img src="assets/branding/isotype.png" alt="NuevaMente Logo" class="logo-icon-img" />
+            <span class="logo-text">Nueva<span class="logo-m">M</span><span class="logo-ente">ente</span></span>
           </div>
 
           <!-- Main Headlines -->
@@ -385,10 +363,11 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
       pointer-events: none;
     }
 
-    .brand-content { position: relative; z-index: 10; max-width: 520px; margin: 0 auto; }
-    .brand-logo { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 2.5rem; }
-    .logo-icon { width: 44px; height: 44px; }
-    .logo-text { font-size: 1.85rem; font-weight: 800; font-family: var(--font-heading); background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .brand-logo { display: flex; align-items: center; gap: 0.95rem; margin-bottom: 2.5rem; }
+    .logo-icon-img { width: 48px; height: 48px; object-fit: contain; filter: drop-shadow(0 4px 16px rgba(99, 102, 241, 0.45)); }
+    .logo-text { font-size: 2.1rem; font-weight: 800; font-family: var(--font-heading); color: #FFFFFF; letter-spacing: -0.02em; display: inline-flex; align-items: center; }
+    .logo-m { color: #A855F7; }
+    .logo-ente { color: #38BDF8; }
     
     .text-block h1 { font-size: 2.4rem; font-weight: 800; line-height: 1.25; margin-bottom: 1rem; }
     .subtitle { font-size: 1.05rem; color: #94A3B8; line-height: 1.65; margin-bottom: 2rem; }

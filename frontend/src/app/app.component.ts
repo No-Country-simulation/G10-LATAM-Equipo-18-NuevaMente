@@ -27,17 +27,10 @@ import { DocumentService } from './core/services/document.service';
       <!-- Left Sidebar Navigation -->
       <aside class="sidebar-shell" [class.collapsed]="isSidebarCollapsed()">
         <div class="sidebar-brand" routerLink="/workspace">
-          <svg class="brand-isotype" viewBox="0 0 40 40" fill="none">
-            <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="url(#brand-grad-1)"/>
-            <path d="M4 12V24L20 32V20L4 12Z" fill="url(#brand-grad-2)"/>
-            <path d="M36 12V24L20 32V20L36 12Z" fill="url(#brand-grad-3)"/>
-            <defs>
-              <linearGradient id="brand-grad-1" x1="4" y1="4" x2="36" y2="20"><stop stop-color="#4F46E5"/><stop offset="1" stop-color="#7C3AED"/></linearGradient>
-              <linearGradient id="brand-grad-2" x1="4" y1="12" x2="20" y2="32"><stop stop-color="#6366F1"/><stop offset="1" stop-color="#22D3EE"/></linearGradient>
-              <linearGradient id="brand-grad-3" x1="36" y1="12" x2="20" y2="32"><stop stop-color="#7C3AED"/><stop offset="1" stop-color="#4F46E5"/></linearGradient>
-            </defs>
-          </svg>
-          <span class="brand-title" *ngIf="!isSidebarCollapsed()">NuevaMente</span>
+          <img src="assets/branding/isotype.png" alt="NuevaMente" class="brand-isotype" />
+          <span class="brand-title" *ngIf="!isSidebarCollapsed()">
+            Nueva<span class="brand-m">M</span><span class="brand-ente">ente</span>
+          </span>
         </div>
 
         <!-- Nav Items -->
@@ -147,8 +140,10 @@ import { DocumentService } from './core/services/document.service';
       display: flex; align-items: center; gap: 0.75rem; padding: 0.5rem; margin-bottom: 2rem; cursor: pointer;
     }
 
-    .brand-isotype { width: 32px; height: 32px; flex-shrink: 0; }
-    .brand-title { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); font-family: var(--font-heading); }
+    .brand-isotype { width: 34px; height: 34px; object-fit: contain; flex-shrink: 0; filter: drop-shadow(0 2px 6px rgba(99, 102, 241, 0.4)); }
+    .brand-title { font-size: 1.35rem; font-weight: 800; color: var(--text-primary); font-family: var(--font-heading); letter-spacing: -0.02em; display: inline-flex; align-items: center; }
+    .brand-m { color: #A855F7; }
+    .brand-ente { color: #38BDF8; }
 
     .sidebar-nav { display: flex; flex-direction: column; gap: 0.4rem; flex: 1; }
 

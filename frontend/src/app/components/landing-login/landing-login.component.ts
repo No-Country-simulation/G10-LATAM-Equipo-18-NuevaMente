@@ -18,8 +18,8 @@ export interface LoginEvent {
       <!-- Navbar header for Landing -->
       <header class="top-nav">
         <div class="brand" (click)="scrollToSection('top')">
-          <div class="logo-icon">🎓</div>
-          <span class="brand-name">NuevaMente</span>
+          <img src="assets/branding/isotype.png" alt="NuevaMente" class="brand-logo-img" />
+          <span class="brand-name">Nueva<span class="brand-m">M</span><span class="brand-ente">ente</span></span>
         </div>
 
         <nav class="nav-links">
@@ -426,14 +426,21 @@ export interface LoginEvent {
       gap: 0.75rem;
       cursor: pointer;
     }
-    .logo-icon {
-      font-size: 1.75rem;
+    .brand-logo-img {
+      width: 32px;
+      height: 32px;
+      object-fit: contain;
     }
     .brand-name {
       font-size: 1.35rem;
       font-weight: 800;
       color: #0f172a;
+      display: inline-flex;
+      align-items: center;
+      letter-spacing: -0.02em;
     }
+    .brand-m { color: #A855F7; }
+    .brand-ente { color: #38BDF8; }
     .nav-links {
       display: flex;
       gap: 2rem;
