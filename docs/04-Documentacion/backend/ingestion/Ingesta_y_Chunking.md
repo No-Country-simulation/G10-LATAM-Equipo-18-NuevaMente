@@ -1,4 +1,6 @@
-# Módulo de Ingestión y Chunking — NuevaMente
+﻿# Módulo de Ingestión y Chunking
+
+> 📍 `docs/04-Documentacion/backend/ingestion/` · [Volver al README](../../../../README.md)
 
 Este documento describe la arquitectura, funcionamiento e instrucciones de uso del módulo de carga, limpieza y segmentación de documentos técnicos en NuevaMente.
 
@@ -50,6 +52,8 @@ El módulo de ingestión realiza **3 pasos esenciales**:
 
 Esta sección está pensada para que cualquier miembro del equipo continúe implementando sobre este módulo sin fricción.
 
+> Continúa en [API de Ingesta](API_de_Ingesta.md) (contrato HTTP) y [Embeddings](../embeddings/Embeddings.md) (etapa siguiente del pipeline).
+
 ### Ingesta Directa en Python
 ```python
 from pathlib import Path
@@ -91,10 +95,10 @@ rag_payload = ingester.build_rag_chunks(doc)
   - **Por qué un archivo aparte de `schemas/ingestion.py`:** los chunks Padre/Hijo son un dato de la etapa RAG (se embeben, se indexan, se recuperan y se reordenan), no de la ingesta cruda del documento — mezclarlos en el mismo esquema que `IngestedDocument` difuminaba esa frontera.
 
 ### Endpoints HTTP de Ingestión
-Para el procesamiento desacoplado en segundo plano con soporte de polling y consulta de estado, consulta la [Guía API de Ingestión](Guia_API_Ingestion.md):
-- `POST /api/v1/ingestion/upload` (Carga y registro inmediato, procesamiento en segundo plano)
-- `GET /api/v1/ingestion/status/{document_id}` (Consulta periódica de estado de indexación)
-- `GET /api/v1/ingestion/documents` (Listado de documentos registrados)umentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
+Para el procesamiento desacoplado en segundo plano con soporte de polling y consulta de estado, consulta la [API de Ingesta](API_de_Ingesta.md):
+- `POST /api/v1/documents` (Carga y registro; reporta progreso vía Server-Sent Events)
+- `GET /api/v1/documents/{document_id}` (Consulta periódica de estado de indexación)
+- `GET /api/v1/documents` (Listado de documentos registrados)umentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
 
 ---
 
@@ -111,3 +115,11 @@ El script procesará los archivos de muestra ubicados en `backend/tests/manual/s
 **Pendiente de agregar** a este test:
 1. Un PDF donde el parser Markdown (`pymupdf4llm`) falle a propósito, para confirmar que la ingesta cae a la extracción de texto plano en vez de abortar.
 2. Una corrida con `USE_KEYBERT_CONCEPTS=true` que confirme que aparecen `key_concepts` no vacíos en los Parent Chunks, y otra con el flag en `false` que confirme que la lista queda vacía sin cargar el modelo.
+
+---
+
+<div align="right">
+
+[⬆ Volver al README](../../../../README.md)
+
+</div>

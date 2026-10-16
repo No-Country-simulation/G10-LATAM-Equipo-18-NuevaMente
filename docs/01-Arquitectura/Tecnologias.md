@@ -1,0 +1,68 @@
+# Tecnologías
+
+> 📍 `docs/01-Arquitectura/` · [Volver al README](../../README.md)
+
+Stack tecnológico de NuevaMente.
+
+---
+
+## 1. Backend
+
+| Tecnología | Uso |
+| :--- | :--- |
+| **Python 3.12+** | Lenguaje del backend. |
+| **FastAPI** | API REST (incluye SSE para el progreso de ingesta). |
+| **Uvicorn** | Servidor ASGI. |
+| **Pydantic** | Validación de esquemas de entrada/salida. |
+| **uv** | Gestión de entorno y dependencias (fuente de verdad: `pyproject.toml` / `uv.lock`). |
+| **LangGraph** | Orquestación multi-agente de la generación. |
+| **FAISS (CPU)** | Índice vectorial local, uno por documento. |
+| **BM25 (`rank_bm25`)** | Búsqueda léxica complementaria a la densa. |
+| **infloat** | Modelo de embeddings local (último respaldo). |
+
+## 2. Frontend
+
+| Tecnología | Uso |
+| :--- | :--- |
+| **Angular 17** | SPA standalone (`bootstrapApplication`). |
+| **TypeScript** | Lenguaje del frontend. |
+| **RxJS / HttpClient** | Estado y comunicación con la API. |
+| **Gradio** | UI mínima de pruebas (`frontend_gradio/`). |
+
+## 3. Modelos de IA (principales)
+
+| Tipo | Proveedor | Modelo |
+| :--- | :--- | :--- |
+| LLM (flash) | Google Gemini | `gemini-3.6-flash` |
+| LLM | Groq | `openai/gpt-oss-20b` |
+| LLM | OpenRouter | `mistralai/mistral-small-3.2-24b-instruct` |
+| Embeddings | Google Gemini | `models/gemini-embedding-001` (768 dim) |
+| Embeddings | Jina AI | `jina-embeddings-v3` (768 dim) |
+| Reranking | Jina / Cohere | Jina Reranker / Cohere Rerank |
+
+> Los identificadores de modelo están centralizados en `backend/app/core/config.py`.
+
+## 4. Almacenamiento e infraestructura
+
+| Tecnología | Uso |
+| :--- | :--- |
+| **OCI Object Storage** | Almacenamiento en la nube (capa Always Free). |
+| **Supabase** | Storage de documentos y metadata (Postgres). |
+| **FAISS en disco** | Índices vectoriales locales (`vector_store/{document_id}/`). |
+
+## 5. Herramientas de desarrollo
+
+| Herramienta | Uso |
+| :--- | :--- |
+| **uv** | Ejecutar el backend y sus dependencias. |
+| **npm / Angular CLI** | Ejecutar y compilar el frontend. |
+| **pytest** | Pruebas del backend. |
+| **Docker / nginx** | Empaquetado y proxy en producción. |
+
+---
+
+<div align="right">
+
+[⬆ Volver al README](../../README.md)
+
+</div>
