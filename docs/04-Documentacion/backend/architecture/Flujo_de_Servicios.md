@@ -1,9 +1,15 @@
-# Arquitectura y Flujo de Servicios — Backend NuevaMente (Fase 1)
+# Arquitectura y Flujo de Servicios del Backend
 
-> **Nota de Alcance:** Este documento corresponde a la **Fase 1: Ingestión, Segmentación, Embeddings, Indexación Vectorial y Recuperación RAG Base** (12 servicios).  
-> La **Fase 2: Orquestación Multi-Agente, Generación Didáctica y Exportación** se documenta en su propio archivo independiente (`Fase_2_Orquestacion_Agentes.md`).
+> 📍 `docs/04-Documentacion/backend/architecture/` · [Volver al README](../../../../README.md)
 
-Este documento describe la arquitectura modular, funciones principales y el flujo de ejecución de los **12 servicios base** ubicados en `backend/app/services/`.
+> **Nota de alcance:** Este documento describe el backend como un todo: la capa
+> HTTP (`app/api/v1/endpoints/`), los servicios del pipeline (`backend/app/services/`)
+> y el orquestador multi-agente. Las etapas del pipeline se detallan en las
+> subcarpetas hermanas de `04-Documentacion/backend/`: `ingestion/`, `embeddings/`,
+> `storage/` y `retrieval/`.
+
+Este documento describe la arquitectura modular, las funciones principales y el
+flujo de ejecución de los servicios ubicados en `backend/app/services/`.
 
 ---
 
@@ -147,7 +153,7 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 
 #### `embedding_service.py` (Generador de Embeddings con Cascada)
 - **Rol:** Calcula las representaciones vectoriales de los textos. Si el proveedor principal agota su cuota o falla, conmuta automáticamente en tiempo de ejecución:
-  $$\text{Gemini (text-embedding-004)} \longrightarrow \text{Jina (jina-embeddings-v3)} \longrightarrow \text{MiniLM Local (sentence-transformers)}$$
+  $$\text{Gemini (gemini-embedding-001)} \longrightarrow \text{Jina (jina-embeddings-v3)} \longrightarrow \text{Local (multilingual-e5-base)}$$
 - **Entradas:** Lista de textos (`child_chunks`), callback opcional de progreso.
 - **Salidas:** Matriz de vectores de coma flotante (`List[List[float]]`) con dimensiones estandarizadas y normalizadas.
 
@@ -156,7 +162,7 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 ### Grupo 4: Almacenamiento Vectorial
 
 #### `vector_store_service.py` (Motor de Búsqueda Vectorial FAISS)
-- **Rol:** Administra los índices matemáticos de similitud de coseno. Asigna un índice FAISS aislado e independiente por cada `document_id` dentro de `data/vector_stores/{document_id}/`.
+- **Rol:** Administra los índices matemáticos de similitud de coseno. Asigna un índice FAISS aislado e independiente por cada `document_id` dentro de `vector_store/{document_id}/`.
 - **Entradas:** Vectores de embeddings, fragmentos hijos y metadatos de padres asociados.
 - **Salidas:** Búsqueda k-NN rápida (`similarity_search`) que retorna los fragmentos hijos más cercanos con su score de similitud y resuelve el puntero a su bloque padre.
 
@@ -177,3 +183,22 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 - **Rol:** Toma los candidatos preseleccionados por `retrieval_service` y los vuelve a calificar analizando conjuntamente los pares `(query, document)` con modelos de reordenamiento profundo (Jina Reranker v2 con fallback a Cohere Rerank v3).
 - **Entradas:** `query`, lista de textos candidatos, cantidad final a devolver (`top_n`).
 - **Salidas:** Lista ordenada de mayor a menor relevancia con scores normalizados de coincidencia semántica.
+
+---
+
+## 3. Orquestación multi-agente y exportación
+
+La generación de contenido educativo (no solo la recuperación de contexto) vive
+en `langgraph_orchestrator.py` y `multi_agent_router.py`, apoyados en los
+clientes de `app/infrastructure/` (Gemini, Groq, OpenRouter, Cohere). El router
+elige proveedor según el formato de salida y define la cascada de respaldo; la
+exportación a Anki y a PDF se resuelve en `app/api/v1/endpoints/anki.py` y
+`pdf_export_service.py`. Detalle en [Arquitectura del Backend](Arquitectura_del_Backend.md).
+
+---
+
+<div align="right">
+
+[⬆ Volver al README](../../../../README.md)
+
+</div>

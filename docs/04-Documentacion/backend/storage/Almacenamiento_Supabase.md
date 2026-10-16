@@ -1,4 +1,6 @@
-# Almacenamiento de Documentos con Supabase — NuevaMente
+# Almacenamiento de Documentos con Supabase
+
+> 📍 `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
 
 Este documento cubre dos cosas: **la configuración manual que hay que hacer una vez** en el dashboard de Supabase, y **cómo usar en código** `document_storage_service.py` (el archivo original) y `document_repository.py` (su metadata: título, estado, `object_key`).
 
@@ -138,3 +140,11 @@ Esta separación es la misma razón por la que `document_pipeline_service.py` (e
 ## 3. Cuándo cambia esto (OCI, en el futuro)
 
 Ambos archivos exponen una fábrica (`get_document_storage()`, `get_document_repository()`) que elige la implementación según `settings.STORAGE_METHOD`. Hoy solo existe la rama `"supabase"`. Cuando haya una cuenta de OCI y se revise `oci_storage_service.py` de los compañeros, se agregará una implementación `OCIDocumentStorage` detrás de la misma interfaz `BaseDocumentStorage`, sin tocar `document_pipeline_service.py` ni el resto del código que ya depende de estas fábricas — es justamente el orquestador descrito arriba, ya implementado.
+
+---
+
+<div align="right">
+
+[⬆ Volver al README](../../../../README.md)
+
+</div>

@@ -1,4 +1,6 @@
-# Almacenamiento en OCI Object Storage — Guía de configuración
+# Almacenamiento en OCI Object Storage
+
+> 📍 `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
 
 Dos caminos válidos. El código del backend soporta ambos; lo único que cambia es dónde viven los buckets y qué policy se usa.
 
@@ -154,3 +156,11 @@ Si aparece un error `404`/`403`, revisa:
 1. Que el usuario `nuevamente-backend` pertenezca al grupo correcto.
 2. Que la policy esté creada en el compartment `root`.
 3. Dale unos segundos de propagación a OCI tras crear recursos de IAM.
+
+---
+
+<div align="right">
+
+[⬆ Volver al README](../../../../README.md)
+
+</div>
