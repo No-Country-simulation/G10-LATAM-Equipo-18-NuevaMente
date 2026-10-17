@@ -1,4 +1,5 @@
 import os
+import sys
 import oci
 
 def main():
@@ -12,6 +13,14 @@ def main():
 
     ns = client.get_namespace().data
     print(f"[*] Tenancy Namespace: {ns}")
+
+    if len(sys.argv) > 2 and sys.argv[1] == "--delete":
+        b = sys.argv[2]
+        k = sys.argv[3]
+        print(f"[*] Deleting {k} from {b}...")
+        client.delete_object(ns, b, k)
+        print("[✓] Deleted.")
+        return
 
     buckets = ["nuevamente-contenidos-educativos", "nuevamente-documentos-fuente"]
     for b in buckets:

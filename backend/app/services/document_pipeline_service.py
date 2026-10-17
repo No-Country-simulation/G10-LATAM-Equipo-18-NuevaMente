@@ -92,6 +92,7 @@ def register_document(
             local_path=str(path),
             user_id=user_id,
             document_id=document_id,
+            filename=source_filename or path.name,
         )
 
         return repo.create_document(

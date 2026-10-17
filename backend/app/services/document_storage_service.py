@@ -42,7 +42,13 @@ class BaseDocumentStorage(ABC):
     """Contract every storage backend (Supabase, OCI) must implement."""
 
     @abstractmethod
-    def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
+    def upload_document(
+        self,
+        local_path: str,
+        user_id: Optional[str],
+        document_id: str,
+        filename: Optional[str] = None,
+    ) -> str:
         """Uploads the original document and returns its object_key."""
         pass
 
@@ -68,11 +74,18 @@ class SupabaseStorageService(BaseDocumentStorage):
         self.docs_bucket = docs_bucket or settings.SUPABASE_BUCKET_DOCUMENTS
         self.artifacts_bucket = artifacts_bucket or settings.SUPABASE_BUCKET_ARTIFACTS
 
-    def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
+    def upload_document(
+        self,
+        local_path: str,
+        user_id: Optional[str],
+        document_id: str,
+        filename: Optional[str] = None,
+    ) -> str:
         path = Path(local_path)
-        extension = path.suffix.lower()
+        actual_name = filename or path.name
+        extension = Path(actual_name).suffix.lower() or path.suffix.lower()
 
-        owner_prefix = user_id or "anonymous"
+        owner_prefix = user_id or "anonimo"
         # Same layout as the OCI adapter and security.get_user_storage_prefix()
         # so both storage backends produce identical, predictable object keys.
         object_key = f"usuarios/{owner_prefix}/documentos/{document_id}{extension}"
@@ -140,15 +153,22 @@ class OCIStorageAdapter(BaseDocumentStorage):
         self.service.ensure_bucket(settings.OCI_BUCKET_DOCS)
         self.service.ensure_bucket(settings.OCI_BUCKET_ARTIFACTS)
 
-    def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
+    def upload_document(
+        self,
+        local_path: str,
+        user_id: Optional[str],
+        document_id: str,
+        filename: Optional[str] = None,
+    ) -> str:
         path = Path(local_path)
-        extension = path.suffix.lower()
+        actual_name = filename or path.name
+        extension = Path(actual_name).suffix.lower() or path.suffix.lower()
         owner_prefix = user_id or "anonimo"
         file_bytes = path.read_bytes()
 
         from app.services.storage.base import StorageBackend
         sha256_hash = StorageBackend.compute_sha256(file_bytes)
-        object_key = StorageBackend.build_document_key(owner_prefix, sha256_hash, path.name)
+        object_key = StorageBackend.build_document_key(owner_prefix, sha256_hash, actual_name)
 
         info = self.service.upload_document_source(
             bucket_name=settings.OCI_BUCKET_DOCS,
