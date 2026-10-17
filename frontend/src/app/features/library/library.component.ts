@@ -182,6 +182,16 @@ interface ToastState {
                 </button>
 
                 <button 
+                  class="btn-action-anki" 
+                  (click)="downloadAnki(proj)" 
+                  title="Descargar Mazo Anki CSV"
+                  [attr.aria-label]="'Descargar Mazo Anki de ' + proj.nombre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="m9 12 2 2 4-4"/></svg>
+                  Anki
+                </button>
+
+                <button 
                   class="btn-action-danger" 
                   (click)="moveToTrash(proj)" 
                   title="Mover a la papelera"
@@ -524,6 +534,32 @@ interface ToastState {
       gap: 0.35rem;
     }
 
+    .btn-action-anki {
+      background: rgba(16, 185, 129, 0.12);
+      border: 1px solid rgba(16, 185, 129, 0.35);
+      color: #059669;
+      padding: 0.45rem 0.75rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s;
+    }
+    .btn-action-anki:hover {
+      background: #10B981;
+      color: #ffffff;
+      border-color: #10B981;
+      transform: translateY(-1px);
+    }
+    :host-context(.dark) .btn-action-anki {
+      background: rgba(16, 185, 129, 0.22);
+      color: #34D399;
+      border-color: rgba(16, 185, 129, 0.5);
+    }
+
     .btn-action-danger {
       background: rgba(239, 68, 68, 0.12);
       color: #EF4444;
@@ -719,6 +755,12 @@ export class LibraryComponent implements OnInit {
   downloadMd(proj: RecentProject): void {
     if (proj.response) {
       this.exportService.exportMarkdown(proj.response);
+    }
+  }
+
+  downloadAnki(proj: RecentProject): void {
+    if (proj.response) {
+      this.exportService.exportAnkiCsv(proj.response);
     }
   }
 

@@ -23,6 +23,7 @@ from app.api.v1.endpoints import (
     anki,
     trash,
     storage,
+    export,
 )
 
 api_router = APIRouter()
@@ -36,3 +37,4 @@ api_router.include_router(auth.router, tags=["Autenticación de Usuarios"])
 api_router.include_router(anki.router, tags=["Integración Anki Flashcards"])
 api_router.include_router(trash.router, tags=["Papelera y Borrado Lógico"])
 api_router.include_router(storage.router, tags=["Almacenamiento OCI Object Storage"])
+api_router.include_router(export.router, tags=["Exportación Multiformato"])

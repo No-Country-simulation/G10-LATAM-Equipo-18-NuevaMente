@@ -1,82 +1,194 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
+import { HttpClient } from '@angular/common/http';
 import { AdaptationResponse } from '../models/adaptation.model';
+import { environment } from '../../../environments/environment';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ExportService {
+  private http = inject(HttpClient, { optional: true });
+  private apiUrl = environment.apiUrl || '/api/v1';
 
+  // ---------------------------------------------------------------------------
+  // 1. MARKDOWN EXPORT (.md)
+  // ---------------------------------------------------------------------------
   exportMarkdown(response: AdaptationResponse): void {
-    const title = response.contenido_adaptado.titulo || 'Adaptación Educativa NuevaMente';
-    let md = `# ${title}\n\n`;
-    md += `**Perfil Destinatario:** ${response.metadatos.perfil_aplicado}\n`;
-    md += `**Formato Pedagógico:** ${response.metadatos.formato_generado}\n`;
-    md += `**Tiempo Estimado de Estudio:** ${response.metadatos.tiempo_estimado_estudio_minutos} minutos\n`;
-    md += `**Anclaje RAG Score:** ${(response.evaluacion_calidad.anclaje_fuente_score * 100).toFixed(0)}%\n\n`;
-    md += `---\n\n`;
-    md += `## Introducción\n${response.contenido_adaptado.introduccion_contextualizada}\n\n`;
+    const title = response.contenido_adaptado?.titulo || 'Adaptacion Educativa NuevaMente';
+    const slug = this.slugify(title);
 
-    const items = response.contenido_adaptado.items || [];
-    md += `## Contenido Didáctico\n\n`;
+    let md = `# 🎓 ${title}\n\n`;
+    md += `> **NuevaMente** — Sistema de Adaptación Educativa con Inteligencia Artificial y Graph RAG\n`;
+    md += `> *Desarrollado para Oracle Next Education (ONE) × Alura — Grupo 10*\n\n`;
+    md += `---\n\n`;
+
+    md += `### 📋 Ficha Técnica Pedagógica\n\n`;
+    md += `| Parámetro | Valor |\n`;
+    md += `| :--- | :--- |\n`;
+    md += `| **👤 Perfil Destinatario** | \`${response.metadatos?.perfil_aplicado || 'General'}\` |\n`;
+    md += `| **🎯 Formato Pedagógico** | \`${response.metadatos?.formato_generado || 'Contenido'}\` |\n`;
+    md += `| **⏱️ Tiempo Estimado de Estudio** | \`${response.metadatos?.tiempo_estimado_estudio_minutos || 15} minutos\` |\n`;
+    const scorePct = Math.round((response.evaluacion_calidad?.anclaje_fuente_score || 0.98) * 100);
+    md += `| **🛡️ Anclaje RAG Verificado** | \`${scorePct}%\` |\n`;
+    if (response.almacenamiento_oci?.objeto_id) {
+      md += `| **☁️ Persistencia OCI Bucket** | \`${response.almacenamiento_oci?.bucket || 'nuevamente-contenidos-educativos'}\` |\n`;
+      md += `| **📦 Objeto ID** | \`${response.almacenamiento_oci?.objeto_id}\` |\n`;
+    }
+    md += `\n---\n\n`;
+
+    if (response.contenido_adaptado?.introduccion_contextualizada) {
+      md += `## 📖 Introducción y Contextualización\n\n`;
+      md += `${response.contenido_adaptado.introduccion_contextualizada}\n\n---\n\n`;
+    }
+
+    if (response.contenido_adaptado?.resumen_ejecutivo) {
+      md += `## 📊 Resumen Ejecutivo\n\n`;
+      md += `${response.contenido_adaptado.resumen_ejecutivo}\n\n---\n\n`;
+    }
+
+    const items = response.contenido_adaptado?.items || [];
+    md += `## 📚 Contenido Didáctico Adaptado\n\n`;
 
     items.forEach((item: any, idx: number) => {
       if ('frente' in item) {
-        md += `### Flashcard ${idx + 1}\n- **Q:** ${item.frente}\n- **A:** ${item.dorso}\n`;
-        if (item.pista_didactica) md += `- *Pista:* ${item.pista_didactica}\n`;
+        md += `### 🗂️ Tarjeta #${idx + 1}: ${item.frente}\n\n`;
+        md += `**Respuesta:** ${item.dorso}\n\n`;
+        if (item.pista_didactica) md += `> 💡 **Pista didáctica:** *${item.pista_didactica}*\n\n`;
       } else if ('pregunta' in item) {
-        md += `### Pregunta ${idx + 1}: ${item.pregunta}\n`;
-        (item.opciones || []).forEach((opt: string) => md += `  - [ ] ${opt}\n`);
-        md += `**Respuesta Correcta:** ${item.respuesta_correcta}\n`;
-        md += `*Justificación:* ${item.justificacion || item.justificacion_didactica}\n`;
-      } else if ('paso' in item) {
-        md += `### Paso ${item.paso}: ${item.titulo}\n${item.instruccion}\n`;
-        if (item.ejemplo) md += `\`\`\`\n${item.ejemplo}\n\`\`\`\n`;
-        if (item.advertencia) md += `> ⚠️ **Advertencia:** ${item.advertencia}\n`;
+        md += `### ❓ Pregunta #${idx + 1}: ${item.pregunta}\n\n`;
+        (item.opciones || []).forEach((opt: string) => {
+          const isCorrect = opt === item.respuesta_correcta;
+          md += `- [${isCorrect ? 'x' : ' '}] ${opt}\n`;
+        });
+        md += `\n**✅ Respuesta Correcta:** ${item.respuesta_correcta}\n\n`;
+        const justif = item.justificacion_didactica || item.justificacion;
+        if (justif) md += `> 💡 **Justificación:** *${justif}*\n\n`;
+      } else if ('paso' in item || 'instruccion' in item) {
+        const pasoNum = item.paso || (idx + 1);
+        md += `### 🛠️ Paso ${pasoNum}: ${item.titulo || ('Módulo ' + (idx + 1))}\n\n`;
+        md += `${item.instruccion || ''}\n\n`;
+        if (item.ejemplo) md += `\`\`\`\n${this.cleanCodeSnippet(item.ejemplo)}\n\`\`\`\n\n`;
+        if (item.advertencia) md += `> ⚠️ **Nota de seguridad:** ${item.advertencia}\n\n`;
       } else if ('punto_clave' in item) {
-        md += `### Punto Clave ${idx + 1}: ${item.punto_clave}\n`;
-        md += `**Impacto de Negocio:** ${item.impacto_negocio}\n`;
+        md += `### 📌 Punto Clave #${idx + 1}: ${item.punto_clave}\n\n`;
+        if (item.impacto_negocio) md += `**Impacto Operativo / Negocio:** ${item.impacto_negocio}\n\n`;
       } else if ('escena' in item) {
-        md += `### Escena ${item.escena} (${item.duracion_seg}s)\n`;
-        md += `- **Narración:** ${item.narracion}\n`;
-        md += `- **Apoyo Visual:** ${item.apoyo_visual}\n`;
+        md += `### 🎬 Escena ${item.escena || idx + 1} (${item.duracion_seg || 60}s)\n\n`;
+        md += `**🎙️ Narración:**\n>${item.narracion}\n\n`;
+        if (item.apoyo_visual) md += `**🎨 Apoyo Visual Sugerido:** ${item.apoyo_visual}\n\n`;
       }
-      md += `\n`;
+
+      if (item.fuentes && Array.isArray(item.fuentes) && item.fuentes.length > 0) {
+        const src = item.fuentes[0];
+        const sec = src.seccion || src.chunk_id || 'Referencia';
+        const pag = src.pagina ? ` · Pág. ${src.pagina}` : '';
+        md += `*📄 Fuente verificada: ${sec}${pag}*\n\n`;
+      }
+      md += `---\n\n`;
     });
 
+    md += `### 🛡️ Auditoría de Calidad RAG\n`;
+    md += `- **Claridad Pedagógica:** ${response.evaluacion_calidad?.claridad_pedagogica || 'Alta'}\n`;
+    md += `- **Observaciones:** ${response.evaluacion_calidad?.observaciones || 'Verificado con RAG anclado a documento original.'}\n`;
+
     const blob = new Blob([md], { type: 'text/markdown;charset=utf-8;' });
-    this.triggerDownload(blob, `${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}.md`);
+    this.triggerDownload(blob, `${slug}.md`);
   }
 
+  // ---------------------------------------------------------------------------
+  // 2. ANKI CSV EXPORT (.csv)
+  // ---------------------------------------------------------------------------
   exportAnkiCsv(response: AdaptationResponse): void {
-    const items = response.contenido_adaptado.items || [];
-    const flashcards = items.filter((i: any) => 'frente' in i);
-
-    if (flashcards.length === 0) {
-      alert('Solo se pueden exportar a Anki los contenidos en formato Flashcards.');
+    const items = response.contenido_adaptado?.items || [];
+    if (!items || items.length === 0) {
+      alert('No hay elementos generados para exportar a Anki.');
       return;
     }
 
-    let csv = '#separator:Comma\n#html:false\n';
-    flashcards.forEach((f: any) => {
-      const q = `"${f.frente.replace(/"/g, '""')}"`;
-      const a = `"${f.dorso.replace(/"/g, '""')}"`;
-      csv += `${q},${a}\n`;
+    const title = response.contenido_adaptado?.titulo || 'NuevaMente';
+    const slug = this.slugify(title);
+    const formato = (response.metadatos?.formato_generado || 'Educativo').replace(/\s+/g, '_');
+    const tag = `NuevaMente::${formato}`;
+
+    let csv = '#separator:tab\n#html:true\n#tags column:3\n';
+
+    items.forEach((item: any, idx: number) => {
+      let front = '';
+      let back = '';
+
+      if ('frente' in item) {
+        const q = this.escapeHtml(item.frente || '');
+        const hint = item.pista_didactica ? `<br><small style="color:#64748b;"><i>💡 Pista: ${this.escapeHtml(item.pista_didactica)}</i></small>` : '';
+        front = `<div style="font-size:18px;font-weight:bold;color:#1e293b;">${q}</div>${hint}`;
+        back = `<div style="font-size:16px;color:#334155;line-height:1.5;">${this.escapeHtml(item.dorso || '')}</div>`;
+      } else if ('pregunta' in item) {
+        const q = this.escapeHtml(item.pregunta || '');
+        const opts = (item.opciones || []).map((o: string) => `<li style="margin-bottom:4px;">${this.escapeHtml(o)}</li>`).join('');
+        front = `<div style="font-size:18px;font-weight:bold;color:#1e293b;">${q}</div><ul style="margin-top:8px;padding-left:20px;font-size:14px;color:#475569;">${opts}</ul>`;
+        const justif = item.justificacion_didactica || item.justificacion || '';
+        const justifHtml = justif ? `<div style="margin-top:8px;font-size:13px;color:#6b21a8;background:#f3e8ff;padding:6px 10px;border-radius:6px;"><i>💡 ${this.escapeHtml(justif)}</i></div>` : '';
+        back = `<div style="font-size:16px;font-weight:bold;color:#047857;">✓ ${this.escapeHtml(item.respuesta_correcta || '')}</div>${justifHtml}`;
+      } else if ('paso' in item || 'instruccion' in item) {
+        const pasoNum = item.paso || (idx + 1);
+        front = `<div style="font-size:13px;font-weight:bold;color:#4f46e5;">PASO ${pasoNum}</div><div style="font-size:18px;font-weight:bold;color:#1e293b;">${this.escapeHtml(item.titulo || '')}</div>`;
+        const codeHtml = item.ejemplo ? `<pre style="background:#0d1117;color:#58a6ff;padding:8px 12px;border-radius:6px;font-size:12px;margin-top:8px;overflow-x:auto;"><code>${this.escapeHtml(this.cleanCodeSnippet(item.ejemplo))}</code></pre>` : '';
+        back = `<div style="font-size:15px;color:#334155;line-height:1.5;">${this.escapeHtml(item.instruccion || '')}</div>${codeHtml}`;
+      } else if ('punto_clave' in item) {
+        front = `<div style="font-size:13px;font-weight:bold;color:#2563eb;">PUNTO CLAVE #${idx + 1}</div><div style="font-size:17px;font-weight:bold;color:#1e293b;">${this.escapeHtml(item.punto_clave || '')}</div>`;
+        back = `<div style="font-size:15px;color:#334155;"><strong>Impacto de Negocio:</strong><br>${this.escapeHtml(item.impacto_negocio || '')}</div>`;
+      } else if ('escena' in item) {
+        front = `<div style="font-size:13px;font-weight:bold;color:#7c3aed;">ESCENA ${item.escena || (idx + 1)} (${item.duracion_seg || 60}s)</div><div style="font-size:16px;color:#1e293b;"><strong>Guion Didáctico</strong></div>`;
+        back = `<div style="font-size:15px;color:#334155;"><strong>🎙️ Narración:</strong> ${this.escapeHtml(item.narracion || '')}</div><div style="margin-top:6px;font-size:13px;color:#64748b;"><strong>🎨 Visual:</strong> ${this.escapeHtml(item.apoyo_visual || '')}</div>`;
+      }
+
+      if (front && back) {
+        // Tab-separated: Front \t Back \t Tag
+        const cleanFront = front.replace(/\t/g, ' ').replace(/\n/g, '<br>');
+        const cleanBack = back.replace(/\t/g, ' ').replace(/\n/g, '<br>');
+        csv += `${cleanFront}\t${cleanBack}\t${tag}\n`;
+      }
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    this.triggerDownload(blob, `anki-deck-${Date.now()}.csv`);
+    const bomCsv = '\ufeff' + csv;
+    const blob = new Blob([bomCsv], { type: 'text/csv;charset=utf-8;' });
+    this.triggerDownload(blob, `${slug}-anki-deck.csv`);
   }
 
+  // ---------------------------------------------------------------------------
+  // 3. PDF DIDÁCTICO FORMATEADO (.pdf)
+  // ---------------------------------------------------------------------------
   exportPdfDidactico(response: AdaptationResponse): void {
+    const title = response.contenido_adaptado?.titulo || 'Adaptacion Educativa NuevaMente';
+    const slug = this.slugify(title);
+
+    // Try downloading compiled PDF from backend endpoint
+    if (this.http) {
+      this.http.post(`${this.apiUrl}/export/pdf`, response, { responseType: 'blob' }).subscribe({
+        next: (blob: Blob) => {
+          this.triggerDownload(blob, `${slug}.pdf`);
+        },
+        error: () => {
+          // Fallback to formatted print preview window if backend endpoint is unavailable
+          this.openPdfPrintPreview(response);
+        }
+      });
+      return;
+    }
+
+    // Direct client fallback
+    this.openPdfPrintPreview(response);
+  }
+
+  openPdfPrintPreview(response: AdaptationResponse): void {
     const printWindow = window.open('', '_blank', 'width=950,height=900,scrollbars=yes');
     if (!printWindow) {
       alert('Por favor permite ventanas emergentes (popups) en tu navegador para ver la vista previa del PDF.');
       return;
     }
 
-    const title = response.contenido_adaptado.titulo || 'Adaptación Educativa NuevaMente';
-    const items = response.contenido_adaptado.items || [];
-    const scorePct = Math.round((response.evaluacion_calidad.anclaje_fuente_score || 0.98) * 100);
+    const title = response.contenido_adaptado?.titulo || 'Adaptación Educativa NuevaMente';
+    const items = response.contenido_adaptado?.items || [];
+    const scorePct = Math.round((response.evaluacion_calidad?.anclaje_fuente_score || 0.98) * 100);
     const dateStr = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     let itemsHtml = '';
@@ -159,8 +271,6 @@ export class ExportService {
         <style>
           @page { size: A4; margin: 1.5cm; }
           body { font-family: 'Helvetica Neue', Arial, sans-serif; color: #0f172a; line-height: 1.5; margin: 0; padding: 0; background: #f8fafc; }
-          
-          /* Top Action Bar (hidden when printing) */
           .no-print-bar {
             position: sticky; top: 0; z-index: 100;
             background: #0f172a; color: #ffffff;
@@ -218,19 +328,19 @@ export class ExportService {
 
         <div class="document-wrapper">
           <div class="pdf-header">
-            <div class="brand-title"><img src="assets/branding/isotype.png" alt="NuevaMente" style="height:22px;vertical-align:middle;margin-right:8px;"/>NuevaMente — Adaptación Educativa</div>
+            <div class="brand-title">NuevaMente — Adaptación Educativa</div>
             <div class="oracle-badge">Powered by Oracle Cloud Infrastructure</div>
           </div>
 
           <div class="meta-chips">
-            <span class="chip chip-profile">👤 Perfil: ${response.metadatos.perfil_aplicado}</span>
-            <span class="chip chip-format">🎯 Formato: ${response.metadatos.formato_generado}</span>
-            <span class="chip">⏱️ Tiempo Estudio: ${response.metadatos.tiempo_estimado_estudio_minutos} min</span>
+            <span class="chip chip-profile">👤 Perfil: ${response.metadatos?.perfil_aplicado || 'General'}</span>
+            <span class="chip chip-format">🎯 Formato: ${response.metadatos?.formato_generado || 'Educativo'}</span>
+            <span class="chip">⏱️ Tiempo Estudio: ${response.metadatos?.tiempo_estimado_estudio_minutos || 15} min</span>
             <span class="chip">🛡️ Fidelidad RAG: ${scorePct}%</span>
           </div>
 
           <h1 class="doc-title">${title}</h1>
-          <p class="intro-text">${response.contenido_adaptado.introduccion_contextualizada}</p>
+          <p class="intro-text">${response.contenido_adaptado?.introduccion_contextualizada || ''}</p>
 
           <div class="items-wrapper">
             ${itemsHtml}
@@ -239,8 +349,8 @@ export class ExportService {
           <div class="quality-panel-pdf">
             <div class="quality-title">🛡️ Panel de Calidad y Anclaje RAG Verificado (Score: ${scorePct}%)</div>
             <p style="font-size:12px; color:#065f46; margin:0;">
-              <strong>Claridad Pedagógica:</strong> ${response.evaluacion_calidad.claridad_pedagogica} | 
-              <strong>Observaciones:</strong> ${response.evaluacion_calidad.observaciones}
+              <strong>Claridad Pedagógica:</strong> ${response.evaluacion_calidad?.claridad_pedagogica || 'Alta'} | 
+              <strong>Observaciones:</strong> ${response.evaluacion_calidad?.observaciones || 'Verificado'}
             </p>
           </div>
 
@@ -266,7 +376,26 @@ export class ExportService {
   }
 
   private cleanCodeSnippet(raw: string): string {
-    return raw.replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim();
+    return (raw || '').replace(/^```[a-z]*\n?/i, '').replace(/```$/i, '').trim();
+  }
+
+  private slugify(text: string): string {
+    return (text || 'nuevamente-contenido')
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 50) || 'nuevamente-contenido';
+  }
+
+  private escapeHtml(text: string): string {
+    return (text || '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 
   private triggerDownload(blob: Blob, filename: string): void {

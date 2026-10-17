@@ -50,3 +50,16 @@ def get_current_user(
         }
 
     raise HTTPException(status_code=401, detail="Se requiere autenticación. Proporcione un Header Authorization Bearer o X-API-Key.")
+
+
+def get_current_user_optional(
+    authorization: Optional[str] = Header(None),
+    x_api_key: Optional[str] = Header(None)
+) -> Optional[Dict[str, Any]]:
+    """Attempts to resolve the current user if credentials are provided, returning None otherwise."""
+    if not authorization and not x_api_key:
+        return None
+    try:
+        return get_current_user(authorization=authorization, x_api_key=x_api_key)
+    except Exception:
+        return None

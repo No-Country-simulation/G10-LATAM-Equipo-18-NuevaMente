@@ -42,12 +42,38 @@ class PDFExportService:
         self.color_secondary = (52, 73, 94) # Gris oscuro
         self.color_accent = (231, 76, 60) # Rojo sutil para alertas/hints
 
+    @staticmethod
+    def _safe_text(text: Optional[str]) -> str:
+        if not text:
+            return ""
+        t = (
+            str(text)
+            .replace("“", '"')
+            .replace("”", '"')
+            .replace("‘", "'")
+            .replace("’", "'")
+            .replace("—", "-")
+            .replace("–", "-")
+            .replace("…", "...")
+            .replace("✓", "[OK]")
+            .replace("⚠️", "[!]")
+            .replace("💡", "[*]")
+            .replace("📄", "")
+            .replace("☁️", "")
+            .replace("🛡️", "")
+            .replace("👤", "")
+            .replace("🎯", "")
+            .replace("⏱️", "")
+            .replace("🖨️", "")
+        )
+        return t.encode("latin-1", "replace").decode("latin-1")
+
     def generate_pdf(self, content: AdaptedContent, output_path: str):
         try:
-            pdf = EducationalPDF(title=content.title)
+            pdf = EducationalPDF(title=self._safe_text(content.title))
             pdf.add_page()
             
-            self._create_cover(pdf, content.title)
+            self._create_cover(pdf, self._safe_text(content.title))
             self._create_index(pdf, content)
             self._create_content_pages(pdf, content)
             
@@ -56,6 +82,21 @@ class PDFExportService:
             return output_path
         except Exception as e:
             logger.error("Error generating PDF: %s", e)
+            raise
+
+    def generate_pdf_bytes(self, content: AdaptedContent) -> bytes:
+        try:
+            pdf = EducationalPDF(title=self._safe_text(content.title))
+            pdf.add_page()
+            
+            self._create_cover(pdf, self._safe_text(content.title))
+            self._create_index(pdf, content)
+            self._create_content_pages(pdf, content)
+            
+            out = pdf.output()
+            return bytes(out)
+        except Exception as e:
+            logger.error("Error generating PDF bytes: %s", e)
             raise
 
     def _create_cover(self, pdf: EducationalPDF, title: str):
@@ -124,10 +165,13 @@ class PDFExportService:
             for idx, section in enumerate(content.tutorial_sections, 1):
                 pdf.set_font("helvetica", "B", 14)
                 pdf.set_text_color(*self.color_secondary)
-                # Asumiendo que section es un dict con 'titulo' y 'contenido'
-                sec_title = section.get('titulo', f"Sección {idx}")
-                sec_content = section.get('contenido', '')
-                pdf.multi_cell(0, 10, sec_title, new_x="LMARGIN", new_y="NEXT")
+                if isinstance(section, dict):
+                    sec_title = section.get('encabezado') or section.get('titulo', f"Paso {idx}")
+                    sec_content = section.get('contenido', '')
+                else:
+                    sec_title = getattr(section, 'encabezado', getattr(section, 'titulo', f"Paso {idx}"))
+                    sec_content = getattr(section, 'contenido', '')
+                pdf.multi_cell(0, 10, self._safe_text(sec_title), new_x="LMARGIN", new_y="NEXT")
                 self._add_body_text(pdf, sec_content)
                 pdf.ln(5)
                 
@@ -148,16 +192,16 @@ class PDFExportService:
                 pdf.set_font("helvetica", "B", 12)
                 pdf.set_fill_color(240, 248, 255)
                 pdf.set_text_color(*self.color_secondary)
-                pdf.multi_cell(0, 10, f"#{idx}: {frente}", fill=True, new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 10, self._safe_text(f"#{idx}: {frente}"), fill=True, new_x="LMARGIN", new_y="NEXT")
 
                 if dorso:
                     pdf.set_font("helvetica", "", 12)
-                    pdf.multi_cell(0, 10, f"{dorso}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.multi_cell(0, 10, self._safe_text(f"{dorso}"), new_x="LMARGIN", new_y="NEXT")
 
                 if pista:
                     pdf.set_font("helvetica", "I", 10)
                     pdf.set_text_color(*self.color_accent)
-                    pdf.multi_cell(0, 8, f"Pista / Justificación: {pista}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.multi_cell(0, 8, self._safe_text(f"Pista / Justificación: {pista}"), new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(5)
                 
         # 5. Quizzes
@@ -167,27 +211,27 @@ class PDFExportService:
             for idx, quiz in enumerate(content.quizzes, 1):
                 pdf.set_font("helvetica", "B", 12)
                 pdf.set_text_color(*self.color_secondary)
-                pdf.multi_cell(0, 10, f"Pregunta {idx}: {quiz.question}", new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 10, self._safe_text(f"Pregunta {idx}: {quiz.question}"), new_x="LMARGIN", new_y="NEXT")
                 
                 pdf.set_font("helvetica", "", 11)
                 for opt in quiz.options:
                     pdf.set_x(pdf.l_margin + 10)
-                    pdf.multi_cell(0, 8, f"- {opt}", new_x="LMARGIN", new_y="NEXT")
+                    pdf.multi_cell(0, 8, self._safe_text(f"- {opt}"), new_x="LMARGIN", new_y="NEXT")
                     
                 pdf.set_font("helvetica", "I", 11)
                 pdf.set_text_color(*self.color_primary)
-                pdf.multi_cell(0, 8, f"Correcta: {quiz.correct_answer}", new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 8, self._safe_text(f"Correcta: {quiz.correct_answer}"), new_x="LMARGIN", new_y="NEXT")
                 pdf.set_text_color(*self.color_secondary)
-                pdf.multi_cell(0, 8, f"Explicación: {quiz.didactic_justification}", new_x="LMARGIN", new_y="NEXT")
+                pdf.multi_cell(0, 8, self._safe_text(f"Explicación: {quiz.didactic_justification}"), new_x="LMARGIN", new_y="NEXT")
                 pdf.ln(8)
 
     def _add_section_title(self, pdf: EducationalPDF, text: str):
         pdf.set_font("helvetica", "B", 16)
         pdf.set_text_color(*self.color_primary)
-        pdf.cell(0, 12, text, new_x="LMARGIN", new_y="NEXT")
+        pdf.cell(0, 12, self._safe_text(text), new_x="LMARGIN", new_y="NEXT")
         pdf.ln(2)
 
     def _add_body_text(self, pdf: EducationalPDF, text: str):
         pdf.set_font("helvetica", "", 12)
         pdf.set_text_color(*self.color_secondary)
-        pdf.multi_cell(0, 8, text, new_x="LMARGIN", new_y="NEXT")
+        pdf.multi_cell(0, 8, self._safe_text(text), new_x="LMARGIN", new_y="NEXT")
