@@ -1,0 +1,43 @@
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: nuevamente-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    environment:
+      - PYTHONUNBUFFERED=1
+    volumes:
+      - backend_data:/app/data
+      - backend_storage:/app/storage_mock
+    networks:
+      - nuevamente-net
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: nuevamente-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+    networks:
+      - nuevamente-net
+
+volumes:
+  backend_data:
+    driver: local
+  backend_storage:
+    driver: local
+
+networks:
+  nuevamente-net:
+    driver: bridge

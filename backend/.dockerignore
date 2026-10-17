@@ -1,0 +1,16 @@
+venv/
+.venv/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+htmlcov/
+.git/
+.gitignore
+*.log
+storage_mock/
+data/*.db
+data/*.sqlite
+.oci/

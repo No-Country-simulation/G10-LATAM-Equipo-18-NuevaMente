@@ -16,3 +16,5 @@ pypdf>=4.0.0
 fpdf2>=2.7.0
 cohere>=5.0.0
 genanki>=0.13.0
+pymupdf>=1.24.0
+pymupdf4llm>=0.0.17
