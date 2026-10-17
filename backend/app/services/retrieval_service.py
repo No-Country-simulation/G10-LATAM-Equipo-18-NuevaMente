@@ -23,7 +23,7 @@ Output:
 """
 
 import logging
-from typing import Any, Dict, List, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 from rank_bm25 import BM25Okapi
 
