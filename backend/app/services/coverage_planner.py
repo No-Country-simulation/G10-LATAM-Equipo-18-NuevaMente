@@ -234,6 +234,21 @@ class CoveragePlanner:
             if len(content.strip()) < _MIN_SUBSTANTIVE_CHARS:
                 continue
 
+            # Neutralize page numbers or roman numeral noise in section titles
+            is_page_num_title = bool(
+                re.match(r"^(?:(?:p[áa]gina|p[áa]g\.?|page)\s*)?\d+(?:\s*(?:de|of|/)\s*\d+)?$", raw_title, re.IGNORECASE)
+                or re.match(r"^\d+\s*(?:de|of|/)\s*\d+$", raw_title, re.IGNORECASE)
+            )
+            is_roman_or_symbols = bool(
+                re.match(r"^[ivxlcdm\.\s\-\#\*\_]+$", raw_title, re.IGNORECASE)
+                or re.match(r"^[\#\*\_\~\`\>\s\.\-\:\,\;]+$", raw_title)
+            )
+            if is_page_num_title or is_roman_or_symbols:
+                chunk_copy = dict(chunk)
+                chunk_copy["title"] = None
+                result.append(chunk_copy)
+                continue
+
             result.append(chunk)
         return result
 

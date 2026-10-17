@@ -58,10 +58,10 @@ _CHARACTER_REPLACEMENTS = {
 }
 _CHARACTER_TABLE = str.maketrans(_CHARACTER_REPLACEMENTS)
 
-# Whole-line page numbering: "Página 5", "Page 5 of 10", "Pág. 3/8", "- 7 -".
+# Whole-line page numbering: "Página 5", "Page 5 of 10", "Pág. 3/8", "- 7 -", "53 de 363".
 # Marker lines such as "[PÁGINA 5]" do not match because of the brackets.
 _PAGE_NUMBER_LINE = re.compile(
-    r"^(?:(?:p[áa]gina|p[áa]g\.?|page)\s*\d+(?:\s*(?:de|of|/)\s*\d+)?|[-–—]\s*\d+\s*[-–—])$",
+    r"^(?:(?:p[áa]gina|p[áa]g\.?|page)\s*\d+(?:\s*(?:de|of|/)\s*\d+)?|\d+\s*(?:de|of|/)\s*\d+|[-–—]\s*\d+\s*[-–—])$",
     re.IGNORECASE,
 )
 

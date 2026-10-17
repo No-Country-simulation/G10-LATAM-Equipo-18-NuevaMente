@@ -25,6 +25,6 @@ OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the corresponding fields according to '{output_format}':
 - For Flashcards: "frente", "dorso", "pista_didactica", "fuentes".
 - For Quiz: "pregunta", "opciones" (exactly 4 options), "respuesta_correcta", "justificacion", "fuentes".
-- For Tutorial: "paso" (integer), "titulo", "instruccion", "ejemplo", "fuentes".
+- For Tutorial: "paso" (integer, 1-based sequential), "titulo" (short descriptive title without "Paso X:" prefix), "instruccion", "ejemplo", "fuentes".
 - For Summary: "punto_clave", "impacto_negocio", "fuentes".
 - For Class Script: "escena" (integer), "duracion_seg", "narracion", "apoyo_visual", "fuentes".

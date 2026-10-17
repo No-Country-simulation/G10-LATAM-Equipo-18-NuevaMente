@@ -59,6 +59,76 @@ def _is_spanish(target_language: Optional[str]) -> bool:
     return lang.startswith("es") or "span" in lang
 
 
+def _clean_concept_text(raw_concept: str, context: str = "", doc_title: str = "") -> str:
+    """Sanitizes raw concept strings, stripping markdown formatting, page numbering,
+    roman numeral noise, and trailing binary/punctuation artifacts. If the concept
+    is non-substantive, extracts meaningful technical terms from context or doc_title."""
+    if not raw_concept:
+        raw_concept = ""
+    # Strip markdown headers (#), bold (**), italics (* or _), backticks (`), quotes (>)
+    clean = re.sub(r"[\#\*\_\~\`\>]+", "", str(raw_concept)).strip()
+    # Strip PDF xref/EOF artifacts
+    clean = re.sub(r"(?:%?\s*startxref[\s\d]*|%%EOF|xref\s*\d+\s*\d+|\b\d{5,}\b)", "", clean, flags=re.IGNORECASE).strip()
+
+    # Strip leaked page numbers embedded anywhere in the string: "53 de 363", "página 12", etc.
+    clean = re.sub(r"\b\d+\s*(?:de|of|/)\s*\d+\b", "", clean, flags=re.IGNORECASE).strip()
+    clean = re.sub(r"\b(?:p[áa]gina|page)\s*\d+\b", "", clean, flags=re.IGNORECASE).strip()
+
+    # Strip leading/trailing numbering or punctuation (e.g., "1.2. ", "VII.", ":", "-")
+    clean = re.sub(r"^[\d\.\-\)\:\,\;\s]+", "", clean).strip()
+    clean = re.sub(r"[\:\%\-_\.\,\;\s]+$", "", clean).strip()
+
+    # Strip dangling prepositions or connectors left at end after removing page number
+    dangling_pat = re.compile(r"\b(?:de|en|sobre|para|con|of|for|the|el|la|los|las|y)\s*$", re.IGNORECASE)
+    while dangling_pat.search(clean):
+        clean = dangling_pat.sub("", clean).strip()
+        clean = re.sub(r"[\:\%\-_\.\,\;\s]+$", "", clean).strip()
+
+    # Detect if clean is purely Roman numerals (e.g. "VII", "IV", "III") or pure numbers
+    is_roman = bool(re.match(r"^[IVXLCDMivxlcdm\s\.]+$", clean))
+    is_number = bool(re.match(r"^\d+$", clean))
+
+    # Detect if clean is a generic prefix that lost its substantive subject
+    is_truncated_prefix = clean.lower() in {
+        "configuración y aplicación",
+        "configuración y aplicación de",
+        "configuración",
+        "aplicación",
+        "implementación",
+        "implementar",
+        "configuring and applying",
+        "configuration and application",
+        "configuration",
+    }
+
+    # If clean is invalid, pure symbols, roman numerals, or truncated prefix, extract from context or doc_title
+    if is_roman or is_number or is_truncated_prefix or len(clean) < 3 or re.match(r"^[\W_]+$", clean):
+        fallback_term = ""
+        if context:
+            words = [
+                w for w in re.findall(r"[A-ZÁÉÍÓÚÜÑa-záéíóúüñ]{4,}", context)
+                if w.lower() not in {
+                    "este", "esta", "para", "como", "sobre", "desde", "hasta",
+                    "pagina", "page", "section", "seccion", "capitulo", "chapter",
+                    "configuracion", "configuración", "aplicacion", "aplicación",
+                    "implementar", "implementación", "seguir", "siguiendo", "directrices", "tecnicas", "técnicas"
+                }
+            ]
+            if len(words) >= 2:
+                fallback_term = " ".join(words[:3]).capitalize()
+            elif words:
+                fallback_term = words[0].capitalize()
+        if not fallback_term or len(fallback_term) < 3:
+            fallback_term = doc_title.strip() if doc_title and len(doc_title.strip()) > 2 else "Componente Técnico"
+
+        if is_truncated_prefix:
+            clean = f"{clean} de {fallback_term}"
+        else:
+            clean = fallback_term
+
+    return clean
+
+
 QUANTITY_TABLE: Dict[str, Dict[str, int]] = {
     settings.FORMAT_FLASHCARDS: {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80, "brief": 10, "standard": 20, "wide": 40, "comprehensive": 80},
     settings.FORMAT_QUIZ: {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30, "brief": 5, "standard": 10, "wide": 20, "comprehensive": 30},
@@ -128,13 +198,14 @@ class PipelineStages:
                 continue
 
             # Use key_concepts to enrich topic label when available
-            concept = self._best_concept_for_section(sp.section_title, key_concepts)
+            raw_concept = self._best_concept_for_section(sp.section_title, key_concepts)
 
-            # Clean raw section titles of leading numbers (e.g. "1.2 Componentes" -> "Componentes")
-            clean_section = re.sub(r"^[\d\.\-\)\s]+", "", sp.section_title).strip()
+            # Clean raw section titles and concepts of markdown, page numbers, and roman numerals
+            clean_section = _clean_concept_text(sp.section_title, context=sp.context_snippet, doc_title=doc_title)
+            concept = _clean_concept_text(raw_concept, context=sp.context_snippet, doc_title=doc_title)
             topic_label = (
-                f"{concept}" if concept != sp.section_title and concept != clean_section
-                else (clean_section if clean_section else sp.section_title)
+                f"{concept}" if concept and concept != clean_section
+                else (clean_section if clean_section else (doc_title or "Módulo Técnico"))
             )
 
             topics.append({
@@ -864,13 +935,12 @@ class PipelineStages:
         fmt = request.output_format.lower()
         topic_name = topic["topic"]
         raw_concept = topic.get("concept", topic_name.split("(")[0].strip())
+        context = topic.get("context", "")
 
-        # Clean concept of any trailing PDF xref or startxref artifacts
-        clean_concept = re.sub(r"(?:%?\s*startxref[\s\d]*|%%EOF|xref\s*\d+\s*\d+|\b\d{5,}\b)", "", raw_concept, flags=re.IGNORECASE).strip()
-        clean_concept = re.sub(r"[\:\%\-_]+$", "", clean_concept).strip()
+        # Clean concept of markdown, page numbers, roman numerals, and binary artifacts
+        clean_concept = _clean_concept_text(raw_concept, context=context, doc_title=doc_title)
         main_concept = clean_concept if len(clean_concept) > 2 else "Componente Técnico"
 
-        context = topic.get("context", "")
         is_spanish = _is_spanish(target_language)
 
         # Avoid redundant phrasing when topic and concept share the same text
@@ -954,14 +1024,14 @@ class PipelineStages:
             if is_spanish:
                 return {
                     "paso": item_idx,
-                    "titulo": f"Paso {item_idx}: Configuración y aplicación de {main_concept}",
+                    "titulo": f"Configuración y aplicación de {main_concept}",
                     "instruccion": f"Implementar {main_concept} siguiendo las directrices técnicas: {target_sentence}",
                     "ejemplo": f"// Ejemplo de configuración práctica para {main_concept}\nejecutar_accion('{main_concept}')",
                     "fuentes": [fuente],
                 }
             return {
                 "paso": item_idx,
-                "titulo": f"Step {item_idx}: Configuring {main_concept}",
+                "titulo": f"Configuring {main_concept}",
                 "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
                 "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
                 "fuentes": [fuente],
@@ -1043,22 +1113,54 @@ class PipelineStages:
                 quizzes=quizzes,
             )
         elif "tutorial" in fmt:
+            for i, it in enumerate(items):
+                # Enforce strict 1-based sequential ordering
+                it["paso"] = i + 1
+
+                # Sanitize title: remove any repeated 'Paso X:', 'Step X:', and markdown characters
+                clean_tit = str(it.get("titulo") or f"Paso {i + 1}").strip()
+                while True:
+                    stripped = re.sub(r"^(?:paso|step)\s*\d+[\s:\.\-]+", "", clean_tit, flags=re.IGNORECASE).strip()
+                    if stripped == clean_tit:
+                        break
+                    clean_tit = stripped
+
+                clean_tit = re.sub(r"[\#\*\_\~\`]+", "", clean_tit).strip()
+                clean_tit = _clean_concept_text(clean_tit, context=it.get("instruccion", ""), doc_title=doc_title)
+                if not clean_tit or len(clean_tit) < 3:
+                    clean_tit = f"Módulo técnico {i + 1}" if is_spanish else f"Technical module {i + 1}"
+                it["titulo"] = clean_tit
+
+                # Sanitize instruction of leftover markdown headers
+                if "instruccion" in it and isinstance(it["instruccion"], str):
+                    it["instruccion"] = re.sub(r"^(?:#{1,6}\s*|\*{1,2})", "", it["instruccion"]).strip()
+
             sections = [
                 {
                     "encabezado": (
-                        f"Paso {it.get('paso', i+1)}: {it.get('titulo', f'Módulo {i+1}')}"
+                        f"Paso {it['paso']}: {it['titulo']}"
                         if is_spanish
-                        else f"Step {it.get('paso', i+1)}: {it.get('titulo', f'Module {i+1}')}"
+                        else f"Step {it['paso']}: {it['titulo']}"
                     ),
                     "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}".strip(),
                 }
-                for i, it in enumerate(items)
+                for it in items
             ]
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
                 items=items,
                 tutorial_sections=sections,
+            )
+        elif "guion" in fmt or "clase" in fmt or "script" in fmt:
+            for i, it in enumerate(items):
+                it["escena"] = i + 1
+                if "narracion" in it and isinstance(it["narracion"], str):
+                    it["narracion"] = re.sub(r"^(?:#{1,6}\s*|\*{1,2})", "", it["narracion"]).strip()
+            return AdaptedContent(
+                title=final_title,
+                contextualized_introduction=intro,
+                items=items,
             )
         elif "resumen" in fmt:
             summary_bullets = [

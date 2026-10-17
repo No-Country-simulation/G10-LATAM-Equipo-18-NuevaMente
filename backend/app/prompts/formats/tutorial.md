@@ -24,7 +24,7 @@ INSTRUCTIONS FOR TUTORIAL:
 OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the exact fields:
 - "paso": Integer representing the step number.
-- "titulo": Short title for this step.
+- "titulo": Short descriptive title for this step (DO NOT include "Paso X:" or "Step X:" in this field as the UI renders the step number automatically).
 - "instruccion": Detailed actionable instruction.
 - "ejemplo": Code block, configuration snippet, or practical example (if applicable).
 - "fuentes": Array of sources as specified above.
