@@ -1,6 +1,6 @@
-# Componentes
+﻿# Componentes
 
-> 📍 `docs/01-Arquitectura/` · [Volver al README](../../README.md)
+> `docs/01-Arquitectura/` · [Volver al README](../../README.md)
 
 Inventario de las piezas que forman NuevaMente. Para el detalle de ejecución,
 ver [Arquitectura](Arquitectura.md) y
@@ -17,7 +17,7 @@ app/
 ├── infrastructure/     # clientes: gemini, groq, jina, cohere, oci, supabase
 ├── schemas/            # contratos Pydantic (adaptation, document_record, …)
 ├── core/               # configuración central (config.py)
-├── prompts/            # plantillas de prompt (en español)
+├── prompts/            # plantillas de prompt
 └── domain/             # tipos y reglas de negocio puras
 ```
 
@@ -65,6 +65,7 @@ UI mínima en Gradio para validar el pipeline sin la SPA. Detalle en
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

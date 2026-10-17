@@ -1,6 +1,6 @@
 ﻿# Módulo de Ingestión y Chunking
 
-> 📍 `docs/04-Documentacion/backend/ingestion/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/ingestion/` · [Volver al README](../../../../README.md)
 
 Este documento describe la arquitectura, funcionamiento e instrucciones de uso del módulo de carga, limpieza y segmentación de documentos técnicos en NuevaMente.
 
@@ -120,6 +120,7 @@ El script procesará los archivos de muestra ubicados en `backend/tests/manual/s
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

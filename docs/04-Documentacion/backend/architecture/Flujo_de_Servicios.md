@@ -1,6 +1,6 @@
-# Arquitectura y Flujo de Servicios del Backend
+﻿# Arquitectura y Flujo de Servicios del Backend
 
-> 📍 `docs/04-Documentacion/backend/architecture/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/architecture/` · [Volver al README](../../../../README.md)
 
 > **Nota de alcance:** Este documento describe el backend como un todo: la capa
 > HTTP (`app/api/v1/endpoints/`), los servicios del pipeline (`backend/app/services/`)
@@ -199,6 +199,7 @@ exportación a Anki y a PDF se resuelve en `app/api/v1/endpoints/anki.py` y
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

@@ -1,6 +1,6 @@
-# Módulo de Reranking
+﻿# Módulo de Reranking
 
-> 📍 `docs/04-Documentacion/backend/retrieval/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/retrieval/` · [Volver al README](../../../../README.md)
 
 Última etapa de la recuperación: reordena los candidatos que devuelve
 [Recuperación](Recuperacion.md) para quedarse con los más relevantes.
@@ -85,6 +85,7 @@ simplemente lo salta y usa el orden de RRF.
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

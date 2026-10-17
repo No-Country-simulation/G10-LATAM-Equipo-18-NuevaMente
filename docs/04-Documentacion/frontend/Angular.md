@@ -1,6 +1,6 @@
-# Frontend Angular
+﻿# Frontend Angular
 
-> 📍 `docs/04-Documentacion/frontend/` · [Volver al README](../../../README.md)
+> `docs/04-Documentacion/frontend/` · [Volver al README](../../../README.md)
 
 Interfaz principal de NuevaMente: una SPA en **Angular 17** (TypeScript) que
 consume la API REST del backend. Vive en `frontend/`.
@@ -108,6 +108,7 @@ ver [Gradio](Gradio.md).
 
 <div align="right">
 
-[⬆ Volver al README](../../../README.md)
+[Volver al README](../../../README.md)
 
 </div>
+

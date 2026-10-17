@@ -1,6 +1,6 @@
-# Uso Local
+﻿# Uso Local
 
-> 📍 `docs/02-Instalacion/` · [Volver al README](../../README.md)
+> `docs/02-Instalacion/` · [Volver al README](../../README.md)
 
 Guía paso a paso para levantar NuevaMente en tu máquina: backend, frontend y la
 interfaz de pruebas.
@@ -119,6 +119,7 @@ uv run --with pytest --with email-validator --with genanki pytest tests/test_pha
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

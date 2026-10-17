@@ -1,6 +1,6 @@
 # Tecnologías
 
-> 📍 `docs/01-Arquitectura/` · [Volver al README](../../README.md)
+> `docs/01-Arquitectura/` · [Volver al README](../../README.md)
 
 Stack tecnológico de NuevaMente.
 
@@ -18,7 +18,7 @@ Stack tecnológico de NuevaMente.
 | **LangGraph** | Orquestación multi-agente de la generación. |
 | **FAISS (CPU)** | Índice vectorial local, uno por documento. |
 | **BM25 (`rank_bm25`)** | Búsqueda léxica complementaria a la densa. |
-| **infloat** | Modelo de embeddings local (último respaldo). |
+| **intfloat/multilingual-e5-base** | Modelo de embeddings local (último respaldo). |
 
 ## 2. Frontend
 
@@ -63,6 +63,7 @@ Stack tecnológico de NuevaMente.
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

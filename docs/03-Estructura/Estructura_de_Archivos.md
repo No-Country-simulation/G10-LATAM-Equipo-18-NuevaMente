@@ -1,6 +1,6 @@
-# Estructura de Archivos
+﻿# Estructura de Archivos
 
-> 📍 `docs/03-Estructura/` · [Volver al README](../../README.md)
+> `docs/03-Estructura/` · [Volver al README](../../README.md)
 
 Mapa del repositorio de NuevaMente. Para el detalle de cada pieza, ver
 [Componentes](../01-Arquitectura/Componentes.md) y
@@ -86,6 +86,7 @@ docs/
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

@@ -1,6 +1,6 @@
-# Almacenamiento en OCI Object Storage
+﻿# Almacenamiento en OCI Object Storage
 
-> 📍 `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
 
 Dos caminos válidos. El código del backend soporta ambos; lo único que cambia es dónde viven los buckets y qué policy se usa.
 
@@ -108,7 +108,7 @@ _compartment_id = settings.OCI_COMPARTMENT_OCID or config.get("tenancy")
 OCI_COMPARTMENT_OCID=ocid1.compartment.oc1..aaaa...
 ```
 
-⚠️ **Advertencia:** Si lo dejas vacío, `ensure_bucket` creará los buckets en `root` y la policy en el compartment `nuevamente` no los cubrirá → generará un error 404 de permisos. Los buckets en `root` además no se pueden "mover" directamente a un compartment: hay que borrarlos y recrearlos.
+**Advertencia:** Si lo dejas vacío, `ensure_bucket` creará los buckets en `root` y la policy en el compartment `nuevamente` no los cubrirá → generará un error 404 de permisos. Los buckets en `root` además no se pueden "mover" directamente a un compartment: hay que borrarlos y recrearlos.
 
 ---
 
@@ -161,6 +161,7 @@ Si aparece un error `404`/`403`, revisa:
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

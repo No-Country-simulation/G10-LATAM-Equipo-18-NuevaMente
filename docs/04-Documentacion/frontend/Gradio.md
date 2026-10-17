@@ -1,6 +1,6 @@
 # Frontend Gradio (interfaz de pruebas)
 
-> 📍 `docs/04-Documentacion/frontend/` · [Volver al README](../../../README.md)
+> `docs/04-Documentacion/frontend/` · [Volver al README](../../../README.md)
 
 Interfaz mínima de pruebas (`frontend_gradio/app_gradio.py`) construida con
 Gradio. Sirve para validar el pipeline completo (ingesta → chunking → embeddings
@@ -52,7 +52,7 @@ Capacidades principales:
 4. Abre la URL local que muestra la consola (Gradio usa
    `http://127.0.0.1:7860` por defecto).
 
-El backend debe estar corriendo para que la interfaz pueda hablar con la API.
+5. La interfaz corre en proceso con los servicios del backend usando su mismo entorno Python y configuración `.env`, por lo que no es estrictamente obligatorio tener `uvicorn` activo en paralelo para probar el pipeline y la adaptación en Gradio.
 
 ---
 
@@ -81,6 +81,7 @@ El backend debe estar corriendo para que la interfaz pueda hablar con la API.
 
 <div align="right">
 
-[⬆ Volver al README](../../../README.md)
+[Volver al README](../../../README.md)
 
 </div>
+

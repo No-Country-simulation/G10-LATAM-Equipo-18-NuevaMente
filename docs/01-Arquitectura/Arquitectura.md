@@ -1,6 +1,6 @@
-# Arquitectura
+﻿# Arquitectura
 
-> 📍 `docs/01-Arquitectura/` · [Volver al README](../../README.md)
+> `docs/01-Arquitectura/` · [Volver al README](../../README.md)
 
 **NuevaMente** transforma documentación técnica en contenido educativo
 (flashcards, quizzes, tutoriales…) adaptado a un perfil, formato y sector
@@ -84,6 +84,7 @@ flowchart TD
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

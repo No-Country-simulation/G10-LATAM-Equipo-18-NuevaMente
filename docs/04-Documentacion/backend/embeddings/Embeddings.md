@@ -1,6 +1,6 @@
-# Módulo de Embeddings
+﻿# Módulo de Embeddings
 
-> 📍 `docs/04-Documentacion/backend/embeddings/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/embeddings/` · [Volver al README](../../../../README.md)
 
 Este documento describe cómo NuevaMente convierte texto en vectores
 (*embeddings*) y cómo controla cuotas y fallbacks. El almacenamiento de esos
@@ -167,6 +167,7 @@ reintento tras un fallo a mitad del documento.
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

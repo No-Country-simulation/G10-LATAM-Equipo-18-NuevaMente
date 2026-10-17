@@ -1,6 +1,6 @@
-# Arquitectura del Backend
+﻿# Arquitectura del Backend
 
-> 📍 `docs/04-Documentacion/backend/architecture/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/architecture/` · [Volver al README](../../../../README.md)
 
 Este documento describe cómo está organizado el backend de NuevaMente: la capa
 HTTP, los servicios del pipeline, los clientes de infraestructura y los
@@ -107,6 +107,7 @@ flowchart LR
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

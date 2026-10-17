@@ -1,6 +1,6 @@
-# Módulo de Recuperación (Retrieval)
+﻿# Módulo de Recuperación (Retrieval)
 
-> 📍 `docs/04-Documentacion/backend/retrieval/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/retrieval/` · [Volver al README](../../../../README.md)
 
 Este documento describe la etapa de recuperación del pipeline RAG: la búsqueda
 dentro de un documento ya indexado. El reordenamiento de resultados se detalla
@@ -112,6 +112,7 @@ Esta etapa no agrega variables propias; hereda las de
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

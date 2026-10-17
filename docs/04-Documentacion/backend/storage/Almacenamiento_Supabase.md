@@ -1,6 +1,6 @@
-# Almacenamiento de Documentos con Supabase
+﻿# Almacenamiento de Documentos con Supabase
 
-> 📍 `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
 
 Este documento cubre dos cosas: **la configuración manual que hay que hacer una vez** en el dashboard de Supabase, y **cómo usar en código** `document_storage_service.py` (el archivo original) y `document_repository.py` (su metadata: título, estado, `object_key`).
 
@@ -25,7 +25,7 @@ Es la rama de "con login" del proyecto — usa el mismo proyecto de Supabase que
 ### 1.3 Obtener las credenciales
 1. **Project Settings** → **API**.
 2. Copia **Project URL** → va en `SUPABASE_URL`.
-3. Copia la key de la fila **`service_role`** (⚠️ no la de `anon`/`public`) → va en `SUPABASE_KEY`.
+3. Copia la key de la fila **`service_role`** (no la de `anon`/`public`) → va en `SUPABASE_KEY`.
 
 ### 1.4 Variables de entorno
 
@@ -145,6 +145,7 @@ Ambos archivos exponen una fábrica (`get_document_storage()`, `get_document_rep
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

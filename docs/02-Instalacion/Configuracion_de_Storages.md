@@ -1,6 +1,6 @@
-# Configuración de Storages
+﻿# Configuración de Storages
 
-> 📍 `docs/02-Instalacion/` · [Volver al README](../../README.md)
+> `docs/02-Instalacion/` · [Volver al README](../../README.md)
 
 NuevaMente guarda dos cosas: el **documento original** y los **artefactos
 generados** (contenido educativo). El backend elige el almacenamiento por
@@ -79,6 +79,7 @@ print('OCI habilitado:', settings.OCI_ENABLED)
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

@@ -1,6 +1,6 @@
 # Contrato de la API de Ingesta
 
-> 📍 `docs/04-Documentacion/backend/ingestion/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/ingestion/` · [Volver al README](../../../../README.md)
 
 Este documento define la interfaz y contrato de comunicación de la ingesta, el
 procesamiento, la generación de embeddings y la indexación vectorial en
@@ -193,7 +193,7 @@ while (true) {
   const { value, done } = await reader.read();
   if (done) break;
   for (const line of decoder.decode(value).split("\n")) {
-    if (event.startsWith("data: ")) {
+    if (line.startsWith("data: ")) {
       const event = JSON.parse(line.slice(6));
       // {stage, message} … "done" / "failed" al final
       console.log(event.stage, event.message);
@@ -230,6 +230,7 @@ Cuando el documento alcanza el estado `ready`:
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+

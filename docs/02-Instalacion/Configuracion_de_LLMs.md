@@ -1,6 +1,6 @@
-# Configuración de LLMs
+﻿# Configuración de LLMs
 
-> 📍 `docs/02-Instalacion/` · [Volver al README](../../README.md)
+> `docs/02-Instalacion/` · [Volver al README](../../README.md)
 
 Cómo se configuran los modelos de lenguaje y de embeddings que usa NuevaMente.
 
@@ -87,6 +87,7 @@ Revisa el estado de las conexiones y claves configuradas.
 
 <div align="right">
 
-[⬆ Volver al README](../../README.md)
+[Volver al README](../../README.md)
 
 </div>
+

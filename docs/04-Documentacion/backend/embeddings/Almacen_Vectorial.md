@@ -1,6 +1,6 @@
-# Almacén Vectorial (FAISS)
+﻿# Almacén Vectorial (FAISS)
 
-> 📍 `docs/04-Documentacion/backend/embeddings/` · [Volver al README](../../../../README.md)
+> `docs/04-Documentacion/backend/embeddings/` · [Volver al README](../../../../README.md)
 
 Este documento describe cómo se indexan y persisten los embeddings generados por
 el [módulo de Embeddings](Embeddings.md). El motor es **FAISS**.
@@ -119,6 +119,7 @@ abrir el mismo `document_id` dos veces reutiliza el índice del caché en memori
 
 <div align="right">
 
-[⬆ Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md)
 
 </div>
+
