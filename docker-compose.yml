@@ -13,6 +13,7 @@ services:
       - ./backend/.env
     environment:
       - PYTHONUNBUFFERED=1
+      - ALLOW_LOCAL_STORAGE=true
     volumes:
       - backend_data:/app/data
       - backend_storage:/app/storage_mock
