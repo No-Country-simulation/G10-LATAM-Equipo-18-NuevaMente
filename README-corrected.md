@@ -59,17 +59,17 @@
 
 ```mermaid
 flowchart LR
-  A[Documentación técnica] --> B[Ingesta]
-  B --> C[Segmentación en chunks]
-  C --> D[Generación de embeddings]
-  D --> E[(Vector Store\nFAISS)]
-  E --> F[Recuperación vectorial\n(Búsqueda por similitud semántica)]
-  F --> G[Adaptación con LLM\n(Cascada + Fallback)]
-  G --> H[Contenido educativo estructurado]
-  H --> I[Frontend Angular 17]
-  K[API REST - FastAPI] <---> I
+  A["Documentación técnica"] --> B["Ingesta"]
+  B --> C["Segmentación en chunks"]
+  C --> D["Generación de embeddings"]
+  D --> E["(Vector Store\nFAISS)"]
+  E --> F["Recuperación vectorial\n(Búsqueda por similitud semántica)"]
+  F --> G["Adaptación con LLM\n(Cascada + Fallback)"]
+  G --> H["Contenido educativo estructurado"]
+  H --> I["Frontend Angular 17"]
+  K["API REST - FastAPI"] <---> I
   K <---> G
-  G --> L[(Persistencia\nOCI / SQLite)]
+  G --> L["(Persistencia\nOCI / SQLite)"]
 ```
 
 - **Backend:** FastAPI (Python >= 3.12), gestionado con [uv](https://github.com/astral-sh/uv).
@@ -87,7 +87,7 @@ flowchart LR
 ### Pasos rápidos:
 
 1. Clonar el repositorio.
-2. Configurar el backend con `uv` (no usar `requirements.txt`: está desactualizado).
+2. Configurar el backend con `uv`.
 3. Configurar el frontend con `npm`.
 4. Crear `backend/.env` a partir de `backend/.env.example`.
 5. Ejecutar backend y frontend.
@@ -116,7 +116,7 @@ flowchart LR
 
 ```text
 nueva-mente/
-├── backend/            # API FastAPI (Python >= 3.11)
+├── backend/            # API FastAPI (Python >= 3.12)
 │   ├── app/             # Núcleo: api/, core/, services/, prompts/, schemas/, infrastructure...
 │   ├── migrations/      # Migraciones SQL (aplicadas manualmente en Supabase)
 │   ├── scripts/         # Scripts de apoyo y diagnóstico
