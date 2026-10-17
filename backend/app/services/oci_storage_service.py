@@ -32,25 +32,47 @@ class OCIStorageService:
         json_data: dict,
         user_id: Optional[str] = None,
         version: int = 1,
+        doc_slug: Optional[str] = None,
+        recipient_profile: Optional[str] = None,
+        output_format: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Guarda los contenidos educativos adaptados (JSON) en el bucket de OCI Object Storage Always Free.
+        Guarda los contenidos educativos adaptados (JSON) en el bucket de OCI Object Storage Always Free
+        con trazabilidad completa.
         """
-        # Determinar clave jerárquica si no viene con prefijo usuarios/
         if object_name.startswith("usuarios/"):
             target_key = object_name
         else:
             content_id = object_name.replace(".json", "")
-            target_key = StorageBackend.build_content_key(user_id, content_id, version=version)
+            target_key = StorageBackend.build_content_key(
+                user_id=user_id,
+                content_id=content_id,
+                version=version,
+                doc_slug=doc_slug,
+                recipient_profile=recipient_profile,
+                output_format=output_format,
+            )
 
         body_bytes = json.dumps(json_data, ensure_ascii=False, indent=2).encode("utf-8")
+        metadata = {
+            "trazabilidad-tipo": "contenido_educativo",
+            "version": str(version),
+            "user-id": StorageBackend.sanitize_user_id(user_id),
+        }
+        if doc_slug:
+            metadata["documento-origen"] = doc_slug
+        if recipient_profile:
+            metadata["perfil-destinatario"] = recipient_profile
+        if output_format:
+            metadata["formato-salida"] = output_format
+
         try:
             res = self.backend.put_object(
                 bucket_name=bucket_name,
                 object_name=target_key,
                 data=body_bytes,
                 content_type="application/json",
-                metadata={"tipo": "contenido_educativo", "version": str(version)},
+                metadata=metadata,
             )
             return {
                 "bucket": bucket_name,
@@ -87,13 +109,21 @@ class OCIStorageService:
         else:
             target_key = StorageBackend.build_document_key(user_id, sha256_hash, object_name)
 
+        clean_name = StorageBackend.sanitize_filename(object_name)
+        metadata = {
+            "trazabilidad-tipo": "documento_fuente",
+            "nombre-original": clean_name,
+            "sha256": sha256_hash,
+            "user-id": StorageBackend.sanitize_user_id(user_id),
+        }
+
         try:
             res = self.backend.put_object(
                 bucket_name=bucket_name,
                 object_name=target_key,
                 data=file_bytes,
                 content_type=content_type,
-                metadata={"nombre_original": StorageBackend.sanitize_filename(object_name)},
+                metadata=metadata,
             )
             return {
                 "bucket": bucket_name,

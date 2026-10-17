@@ -462,14 +462,15 @@ class LangGraphOrchestrator(PipelineStages):
             graph_revision_count=revision_count,
         )
 
-        object_name = (
-            f"contenido-{self._slugify(doc_title)[:20]}-"
-            f"{self._slugify(request.recipient_profile)[:15]}-{int(time.time())}.json"
-        )
-        from app.services.storage_queue_service import StorageQueueService
-        content_id = f"cnt_{int(time.time() * 1000)}"
-        user_id = getattr(request, "user_id", None) or "usr_demo_001"
+        doc_slug = self._slugify(doc_title)[:25] or "doc"
+        profile_slug = self._slugify(request.recipient_profile)[:15] or "general"
+        format_slug = self._slugify(request.output_format)[:15] or "adaptado"
+        time_tag = int(time.time())
+        content_id = f"{doc_slug}_{profile_slug}_{format_slug}_{time_tag}"
+        user_id = getattr(request, "user_id", None) or "anonimo"
         version_num = getattr(request, "version", 1) or 1
+
+        from app.services.storage_queue_service import StorageQueueService
 
         response_payload = {
             "status": "exito",
@@ -485,6 +486,9 @@ class LangGraphOrchestrator(PipelineStages):
             user_id=user_id,
             json_data=response_payload,
             version=version_num,
+            doc_slug=doc_slug,
+            recipient_profile=profile_slug,
+            output_format=format_slug,
         )
         immediate_ok = queue_service.process_job(job_info["job_id"])
         upload_status_val = "completado" if immediate_ok else "pendiente"
@@ -515,7 +519,7 @@ class LangGraphOrchestrator(PipelineStages):
 
         try:
             pdf_service = PDFExportService()
-            output_name = f"scratch/{object_name.replace('.json', '.pdf')}"
+            output_name = f"scratch/{doc_slug}_{profile_slug}_{format_slug}_v{version_num}.pdf"
             pdf_service.generate_pdf(content=adapted_content, output_path=output_name)
         except Exception as e:
             logger.warning("Error generando PDF en LangGraph Formatter: %s", e)

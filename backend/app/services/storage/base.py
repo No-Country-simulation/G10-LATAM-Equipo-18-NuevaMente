@@ -80,21 +80,76 @@ class StorageBackend(ABC):
         return clean or "anonimo"
 
     @classmethod
-    def build_document_key(cls, user_id: Optional[str], sha256_hash: str, filename: str) -> str:
+    def build_document_key(
+        cls,
+        user_id: Optional[str],
+        sha256_hash: str,
+        filename: str,
+        timestamp: Optional[str] = None,
+    ) -> str:
         """
-        Construye la clave jerárquica para un documento fuente:
-        usuarios/{user_id}/documentos/{sha256}/{nombre_saneado}
+        Construye la clave jerárquica con trazabilidad profesional para un documento fuente:
+        usuarios/{user_id}/documentos/{slug}_{YYYYMMDD}_{hash8}/{nombre_saneado}
         """
         safe_user = cls.sanitize_user_id(user_id)
         safe_name = cls.sanitize_filename(filename)
-        return f"usuarios/{safe_user}/documentos/{sha256_hash}/{safe_name}"
+
+        # Extraer slug legible del nombre base
+        stem = safe_name.rsplit(".", 1)[0] if "." in safe_name else safe_name
+        slug = re.sub(r"[^a-zA-Z0-9_-]", "_", stem)[:35].strip("_") or "doc"
+
+        # Fecha en formato compacto ISO UTC (YYYYMMDD)
+        if not timestamp:
+            from datetime import datetime, timezone
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        short_hash = (sha256_hash or "00000000")[:8]
+        folder_trace = f"{slug}_{timestamp}_{short_hash}"
+        return f"usuarios/{safe_user}/documentos/{folder_trace}/{safe_name}"
 
     @classmethod
-    def build_content_key(cls, user_id: Optional[str], content_id: str, version: int = 1) -> str:
+    def build_content_key(
+        cls,
+        user_id: Optional[str],
+        content_id: str,
+        version: int = 1,
+        doc_slug: Optional[str] = None,
+        recipient_profile: Optional[str] = None,
+        output_format: Optional[str] = None,
+        timestamp: Optional[str] = None,
+    ) -> str:
         """
-        Construye la clave jerárquica para un artefacto educativo JSON:
-        usuarios/{user_id}/contenidos/{content_id}/v{version}.json
+        Construye la clave jerárquica con trazabilidad profesional para un artefacto educativo:
+        usuarios/{user_id}/contenidos/{carpeta_trazable}/{nombre_archivo_trazable}_v{version}.json
         """
         safe_user = cls.sanitize_user_id(user_id)
-        clean_content_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", content_id).strip("_")
-        return f"usuarios/{safe_user}/contenidos/{clean_content_id}/v{version}.json"
+        clean_content_id = re.sub(r"[^a-zA-Z0-9_-]", "_", content_id).strip("_")
+
+        # Construir identificador trazable si se disponen metadatos contextuales
+        parts = []
+        if doc_slug:
+            clean_doc = re.sub(r"[^a-zA-Z0-9_-]", "_", doc_slug)[:25].strip("_")
+            if clean_doc:
+                parts.append(clean_doc)
+        if recipient_profile:
+            clean_prof = re.sub(r"[^a-zA-Z0-9_-]", "_", recipient_profile)[:15].strip("_")
+            if clean_prof:
+                parts.append(clean_prof)
+        if output_format:
+            clean_fmt = re.sub(r"[^a-zA-Z0-9_-]", "_", output_format)[:15].strip("_")
+            if clean_fmt:
+                parts.append(clean_fmt)
+
+        if not timestamp:
+            from datetime import datetime, timezone
+            timestamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+
+        if parts:
+            base_trace = "_".join(parts)
+            folder_trace = f"{base_trace}_{timestamp}"
+            file_name = f"{base_trace}_v{version}.json"
+        else:
+            folder_trace = clean_content_id
+            file_name = f"{clean_content_id}_v{version}.json"
+
+        return f"usuarios/{safe_user}/contenidos/{folder_trace}/{file_name}"

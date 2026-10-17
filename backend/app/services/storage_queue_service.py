@@ -19,6 +19,7 @@ import json
 import uuid
 import logging
 from typing import Dict, Any, Optional, List, Tuple
+from datetime import datetime, timezone
 
 from app.core.config import settings
 from app.core.security import get_db
@@ -100,14 +101,26 @@ class StorageQueueService:
         user_id: Optional[str],
         json_data: dict,
         version: int = 1,
+        doc_slug: Optional[str] = None,
+        recipient_profile: Optional[str] = None,
+        output_format: Optional[str] = None,
+        timestamp: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
-        Registra un trabajo de guardado de contenido educativo en 'storage_jobs' con estado 'pendiente'.
-        Retorna la información del objeto y el estado inicial.
+        Registra un trabajo de guardado de contenido educativo en 'storage_jobs' con estado 'pendiente'
+        y trazabilidad completa de nomenclatura y metadatos.
         """
         user_clean = StorageBackend.sanitize_user_id(user_id)
         bucket = settings.OCI_BUCKET_CONTENT
-        object_key = StorageBackend.build_content_key(user_clean, content_id, version=version)
+        object_key = StorageBackend.build_content_key(
+            user_id=user_clean,
+            content_id=content_id,
+            version=version,
+            doc_slug=doc_slug,
+            recipient_profile=recipient_profile,
+            output_format=output_format,
+            timestamp=timestamp,
+        )
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now = time.time()
 
@@ -160,12 +173,19 @@ class StorageQueueService:
 
         try:
             data_bytes = payload_str.encode("utf-8")
+            metadata = {
+                "trazabilidad-tipo": "contenido_educativo",
+                "content-id": str(row["content_id"]),
+                "version": str(version),
+                "user-id": str(row["user_id"]),
+                "creado-utc": datetime.now(timezone.utc).isoformat(),
+            }
             res = backend.put_object(
                 bucket_name=bucket,
                 object_name=object_key,
                 data=data_bytes,
                 content_type="application/json",
-                metadata={"tipo": "contenido_educativo", "version": str(version)},
+                metadata=metadata,
             )
 
             # Confirmado por el SDK
@@ -360,13 +380,19 @@ class StorageQueueService:
         object_key = StorageBackend.build_document_key(user_clean, sha256_hash, safe_filename)
         backend = get_storage_backend()
 
-        # Subida a OCI (con deduplicación interna vía head_object)
+        metadata = {
+            "trazabilidad-tipo": "documento_fuente",
+            "nombre-original": safe_filename,
+            "sha256": sha256_hash,
+            "user-id": user_clean,
+            "creado-utc": datetime.now(timezone.utc).isoformat(),
+        }
         res = backend.put_object(
             bucket_name=bucket,
             object_name=object_key,
             data=file_bytes,
             content_type=content_type,
-            metadata={"nombre_original": safe_filename},
+            metadata=metadata,
         )
 
         doc_id = f"doc-{uuid.uuid4().hex[:12]}"

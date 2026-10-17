@@ -43,7 +43,7 @@ def test_enqueue_content_job_creates_pending_record_with_canonical_key():
     )
 
     assert info["status_upload"] == "pendiente"
-    assert "usuarios/profesor_carlos/contenidos/test-doc-beginner-123456/v1.json" == info["objeto_id"]
+    assert "usuarios/profesor_carlos/contenidos/test-doc-beginner-123456/test-doc-beginner-123456_v1.json" == info["objeto_id"]
 
     # Verificar estado en BD
     status_db = queue.get_content_status(content_id)

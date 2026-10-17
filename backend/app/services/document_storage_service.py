@@ -143,15 +143,19 @@ class OCIStorageAdapter(BaseDocumentStorage):
     def upload_document(self, local_path: str, user_id: Optional[str], document_id: str) -> str:
         path = Path(local_path)
         extension = path.suffix.lower()
-        owner_prefix = user_id or "anonymous"
-        # Matches security.get_user_storage_prefix() so trash purges find the blob.
-        object_key = f"usuarios/{owner_prefix}/documentos/{document_id}{extension}"
+        owner_prefix = user_id or "anonimo"
+        file_bytes = path.read_bytes()
+
+        from app.services.storage.base import StorageBackend
+        sha256_hash = StorageBackend.compute_sha256(file_bytes)
+        object_key = StorageBackend.build_document_key(owner_prefix, sha256_hash, path.name)
 
         info = self.service.upload_document_source(
             bucket_name=settings.OCI_BUCKET_DOCS,
             object_name=object_key,
-            file_bytes=path.read_bytes(),
+            file_bytes=file_bytes,
             content_type=_CONTENT_TYPES.get(extension, "application/octet-stream"),
+            user_id=owner_prefix,
         )
         return info["objeto_id"]
 
