@@ -81,8 +81,8 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
               </div>
               
               <div class="face-sources" *ngIf="currentCard.fuentes && currentCard.fuentes.length > 0">
-                <span class="source-chip">
-                  📄 Cita Fuente [Pág. {{ currentCard.fuentes[0].pagina || 1 }}]
+                <span class="source-chip" [title]="formatSourceTooltip(currentCard.fuentes[0])">
+                  📄 {{ formatSourceLabel(currentCard.fuentes[0]) }}
                 </span>
               </div>
             </div>
@@ -116,7 +116,7 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
           <h4 class="card-q">{{ card.frente }}</h4>
           <p class="card-a">{{ card.dorso }}</p>
           <div class="card-source" *ngIf="card.fuentes && card.fuentes.length > 0">
-            <span>📄 Fuente: Pág. {{ card.fuentes[0].pagina || 1 }}</span>
+            <span [title]="formatSourceTooltip(card.fuentes[0])">📄 {{ formatSourceLabel(card.fuentes[0]) }}</span>
           </div>
         </div>
       </div>
@@ -541,6 +541,32 @@ export class FlashcardsRendererComponent {
     this.isFlipped.set(false);
     this.knownCount.set(0);
     this.reviewCount.set(0);
+  }
+
+  formatSourceLabel(fuente?: RagFuente): string {
+    if (!fuente) return 'Cita fuente';
+    if (fuente.breadcrumb && fuente.breadcrumb !== 'N/A') {
+      const pageStr = (fuente.pagina && fuente.pagina > 0) ? ` · Pág. ${fuente.pagina}` : '';
+      return `${fuente.breadcrumb}${pageStr}`;
+    }
+    if (fuente.seccion) {
+      const pageStr = (fuente.pagina && fuente.pagina > 0) ? ` · Pág. ${fuente.pagina}` : '';
+      return `${fuente.seccion}${pageStr}`;
+    }
+    if (fuente.pagina && fuente.pagina > 0) {
+      return `Pág. ${fuente.pagina}`;
+    }
+    return 'Documento base';
+  }
+
+  formatSourceTooltip(fuente?: RagFuente): string {
+    if (!fuente) return '';
+    const parts: string[] = [];
+    if (fuente.breadcrumb) parts.push(`Ruta: ${fuente.breadcrumb}`);
+    if (fuente.seccion) parts.push(`Sección: ${fuente.seccion}`);
+    if (fuente.pagina && fuente.pagina > 0) parts.push(`Página: ${fuente.pagina}`);
+    if (fuente.extracto) parts.push(`«${fuente.extracto.trim().slice(0, 150)}...»`);
+    return parts.join(' | ');
   }
 
   @HostListener('window:keydown', ['$event'])

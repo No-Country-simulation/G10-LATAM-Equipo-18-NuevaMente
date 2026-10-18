@@ -151,6 +151,16 @@ import { AppDocument } from '../../core/models/document.model';
                   <button type="button" class="btn-remove-file" (click)="$event.stopPropagation(); removeFile()">✕</button>
                 </div>
               </div>
+
+              <!-- AI Vision OCR Option -->
+              <div class="vision-option-bar" *ngIf="uploadedFile() && isPdfFile()">
+                <label class="vision-toggle-label">
+                  <input type="checkbox" [checked]="useAiVision()" (change)="toggleAiVision($event)">
+                  <span class="vision-toggle-text">
+                    👁️ <strong>Análisis Multimodal con Visión IA</strong>: procesar diagramas, figuras y texto en imágenes del documento
+                  </span>
+                </label>
+              </div>
             </div>
 
             <!-- Tab 2: Textarea -->
@@ -645,6 +655,44 @@ import { AppDocument } from '../../core/models/document.model';
     }
     .btn-discard:hover { border-color: #EF4444; color: #EF4444; }
 
+    .workspace-layout {
+      max-width: 1040px;
+      margin: 0 auto;
+      padding: 0.5rem 0 3rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .workspace-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.5rem;
+    }
+    .workspace-header h2 {
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: var(--text-primary);
+      margin: 0.25rem 0 0.35rem;
+      letter-spacing: -0.02em;
+    }
+    .value-prop-tag {
+      display: inline-block;
+      font-size: 0.72rem;
+      font-weight: 800;
+      color: #6366F1;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+    .value-prop-subtitle {
+      font-size: 0.95rem;
+      color: var(--text-secondary);
+      margin: 0;
+    }
+
     .presets-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .presets-label { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); }
     .preset-btn { background: var(--bg-surface); border: 1px solid var(--border-subtle); padding: 0.4rem 0.85rem; border-radius: 20px; font-size: 0.82rem; font-weight: 600; color: var(--text-primary); cursor: pointer; transition: all 0.2s; }
@@ -668,6 +716,31 @@ import { AppDocument } from '../../core/models/document.model';
     .file-preview { display: flex; align-items: center; gap: 1rem; justify-content: center; }
     .btn-remove-file { background: transparent; border: none; color: #EF4444; font-weight: 800; cursor: pointer; }
     .char-count { font-size: 0.78rem; color: var(--text-muted); text-align: right; margin-top: 0.35rem; }
+
+    .vision-option-bar {
+      margin-top: 0.85rem;
+      padding: 0.75rem 1rem;
+      border-radius: 12px;
+      background: rgba(99, 102, 241, 0.06);
+      border: 1px solid rgba(99, 102, 241, 0.2);
+    }
+    .vision-toggle-label {
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      cursor: pointer;
+      font-size: 0.88rem;
+      color: var(--text-primary);
+    }
+    .vision-toggle-label input[type="checkbox"] {
+      width: 17px;
+      height: 17px;
+      accent-color: #4F46E5;
+      cursor: pointer;
+    }
+    .vision-toggle-text {
+      line-height: 1.4;
+    }
 
     /* FROM MIS DOCUMENTOS STYLES */
     .selected-document-card {
@@ -833,6 +906,17 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
   isConceptsExpanded = signal<boolean>(false);
   userVote = signal<'up' | 'down' | null>(null);
   feedbackSubmitted = signal<boolean>(false);
+  useAiVision = signal<boolean>(false);
+
+  isPdfFile(): boolean {
+    const file = this.uploadedFile();
+    return !!file && file.name.toLowerCase().endsWith('.pdf');
+  }
+
+  toggleAiVision(event: Event): void {
+    const checked = (event.target as HTMLInputElement).checked;
+    this.useAiVision.set(checked);
+  }
 
   private pipelineSub?: Subscription;
 
@@ -914,6 +998,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     this.selectedWorkspaceDoc.set(doc);
     this.activeTab.set('from_documents');
     this.documentService.selectForWorkspace(doc);
+    this.stateService.setIsViewingActiveResult(false);
 
     // The backend already indexed this document, so generation runs against
     // its vector store and only the title is kept as context.
@@ -1157,7 +1242,8 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
       file: usingUpload ? this.uploadedFile() : null,
       text: usingUpload ? null : (formVal.documento_contenido || ''),
       title,
-      userId
+      userId,
+      useAiVision: this.useAiVision()
     };
 
     this.pipelineSub = this.api.ingestDocument(ingestInput, event => this.onIngestEvent(event))
@@ -1283,7 +1369,8 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.pipelineSub) this.pipelineSub.unsubscribe();
+    // Keep pipelineSub alive in background if running so user can navigate to
+    // Library or Documents without losing the generation process.
   }
 
   getGenerationParams(): any {

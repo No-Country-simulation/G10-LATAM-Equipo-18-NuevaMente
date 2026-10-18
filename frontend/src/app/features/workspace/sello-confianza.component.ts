@@ -80,12 +80,12 @@ export interface TrustThreshold {
             </div>
           </div>
 
-          <div class="indicator-item">
+          <div class="indicator-item" title="Nivel de claridad y adaptación pedagógica evaluado por el modelo según el perfil de destinatario seleccionado">
             <div class="ind-icon">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
             </div>
             <div class="ind-text">
-              <span class="ind-label">Claridad para tu perfil</span>
+              <span class="ind-label">Claridad pedagógica del perfil</span>
               <strong>Nivel {{ evaluacion.claridad_pedagogica || 'Alta' }}</strong>
             </div>
           </div>

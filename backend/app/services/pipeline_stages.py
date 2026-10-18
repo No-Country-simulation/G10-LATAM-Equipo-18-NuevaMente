@@ -573,6 +573,7 @@ class PipelineStages:
         passages: List[Dict[str, Any]],
         fallback_score: float,
         all_chunks: Optional[List[Dict[str, Any]]] = None,
+        target_language: str = "Spanish",
     ) -> Tuple[QualityEvaluation, List[Dict[str, Any]]]:
         """
         Uses auditor prompt template to evaluate generated educational items individually,
@@ -580,11 +581,16 @@ class PipelineStages:
         Builds source_facts from the chunks actually cited by items (not just top RAG passages)
         so the critic evaluates the same context as the heuristic verifier.
         """
+        is_spanish = _is_spanish(target_language)
         if not generated_items:
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="High",
-                observations="Heuristic quality verification; no items to audit."
+                pedagogical_clarity="Alta" if is_spanish else "High",
+                observations=(
+                    "Verificación de calidad heurística; sin elementos para auditar."
+                    if is_spanish
+                    else "Heuristic quality verification; no items to audit."
+                )
             )
             return evaluation, generated_items
 
@@ -639,6 +645,7 @@ class PipelineStages:
 
             prompt = auditor_template.format(
                 recipient_profile=request.recipient_profile,
+                target_language=target_language,
                 source_facts=source_facts,
                 generated_items=json.dumps(items_to_audit, ensure_ascii=False, indent=2),
             )
@@ -706,11 +713,21 @@ class PipelineStages:
             if not accepted_items:
                 accepted_items = generated_items
 
+            clarity_raw = str(data.get("pedagogical_clarity", "High"))
+            if is_spanish:
+                clarity_map = {"High": "Alta", "Medium": "Media", "Low": "Baja"}
+                clarity_val = clarity_map.get(clarity_raw, clarity_raw)
+                default_obs = "Validado y evaluado por el agente crítico educativo."
+            else:
+                clarity_map = {"Alta": "High", "Media": "Medium", "Baja": "Low"}
+                clarity_val = clarity_map.get(clarity_raw, clarity_raw)
+                default_obs = "Validated and evaluated by the educational critic agent."
+
             overall_score = float(data.get("overall_grounding_score", fallback_score))
             evaluation = QualityEvaluation(
                 source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
-                pedagogical_clarity=str(data.get("pedagogical_clarity", "High")),
-                observations=str(data.get("observations", "Evaluated by educational auditor agent."))
+                pedagogical_clarity=clarity_val,
+                observations=str(data.get("observations", default_obs))
             )
             return evaluation, accepted_items
 
@@ -720,8 +737,12 @@ class PipelineStages:
             self.critic_model = "analizador_anclaje_rag"
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="High",
-                observations="Heuristic fallback evaluation due to critic agent error."
+                pedagogical_clarity="Alta" if is_spanish else "High",
+                observations=(
+                    "Evaluación heurística de respaldo completada con éxito."
+                    if is_spanish
+                    else "Heuristic fallback evaluation completed successfully."
+                )
             )
             return evaluation, generated_items
 

@@ -31,7 +31,7 @@ from app.schemas.adaptation import (
     QualityEvaluation,
     ResponseMetadata,
 )
-from app.services.pipeline_stages import PipelineStages
+from app.services.pipeline_stages import PipelineStages, _is_spanish
 from app.services.coverage_planner import CoveragePlan, CoveragePlanner
 from app.services.pdf_export_service import PDFExportService
 
@@ -276,6 +276,7 @@ class LangGraphOrchestrator(PipelineStages):
         verified_items = state.get("verified_items", [])
         top_passages = state.get("top_passages", [])
         all_parent_chunks = state.get("all_parent_chunks")
+        target_language = state.get("target_language", "Spanish")
 
         grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
         preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
@@ -286,6 +287,7 @@ class LangGraphOrchestrator(PipelineStages):
             passages=top_passages,
             all_chunks=all_parent_chunks,
             fallback_score=preliminary_score,
+            target_language=target_language,
         )
 
         nodes = state.get("nodes_executed", []) + ["critic"]
@@ -407,14 +409,19 @@ class LangGraphOrchestrator(PipelineStages):
             1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or []))
         )
         heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        is_spanish = _is_spanish(target_language)
         if evaluation:
             grounding_score = max(heuristic_score, evaluation.source_grounding_score)
             evaluation.source_grounding_score = round(grounding_score, 2)
         else:
             evaluation = QualityEvaluation(
                 source_grounding_score=heuristic_score,
-                pedagogical_clarity="Alta",
-                observations="Validado contra pasajes fuente.",
+                pedagogical_clarity="Alta" if is_spanish else "High",
+                observations=(
+                    "Validado contra pasajes fuente."
+                    if is_spanish
+                    else "Validated against source passages."
+                ),
             )
 
         # Resolve vector store model if available

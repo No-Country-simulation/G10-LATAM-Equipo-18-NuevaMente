@@ -72,8 +72,8 @@ import { QuizItem } from '../../../core/models/adaptation.model';
             <span class="badge-pedagogic">💡 EXPLICACIÓN PEDAGÓGICA</span>
           </div>
           <p>{{ currentQuestion.justificacion_didactica || currentQuestion.justificacion }}</p>
-          <div class="source-tag" *ngIf="currentQuestion.fuentes && currentQuestion.fuentes.length > 0">
-            📄 Cita Fuente: Pág. {{ currentQuestion.fuentes[0].pagina || 1 }}
+          <div class="source-tag" *ngIf="currentQuestion.fuentes && currentQuestion.fuentes.length > 0" [title]="formatSourceTooltip(currentQuestion.fuentes[0])">
+            📄 {{ formatSourceLabel(currentQuestion.fuentes[0]) }}
           </div>
         </div>
 
@@ -471,5 +471,31 @@ export class QuizRendererComponent {
     this.score.set(0);
     this.wrongQuestions.set([]);
     this.isCompleted.set(false);
+  }
+
+  formatSourceLabel(fuente?: any): string {
+    if (!fuente) return 'Cita fuente';
+    if (fuente.breadcrumb && fuente.breadcrumb !== 'N/A') {
+      const pageStr = (fuente.pagina && fuente.pagina > 0) ? ` · Pág. ${fuente.pagina}` : '';
+      return `${fuente.breadcrumb}${pageStr}`;
+    }
+    if (fuente.seccion) {
+      const pageStr = (fuente.pagina && fuente.pagina > 0) ? ` · Pág. ${fuente.pagina}` : '';
+      return `${fuente.seccion}${pageStr}`;
+    }
+    if (fuente.pagina && fuente.pagina > 0) {
+      return `Pág. ${fuente.pagina}`;
+    }
+    return 'Documento base';
+  }
+
+  formatSourceTooltip(fuente?: any): string {
+    if (!fuente) return '';
+    const parts: string[] = [];
+    if (fuente.breadcrumb) parts.push(`Ruta: ${fuente.breadcrumb}`);
+    if (fuente.seccion) parts.push(`Sección: ${fuente.seccion}`);
+    if (fuente.pagina && fuente.pagina > 0) parts.push(`Página: ${fuente.pagina}`);
+    if (fuente.extracto) parts.push(`«${fuente.extracto.trim().slice(0, 150)}...»`);
+    return parts.join(' | ');
   }
 }

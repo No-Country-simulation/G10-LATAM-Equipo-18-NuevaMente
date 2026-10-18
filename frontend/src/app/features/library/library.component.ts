@@ -199,7 +199,6 @@ interface ToastState {
                   [attr.aria-label]="'Mover a la papelera ' + proj.nombre"
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  Mover a la papelera
                 </button>
               </td>
             </tr>
@@ -482,7 +481,9 @@ interface ToastState {
     .td-actions {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      justify-content: flex-start;
+      gap: 0.4rem;
+      white-space: nowrap;
     }
 
     .btn-action-primary {
@@ -521,19 +522,21 @@ interface ToastState {
       background: rgba(239, 68, 68, 0.12);
       color: #EF4444;
       border: 1px solid rgba(239, 68, 68, 0.3);
-      padding: 0.45rem 0.85rem;
+      padding: 0.45rem;
+      width: 32px;
+      height: 32px;
       border-radius: 8px;
       font-size: 0.8rem;
       font-weight: 700;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 0.35rem;
+      justify-content: center;
       transition: all 0.2s;
     }
     .btn-action-danger:hover {
       background: #EF4444;
-      color: #ffffff;
+      color: #FFFFFF;
       border-color: #EF4444;
     }
 

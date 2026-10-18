@@ -247,6 +247,8 @@ export class AppComponent implements OnInit {
   }
 
   logout(): void {
+    this.stateService.clearActiveAdaptation();
+    this.documentService.clearWorkspaceSelection();
     this.authStore.logout();
   }
 }

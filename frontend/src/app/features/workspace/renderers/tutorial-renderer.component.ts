@@ -80,7 +80,7 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
 
             <!-- Source Citation -->
             <div class="source-link" *ngIf="step.fuentes && step.fuentes.length > 0">
-              <span>📄 Ver en tu documento · Pág. {{ step.fuentes[0].pagina || 1 }}</span>
+              <span>📄 Ver en tu documento · {{ step.fuentes[0].breadcrumb || step.fuentes[0].seccion || ('Pág. ' + (step.fuentes[0].pagina || 1)) }}</span>
             </div>
           </div>
         </div>

@@ -213,6 +213,8 @@ export class AuthStore {
       try {
         sessionStorage.removeItem('nuevamente_jwt_token');
         sessionStorage.removeItem('nuevamente_user');
+        sessionStorage.removeItem('nuevamente_active_adaptation');
+        sessionStorage.removeItem('nuevamente_projects');
       } catch (e) {}
     }
   }
