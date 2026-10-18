@@ -94,16 +94,16 @@ import { AppDocument } from '../../core/models/document.model';
             />
           </div>
 
-          <!-- Document Input Tabs (Upload vs Text vs From Mis Documentos) -->
+          <!-- Document Input Tabs (Text vs From Mis Documentos) -->
           <div class="input-tabs-wrapper">
             <div class="tabs-header">
               <button 
                 type="button" 
                 class="tab-btn" 
-                [class.active]="activeTab() === 'upload'"
-                (click)="activeTab.set('upload')"
+                [class.active]="activeTab() === 'from_documents'"
+                (click)="activeTab.set('from_documents')"
               >
-                📂 Cargar Documento (PDF / MD / TXT)
+                📚 Desde Mis Documentos
               </button>
               <button 
                 type="button" 
@@ -113,55 +113,17 @@ import { AppDocument } from '../../core/models/document.model';
               >
                 📝 Pegar Texto Plano
               </button>
-              <button 
-                type="button" 
-                class="tab-btn" 
-                [class.active]="activeTab() === 'from_documents'"
-                (click)="activeTab.set('from_documents')"
+              <button
+                type="button"
+                class="tab-btn tab-btn-upload"
+                (click)="navigateToDocuments()"
+                title="La carga de documentos se hace en Mis Documentos"
               >
-                📚 Desde Mis Documentos
+                📂 Cargar nuevo documento
               </button>
             </div>
 
-            <!-- Tab 1: Dropzone Upload -->
-            <div class="tab-content" *ngIf="activeTab() === 'upload'">
-              <div 
-                class="dropzone" 
-                [class.dragover]="isDragging()"
-                (dragover)="onDragOver($event)"
-                (dragleave)="onDragLeave($event)"
-                (drop)="onDrop($event)"
-                (click)="fileInput.click()"
-              >
-                <input #fileInput type="file" (change)="onFileSelected($event)" accept=".pdf,.md,.txt" style="display:none;"/>
-                <div class="dropzone-content" *ngIf="!uploadedFile()">
-                  <span class="drop-icon">☁️</span>
-                  <p><strong>Arrastra tu archivo aquí</strong> o haz clic para explorar</p>
-                  <span class="drop-hint">Soporta PDF, Markdown (.md) y Texto (.txt) hasta 20MB</span>
-                </div>
-
-                <div class="file-preview" *ngIf="uploadedFile()">
-                  <span class="file-icon">📄</span>
-                  <div class="file-info">
-                    <strong>{{ uploadedFile()?.name }}</strong>
-                    <span>{{ (uploadedFile()?.size || 0) / 1024 | number:'1.0-0' }} KB · Extracción local lista</span>
-                  </div>
-                  <button type="button" class="btn-remove-file" (click)="$event.stopPropagation(); removeFile()">✕</button>
-                </div>
-              </div>
-
-              <!-- AI Vision OCR Option -->
-              <div class="vision-option-bar" *ngIf="uploadedFile() && isPdfFile()">
-                <label class="vision-toggle-label">
-                  <input type="checkbox" [checked]="useAiVision()" (change)="toggleAiVision($event)">
-                  <span class="vision-toggle-text">
-                    👁️ <strong>Análisis Multimodal con Visión IA</strong>: procesar diagramas, figuras y texto en imágenes del documento
-                  </span>
-                </label>
-              </div>
-            </div>
-
-            <!-- Tab 2: Textarea -->
+            <!-- Tab: From Mis Documentos Selector -->
             <div class="tab-content" *ngIf="activeTab() === 'text'">
               <textarea 
                 formControlName="documento_contenido"
@@ -371,7 +333,7 @@ import { AppDocument } from '../../core/models/document.model';
             <button 
               type="submit" 
               class="btn-cta-generate" 
-              [disabled]="isPipelineRunning() || (adaptForm.invalid && !(activeTab() === 'upload' && uploadedFile()) && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed))"
+              [disabled]="isPipelineRunning() || (adaptForm.invalid && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed))"
             >
               ⚡ Generar Contenido Educativo →
             </button>
@@ -706,6 +668,9 @@ import { AppDocument } from '../../core/models/document.model';
     .tabs-header { display: flex; gap: 0.5rem; border-bottom: 1px solid var(--border-subtle); margin-bottom: 1rem; }
     .tab-btn { padding: 0.65rem 1.25rem; border: none; background: transparent; border-bottom: 2px solid transparent; color: var(--text-secondary); font-size: 0.9rem; font-weight: 700; cursor: pointer; transition: all 0.2s; }
     .tab-btn.active { color: #4F46E5; border-bottom-color: #4F46E5; }
+    /* Upload is a secondary action: it only navigates to Mis Documentos. */
+    .tab-btn-upload { margin-left: auto; font-size: 0.8rem; font-weight: 600; color: var(--text-muted); opacity: 0.8; }
+    .tab-btn-upload:hover { color: #4F46E5; opacity: 1; }
 
     .dropzone { padding: 2.5rem 1.5rem; border: 2px dashed #818CF8; border-radius: 16px; text-align: center; cursor: pointer; transition: all 0.2s; background: var(--bg-app); }
     .dropzone.dragover { border-color: #4F46E5; background: rgba(79, 70, 229, 0.08); }
@@ -884,9 +849,7 @@ export class WorkspaceComponent implements OnInit {
   readonly pipeline = inject(PipelineStateService);
   private router = inject(Router);
 
-  activeTab = signal<'upload' | 'text' | 'from_documents'>('upload');
-  isDragging = signal<boolean>(false);
-  uploadedFile = signal<File | null>(null);
+  activeTab = signal<'text' | 'from_documents'>('from_documents');
   selectedWorkspaceDoc = signal<AppDocument | null>(null);
 
   pickerSearchQuery = signal<string>('');
@@ -900,17 +863,6 @@ export class WorkspaceComponent implements OnInit {
   isConceptsExpanded = signal<boolean>(false);
   userVote = signal<'up' | 'down' | null>(null);
   feedbackSubmitted = signal<boolean>(false);
-  useAiVision = signal<boolean>(false);
-
-  isPdfFile(): boolean {
-    const file = this.uploadedFile();
-    return !!file && file.name.toLowerCase().endsWith('.pdf');
-  }
-
-  toggleAiVision(event: Event): void {
-    const checked = (event.target as HTMLInputElement).checked;
-    this.useAiVision.set(checked);
-  }
 
   // Pipeline state lives in the root PipelineStateService so a generation
   // keeps running when the user navigates away from this view.
@@ -1165,64 +1117,15 @@ export class WorkspaceComponent implements OnInit {
     }
   }
 
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(true);
-  }
-
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(false);
-  }
-
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(false);
-    if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
-      this.handleFile(event.dataTransfer.files[0]);
-    }
-  }
-
-  onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      this.handleFile(input.files[0]);
-    }
-  }
-
-  private handleFile(file: File): void {
-    this.uploadedFile.set(file);
-    const cleanName = file.name.replace(/\.(pdf|md|txt)$/i, '');
-    this.adaptForm.patchValue({ documento_titulo: cleanName });
-
-    if (file.name.toLowerCase().endsWith('.pdf')) {
-      // PDF text extraction happens server-side during ingestion; the file is
-      // uploaded as-is in step 1, so no client-side parsing is required.
-    } else {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        const text = e.target?.result as string || `Contenido de ${file.name}`;
-        this.adaptForm.patchValue({ documento_contenido: text });
-      };
-      reader.readAsText(file);
-    }
-  }
-
-  removeFile(): void {
-    this.uploadedFile.set(null);
-  }
-
   /**
-   * Runs the real two-step pipeline: ingest the document (streaming progress),
-   * then generate educational content from the indexed document. The run is
-   * owned by PipelineStateService, so it keeps going if the user navigates
-   * away, and duplicate starts are blocked while another run is active.
+   * Runs the real pipeline from an already-indexed document. The Workspace is
+   * generation-only: uploading/ingesting new files is done in Mis Documentos,
+   * so this only starts generation from the selected document (or pasted text).
    */
   runPipeline(): void {
     const indexedDoc = this.activeTab() === 'from_documents' ? this.selectedWorkspaceDoc() : null;
-    const usingUpload = this.activeTab() === 'upload' && !!this.uploadedFile();
     const usingIndexedDoc = !!indexedDoc?.indexed;
-    if (this.adaptForm.invalid && !usingUpload && !usingIndexedDoc) return;
+    if (this.adaptForm.invalid && !usingIndexedDoc) return;
 
     // Duplicate-action guard: refuse to start a second pipeline.
     if (!this.pipeline.guard()) return;
@@ -1251,13 +1154,13 @@ export class WorkspaceComponent implements OnInit {
       return;
     }
 
+    // Fallback (pasted text): index the text and then generate from it.
     this.pipeline.runGeneration({
       ingestInput: {
-        file: usingUpload ? this.uploadedFile() : null,
-        text: usingUpload ? null : (formVal.documento_contenido || ''),
+        file: null,
+        text: formVal.documento_contenido || '',
         title,
-        userId,
-        useAiVision: this.useAiVision()
+        userId
       },
       request: req,
       userId,

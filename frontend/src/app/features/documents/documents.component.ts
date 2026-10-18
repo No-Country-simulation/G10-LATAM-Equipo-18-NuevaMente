@@ -6,11 +6,12 @@ import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { DocumentService } from '../../core/services/document.service';
 import { PipelineStateService } from '../../core/services/pipeline-state.service';
 import { AppDocument } from '../../core/models/document.model';
+import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
 
 @Component({
   selector: 'app-documents',
   standalone: true,
-  imports: [CommonModule, FormsModule, ReactiveFormsModule],
+  imports: [CommonModule, FormsModule, ReactiveFormsModule, SharedDropzoneComponent],
   template: `
     <div class="documents-container">
       <!-- Page Header & Stats -->
@@ -32,32 +33,13 @@ import { AppDocument } from '../../core/models/document.model';
         </div>
       </div>
 
-      <!-- Dropzone Upload Section -->
-      <div 
-        class="upload-dropzone glass-card"
-        [class.is-dragging]="isDragging()"
-        [class.is-disabled]="pipeline.running()"
-        (dragover)="onDragOver($event)"
-        (dragleave)="onDragLeave($event)"
-        (drop)="onDrop($event)"
-      >
-        <input #fileInput type="file" (change)="onFileSelected($event)" accept=".pdf,.md,.txt" style="display:none;" />
-        <div class="dropzone-body" (click)="onDropzoneClick(fileInput)">
-          <div class="drop-icon-wrapper">
-            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2">
-              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-              <polyline points="17 8 12 3 7 8"/>
-              <line x1="12" y1="3" x2="12" y2="15"/>
-            </svg>
-          </div>
-          <div class="drop-text-group">
-            <h3>Arrastra y suelta tus archivos aquí</h3>
-            <p>O haz clic para explorar en tu equipo (.pdf, .md, .txt hasta 20MB)</p>
-          </div>
-          <button type="button" class="btn-browse">
-            📂 Buscar Archivo
-          </button>
-        </div>
+      <!-- Dropzone Upload Section (shared component, same as Workspace) -->
+      <div class="upload-dropzone glass-card">
+        <app-shared-dropzone
+          [disabled]="pipeline.running()"
+          (fileSelected)="onFileSelectedForUpload($event)"
+          (useAiVisionChange)="useAiVision.set($event)"
+        />
         <div class="upload-loader" *ngIf="isUploading()">
           <div class="spinner"></div>
           <span>Procesando e indexando documento...</span>
@@ -596,8 +578,9 @@ export class DocumentsComponent implements OnInit {
   selectedTypeFilter = signal<string>('all');
   viewMode = signal<'grid' | 'table'>('grid');
 
-  isDragging = signal<boolean>(false);
   isUploading = signal<boolean>(false);
+  /** OCR (AI Vision) opt-in for the PDF being uploaded. */
+  useAiVision = signal<boolean>(false);
 
   previewDoc = signal<AppDocument | null>(null);
   sanitizedPreviewUrl = signal<SafeResourceUrl | null>(null);
@@ -626,43 +609,16 @@ export class DocumentsComponent implements OnInit {
     this.selectedTypeFilter.set((event.target as HTMLSelectElement).value);
   }
 
-  onDragOver(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(true);
-  }
-
-  onDragLeave(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(false);
-  }
-
-  /** Opens the file picker unless another pipeline run is in progress. */
-  onDropzoneClick(fileInput: HTMLInputElement): void {
-    if (!this.pipeline.guard()) return;
-    fileInput.click();
-  }
-
-  onDrop(event: DragEvent): void {
-    event.preventDefault();
-    this.isDragging.set(false);
-    if (!this.pipeline.guard()) return;
-    if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
-      this.handleFileUpload(event.dataTransfer.files[0]);
-    }
-  }
-
-  onFileSelected(event: Event): void {
-    const input = event.target as HTMLInputElement;
-    if (input.files && input.files.length > 0) {
-      this.handleFileUpload(input.files[0]);
-    }
+  /** Called by the shared dropzone once the user picks a file. */
+  onFileSelectedForUpload(file: File): void {
+    void this.handleFileUpload(file);
   }
 
   private async handleFileUpload(file: File): Promise<void> {
     if (!this.pipeline.guard()) return;
     this.isUploading.set(true);
     try {
-      await this.documentService.uploadDocument(file);
+      await this.documentService.uploadDocument(file, this.useAiVision());
     } catch (e) {
       console.error('Error uploading file:', e);
     } finally {

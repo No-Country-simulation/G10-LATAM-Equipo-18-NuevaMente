@@ -65,11 +65,12 @@ export class DocumentService {
    * Uploads a file through the real ingestion pipeline (storage + embeddings +
    * index) and refreshes the list once it is ready. The run is routed through
    * PipelineStateService so the global banner shows the progress and a second
-   * upload is refused while one is already running.
+   * upload is refused while one is already running. When `useAiVision` is true
+   * (PDF), the backend extracts text with AI Vision (OCR) as well.
    */
-  async uploadDocument(file: File): Promise<AppDocument | null> {
+  async uploadDocument(file: File, useAiVision = false): Promise<AppDocument | null> {
     const title = file.name.replace(/\.[^.]+$/, '');
-    const record = await this.pipeline.ingestOnly({ file, title, userId: this.currentUserId() });
+    const record = await this.pipeline.ingestOnly({ file, title, userId: this.currentUserId(), useAiVision });
     await this.refresh();
     return this.documentsSignal().find(doc => doc.id === record.document_id)
       ?? this.toAppDocument(record);
