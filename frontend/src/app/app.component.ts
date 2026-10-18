@@ -111,7 +111,7 @@ import { PipelineStateService } from './core/services/pipeline-state.service';
       <!-- Main Content Area with Protected Router Outlet -->
       <main class="main-content-area">
         <!-- GLOBAL PIPELINE BANNER: announced from any view while a run is active -->
-        <div class="pipeline-banner" *ngIf="pipeline.running() && !isAuthRoute() && !isProcessRoute() && !isWorkspaceRouteWithRunningResult()" (click)="goToProcessView()">
+        <div class="pipeline-banner" *ngIf="pipeline.running() && !isAuthRoute() && !isProcessRoute() && !isWorkspaceRoute()" (click)="goToProcessView()">
           <span class="banner-spinner" aria-hidden="true"></span>
           <span class="banner-label">
             {{ pipeline.mode() === 'ingest' ? 'Ingesta en curso' : 'Generación en curso' }}
@@ -317,12 +317,8 @@ export class AppComponent implements OnInit {
     return this.router.url.startsWith('/workspace');
   }
 
-  isWorkspaceRouteWithRunningResult(): boolean {
-    return this.isWorkspaceRoute() && this.pipeline.running();
-  }
-
   shouldHideBannerOnResult(): boolean {
-    return this.isWorkspaceRoute() && !this.pipeline.running();
+    return this.isWorkspaceRoute() && this.stateService.isViewingActiveResult();
   }
 
   /** Zero-based index of the active stage for the banner's "Paso X/Y". */

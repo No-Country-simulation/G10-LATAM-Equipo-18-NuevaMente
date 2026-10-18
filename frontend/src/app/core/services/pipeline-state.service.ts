@@ -18,8 +18,9 @@
  *     justFinished) and the duplicate-action guards (guard()), plus the
  *     persisted active adaptation in StateService when generation completes.
  */
-import { Injectable, inject, signal, computed } from '@angular/core';
+import { Injectable, inject, signal, computed, effect } from '@angular/core';
 import { Subscription, switchMap } from 'rxjs';
+import { Router } from '@angular/router';
 import {
   NUEVAMENTE_API,
   NuevaMenteApi,
@@ -40,6 +41,7 @@ export class PipelineStateService {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private stateService = inject(StateService);
   private i18n = inject(I18nService);
+  private router = inject(Router);
 
   /** 'ingest' while only indexing, 'generate' once the LLM pipeline runs. */
   readonly mode = signal<PipelineMode | null>(null);
@@ -70,6 +72,19 @@ export class PipelineStateService {
         this.elapsedSeconds.update(sec => sec + 1);
       }
     }, 1000);
+
+    // Auto-navigate to workspace when generation finishes.
+    effect(() => {
+      const resp = this.response();
+      const finished = this.finished();
+      const running = this.running();
+      if (resp && finished && !running) {
+        if (this.router.url !== '/workspace') {
+          this.router.navigateByUrl('/workspace');
+        }
+        this.stateService.setIsViewingActiveResult(true);
+      }
+    });
   }
 
   /** Blocks a second upload/generation while one is already in progress. */
