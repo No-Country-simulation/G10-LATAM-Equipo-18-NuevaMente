@@ -458,16 +458,6 @@ import { AppDocument } from '../../core/models/document.model';
           </div>
         </div>
 
-        <!-- AMICABLE QUANTITY WARNING NOTICE (If items_generados < items_solicitados) -->
-        <div class="quantity-warning-banner glass-card" *ngIf="hasQuantityCapNotice()">
-          <div class="warning-icon-box">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-          </div>
-          <div class="warning-text">
-            <strong>Aviso de capacidad del documento:</strong>
-            <p>{{ quantityCapNoticeText() }}</p>
-          </div>
-        </div>
 
         <!-- PROTAGONIST CONTENT HEADER CARD -->
         <div class="result-header glass-card">
@@ -1155,15 +1145,7 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
     return `⏱ ${m} min ${s} s`;
   });
 
-  hasQuantityCapNotice = computed(() => {
-    const meta = this.currentResponse()?.metadatos;
-    if (!meta) return false;
-    if (meta.aviso_cantidad) return true;
-    if (meta.items_solicitados && meta.items_generados) {
-      return meta.items_generados < meta.items_solicitados;
-    }
-    return false;
-  });
+  hasQuantityCapNotice = computed(() => false);
 
   quantityCapNoticeText = computed(() => {
     const meta = this.currentResponse()?.metadatos;

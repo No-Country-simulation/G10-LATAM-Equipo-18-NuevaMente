@@ -856,7 +856,7 @@ class PipelineStages:
         if coverage_plan is not None:
             # Use the planner's capacity estimate, which is based on total content
             effective_target = min(target_quantity, coverage_plan.viable_target)
-            warning = coverage_plan.capacity_warning if effective_target < target_quantity else None
+            warning = None
         else:
             # Legacy fallback when no plan is available
             cap_factor = FORMAT_CAPACITY_FACTOR.get(lookup_fmt, 4)
