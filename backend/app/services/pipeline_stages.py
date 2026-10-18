@@ -654,8 +654,8 @@ class PipelineStages:
         if not generated_items:
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="High",
-                observations="Heuristic quality verification; no items to audit."
+                pedagogical_clarity="Alta",
+                observations="Verificación de calidad heurística; sin elementos para auditar."
             )
             return evaluation, generated_items
 
@@ -778,10 +778,21 @@ class PipelineStages:
                 accepted_items = generated_items
 
             overall_score = float(data.get("overall_grounding_score", fallback_score))
+            raw_clarity = str(data.get("pedagogical_clarity", "Alta")).strip()
+            low_clarity = raw_clarity.lower()
+            if "high" in low_clarity or "alt" in low_clarity:
+                pedagogical_clarity = "Alta"
+            elif "med" in low_clarity:
+                pedagogical_clarity = "Media"
+            elif "low" in low_clarity or "baj" in low_clarity:
+                pedagogical_clarity = "Baja"
+            else:
+                pedagogical_clarity = raw_clarity or "Alta"
+
             evaluation = QualityEvaluation(
                 source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
-                pedagogical_clarity=str(data.get("pedagogical_clarity", "High")),
-                observations=str(data.get("observations", "Evaluated by educational auditor agent."))
+                pedagogical_clarity=pedagogical_clarity,
+                observations=str(data.get("observations", "Evaluado y verificado por el agente auditor pedagógico."))
             )
             return evaluation, accepted_items
 
@@ -791,8 +802,8 @@ class PipelineStages:
             self.critic_model = "analizador_anclaje_rag"
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
-                pedagogical_clarity="High",
-                observations="Heuristic fallback evaluation due to critic agent error."
+                pedagogical_clarity="Alta",
+                observations="Evaluación heurística de respaldo debido a indisponibilidad del crítico."
             )
             return evaluation, generated_items
 

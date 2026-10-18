@@ -19,6 +19,11 @@ PROFILE_LABELS_ES = {
     settings.PROFILE_JUNIOR_DEV: "Desarrollador Junior / Semi Senior",
     settings.PROFILE_TECH_LEAD: "Líder Técnico / Arquitecto",
     settings.PROFILE_EXECUTIVE: "Gestor / Ejecutivo (No Técnico)",
+    "Principiante": "Principiante / Transición de Carrera",
+    "Desarrollador": "Desarrollador Junior / Semi Senior",
+    "Desarrollador Junior": "Desarrollador Junior / Semi Senior",
+    "Líder Técnico": "Líder Técnico / Arquitecto",
+    "Gestor": "Gestor / Ejecutivo (No Técnico)",
 }
 
 FORMAT_LABELS_ES = {
@@ -34,6 +39,11 @@ NICHE_LABELS_ES = {
     settings.NICHE_FINTECH: "Fintech",
     settings.NICHE_HEALTH: "Salud",
     settings.NICHE_ECOMMERCE: "E-commerce",
+    "general": "General",
+    "fintech": "Fintech",
+    "salud": "Salud",
+    "ecommerce": "E-commerce",
+    "e-commerce": "E-commerce",
 }
 
 TITLE_TEMPLATES_ES = {
@@ -43,6 +53,11 @@ TITLE_TEMPLATES_ES = {
     settings.FORMAT_SUMMARY: "Resumen Ejecutivo (TL;DR - {count} Puntos): {doc_title}",
     settings.FORMAT_CLASS_SCRIPT: "Guion de Clase Didáctica ({count} Escenas): {doc_title}",
 }
+
+def is_spanish_language(language: str) -> bool:
+    """Robust check for Spanish language identifiers (es, spanish, español, castellano)."""
+    lang = (language or "spanish").lower()
+    return any(k in lang for k in ["es", "span", "castellano"]) or not lang
 
 def get_capacity_warning_es(effective_count: int, requested_count: int) -> str:
     """Generates Spanish warning message when document density limits the generation target."""
@@ -54,8 +69,7 @@ def get_capacity_warning_es(effective_count: int, requested_count: int) -> str:
 
 def get_capacity_warning(effective_count: int, requested_count: int, language: str = "Spanish") -> str:
     """Generates warning message in target language when document density limits generation target."""
-    is_spanish = "es" in (language or "spanish").lower()
-    if is_spanish:
+    if is_spanish_language(language):
         return get_capacity_warning_es(effective_count, requested_count)
     return (
         f"Your document supported {effective_count} verified items. "
@@ -67,8 +81,7 @@ def get_contextualized_intro(
     doc_title: str, effective_count: int, recipient_profile: str, niche: str, language: str = "Spanish"
 ) -> str:
     """Builds a contextualized introduction in the target language."""
-    is_spanish = "es" in (language or "spanish").lower()
-    if is_spanish:
+    if is_spanish_language(language):
         prof_label = PROFILE_LABELS_ES.get(recipient_profile, recipient_profile)
         niche_label = NICHE_LABELS_ES.get(niche, niche)
         return (

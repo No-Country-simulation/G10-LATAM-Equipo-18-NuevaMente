@@ -86,7 +86,7 @@ export interface TrustThreshold {
             </div>
             <div class="ind-text">
               <span class="ind-label">Claridad para tu perfil</span>
-              <strong>Nivel {{ evaluacion.claridad_pedagogica || 'Alta' }}</strong>
+              <strong>Nivel {{ claridadLabel() }}</strong>
             </div>
           </div>
 
@@ -367,6 +367,15 @@ export class SelloConfianzaComponent {
   });
 
   scorePercent = computed(() => Math.round(this.scoreRatio() * 100));
+
+  claridadLabel = computed(() => {
+    const raw = (this.evaluacion?.claridad_pedagogica || 'Alta').trim();
+    const lower = raw.toLowerCase();
+    if (lower.includes('high') || lower.includes('alt')) return 'Alta';
+    if (lower.includes('med')) return 'Media';
+    if (lower.includes('low') || lower.includes('baj')) return 'Baja';
+    return raw || 'Alta';
+  });
 
   threshold = computed<TrustThreshold>(() => {
     const pct = this.scorePercent();

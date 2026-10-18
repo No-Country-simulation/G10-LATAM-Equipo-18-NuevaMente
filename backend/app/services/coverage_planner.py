@@ -438,10 +438,10 @@ class CoveragePlanner:
     @staticmethod
     def _capacity_warning(viable: int, requested: int, language: str) -> str:
         lang = (language or "").lower()
-        is_spanish = "es" in lang or "span" in lang
+        is_spanish = any(k in lang for k in ["es", "span", "castellano"]) or not lang
         if is_spanish:
             return (
-                f"Aviso de capacidad del documento: El documento tiene contenido suficiente para generar {viable} elemento(s) "
+                f"El documento tiene contenido suficiente para generar {viable} elemento(s) "
                 f"con calidad verificada. Se solicitaron {requested}. "
                 "Se generará la cantidad viable sin incluir contenido inventado."
             )

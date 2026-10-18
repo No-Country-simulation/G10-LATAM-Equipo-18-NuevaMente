@@ -1167,9 +1167,12 @@ Mecanismos para prevenir fallas en cascada y asegurar estabilidad operativa:
 
   quantityCapNoticeText = computed(() => {
     const meta = this.currentResponse()?.metadatos;
-    if (meta?.aviso_cantidad) return meta.aviso_cantidad;
+    let txt = meta?.aviso_cantidad || '';
+    if (txt) {
+      return txt.replace(/^Aviso de capacidad del documento:\s*/i, '').trim();
+    }
     if (meta?.items_solicitados && meta?.items_generados) {
-      return `Tu documento dio para ${meta.items_generados} elementos verificados. Con un documento más extenso podrás alcanzar los ${meta.items_solicitados} solicitados.`;
+      return `El documento tiene contenido suficiente para generar ${meta.items_generados} elemento(s) con calidad verificada. Se solicitaron ${meta.items_solicitados}. Se generó la cantidad viable para garantizar fidelidad técnica.`;
     }
     return 'Se ajustó la cantidad generada a la capacidad del documento fuente.';
   });
