@@ -11,7 +11,9 @@ logger = logging.getLogger("uvicorn")
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    openapi_url="/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
     description="API REST del proyecto NuevaMente para el Hackathon ONE G10 (Oracle Next Education & Alura). Módulo de Adaptación de Contenido Técnico con Graph RAG, RAG Híbrido, Gemini y OCI Object Storage Always Free."
 )
 
@@ -44,26 +46,47 @@ async def startup_event():
     except Exception as exc:
         logger.warning("Aviso procesando trabajos pendientes: %s", exc)
 
-# Configurar CORS para permitir peticiones desde el Frontend Angular
+# Configurar CORS permisivo para desarrollo y produccion en Oracle Cloud
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:4200",
         "http://127.0.0.1:4200",
         "http://localhost:8000",
-        "http://127.0.0.1:8000"
+        "http://127.0.0.1:8000",
+        "http://localhost",
+        "http://127.0.0.1",
+        "http://40.233.19.229",
+        "http://40.233.19.229:80",
+        "http://40.233.19.229:8000",
+        "https://40.233.19.229",
     ],
-    allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+    allow_origin_regex=r"^https?://.*$",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
+# Rutas API: Registrar de manera canonica en el esquema OpenAPI bajo /api/v1
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.include_router(api_router, prefix="/api")
-app.include_router(api_router, prefix="/api/api/v1")
-app.include_router(api_router, prefix="/api/api")
 
+# Alias de compatibilidad (ocultos del schema OpenAPI para no duplicar ni saturar Swagger UI)
+app.include_router(api_router, prefix="/api", include_in_schema=False)
+app.include_router(api_router, prefix="/api/api/v1", include_in_schema=False)
+app.include_router(api_router, prefix="/api/api", include_in_schema=False)
+
+# Alias de documentacion y OpenAPI JSON para compatibilidad con proxies y clientes
+@app.get("/api/v1/openapi.json", include_in_schema=False)
+@app.get("/api/openapi.json", include_in_schema=False)
+async def openapi_alias():
+    from fastapi.responses import JSONResponse
+    return JSONResponse(app.openapi())
+
+@app.get("/api/docs", include_in_schema=False)
+@app.get("/api/v1/docs", include_in_schema=False)
+async def docs_alias():
+    from fastapi.responses import RedirectResponse
+    return RedirectResponse(url="/docs")
 
 @app.get("/")
 async def root():

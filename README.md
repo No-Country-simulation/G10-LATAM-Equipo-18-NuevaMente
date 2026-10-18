@@ -479,7 +479,12 @@ source venv/bin/activate
 pip install -r requirements.txt
 python -m uvicorn main:app --host 127.0.0.1 --port 8000 --reload
 ```
-*Documentación interactiva Swagger UI disponible en:* `http://127.0.0.1:8000/docs`
+*Documentación interactiva Swagger UI disponible en:*
+- **Producción OCI (Puerto 80 estándar vía Nginx):** `http://40.233.19.229/docs`
+- **Producción OCI (Puerto 8000 directo):** `http://40.233.19.229:8000/docs`
+- **Especificación OpenAPI Schema:** `http://40.233.19.229/openapi.json`
+- **ReDoc:** `http://40.233.19.229/redoc`
+- **Local:** `http://127.0.0.1:8000/docs`
 
 #### Frontend (Angular):
 ```bash
