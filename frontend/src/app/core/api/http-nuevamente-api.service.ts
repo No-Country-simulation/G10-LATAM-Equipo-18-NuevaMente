@@ -2,7 +2,7 @@ import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
 import { Observable, catchError, map, of, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
+import { DocumentGenerationEvent, DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
 import { MockNuevaMenteApiService } from './mock-nuevamente-api.service';
 import { AdaptationRequest, AdaptationResponse, ContenidoAdaptado } from '../models/adaptation.model';
 import { RecentProject } from '../services/state.service';
@@ -143,8 +143,20 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
     });
   }
 
-  /** Step 2: generates content from an already-indexed document. */
-  adaptDocument(documentId: string, request: AdaptationRequest, userId?: string | null): Observable<AdaptationResponse> {
+  /**
+   * Step 2: generates content from an already-indexed document.
+   *
+   * Without `onEvent` it is a plain POST. With `onEvent` it requests the SSE
+   * variant (`?stream=true`) and reports one frame per graph node, ending with
+   * a "done" frame that carries the full response. If the backend does not
+   * stream (older deployment), it transparently falls back to the JSON body.
+   */
+  adaptDocument(
+    documentId: string,
+    request: AdaptationRequest,
+    userId?: string | null,
+    onEvent?: (event: DocumentGenerationEvent) => void
+  ): Observable<AdaptationResponse> {
     const body = {
       perfil_destinatario: request.perfil_destinatario,
       formato_salida: request.formato_salida,
@@ -156,12 +168,107 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       instrucciones_adicionales: request.instrucciones_adicionales,
       forzar_regenerar: true
     };
-    const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
-    return this.http.post<AdaptationResponse>(
-      `${this.baseUrl}/documents/${encodeURIComponent(documentId)}/adapt${query}`,
-      body,
-      { headers: this.getHeaders() }
-    );
+
+    if (!onEvent) {
+      const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
+      return this.http.post<AdaptationResponse>(
+        `${this.baseUrl}/documents/${encodeURIComponent(documentId)}/adapt${query}`,
+        body,
+        { headers: this.getHeaders() }
+      );
+    }
+
+    return new Observable<AdaptationResponse>((subscriber) => {
+      const controller = new AbortController();
+      const params = new URLSearchParams({ stream: 'true' });
+      if (userId) params.set('user_id', userId);
+
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      const token = sessionStorage.getItem('nuevamente_jwt_token');
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      fetch(`${this.baseUrl}/documents/${encodeURIComponent(documentId)}/adapt?${params.toString()}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal
+      })
+        .then(async (response) => {
+          if (!response.ok) {
+            const detail = await response.text().catch(() => '');
+            throw new Error(`Generación falló (${response.status}). ${detail}`.trim());
+          }
+
+          const contentType = response.headers.get('content-type') || '';
+          // Backend without streaming support: parse the plain JSON response.
+          if (!contentType.includes('text/event-stream') || !response.body) {
+            const json = (await response.json()) as AdaptationResponse;
+            subscriber.next(json);
+            subscriber.complete();
+            return;
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let failure: string | null = null;
+          let receivedDone = false;
+
+          for (;;) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let separator = buffer.indexOf('\n\n');
+            while (separator !== -1) {
+              const frame = buffer.slice(0, separator);
+              buffer = buffer.slice(separator + 2);
+              for (const line of frame.split('\n')) {
+                if (!line.startsWith('data:')) continue;
+                const payload = line.slice(5).trim();
+                if (!payload) continue;
+                let event: DocumentGenerationEvent;
+                try {
+                  event = JSON.parse(payload) as DocumentGenerationEvent;
+                } catch {
+                  continue; // partial frame; the next chunk completes it
+                }
+
+                if (event.stage === 'failed') {
+                  failure = event.message || 'Falló la generación del contenido.';
+                } else if (event.stage === 'done') {
+                  receivedDone = true;
+                  onEvent(event);
+                  if (event.response) {
+                    subscriber.next(event.response);
+                    subscriber.complete();
+                    return;
+                  }
+                } else {
+                  onEvent(event);
+                }
+              }
+              separator = buffer.indexOf('\n\n');
+            }
+          }
+
+          if (failure) {
+            throw new Error(failure);
+          }
+          if (!receivedDone) {
+            throw new Error('La generación terminó sin devolver el contenido.');
+          }
+        })
+        .catch((error) => {
+          if (error && error.name === 'AbortError') {
+            subscriber.complete();
+            return;
+          }
+          subscriber.error(error);
+        });
+
+      return () => controller.abort();
+    });
   }
 
   /** Lists indexed documents read from the backend `documents` table. */

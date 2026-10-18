@@ -41,6 +41,15 @@ export interface DocumentIngestInput {
   useAiVision?: boolean;
 }
 
+/** One progress frame emitted while content is being generated (SSE). */
+export interface DocumentGenerationEvent {
+  /** Graph node key (retrieval, planner, writer, …) or 'done' / 'failed'. */
+  stage: string;
+  message?: string;
+  /** Present only in the final 'done' frame: the full adaptation response. */
+  response?: AdaptationResponse;
+}
+
 export interface NuevaMenteApi {
   /**
    * Step 1 of the real pipeline: ingest a document (upload or pasted text)
@@ -50,9 +59,15 @@ export interface NuevaMenteApi {
   ingestDocument(input: DocumentIngestInput, onEvent?: (event: DocumentIngestEvent) => void): Observable<DocumentRecord>;
   /**
    * Step 2 of the real pipeline: generate educational content from an
-   * already-indexed document (retrieval + multi-agent generation).
+   * already-indexed document (retrieval + multi-agent generation). When
+   * `onEvent` is provided the backend streams one frame per graph node.
    */
-  adaptDocument(documentId: string, request: AdaptationRequest, userId?: string | null): Observable<AdaptationResponse>;
+  adaptDocument(
+    documentId: string,
+    request: AdaptationRequest,
+    userId?: string | null,
+    onEvent?: (event: DocumentGenerationEvent) => void
+  ): Observable<AdaptationResponse>;
   /** Lists indexed documents, optionally scoped to one owner. */
   listDocuments(userId?: string | null): Observable<DocumentRecord[]>;
 

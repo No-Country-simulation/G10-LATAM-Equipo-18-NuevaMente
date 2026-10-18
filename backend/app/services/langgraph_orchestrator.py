@@ -20,7 +20,7 @@ Output:
 import json
 import logging
 import time
-from typing import Any, Dict, List, Optional, TypedDict
+from typing import Any, AsyncIterator, Dict, List, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 
 from app.core.config import settings
@@ -574,21 +574,18 @@ class LangGraphOrchestrator(PipelineStages):
             return cached_resp
 
         # Initial graph state
-        initial_state: AgentState = {
-            "request": request,
-            "doc_title": doc_title,
-            "target_language": target_language,
-            "top_passages": top_passages,
-            "all_parent_chunks": all_parent_chunks or top_passages,
-            "key_concepts": key_concepts,
-            "prerequisites": prerequisites,
-            "document_id": document_id,
-            "prompt_hash": prompt_hash,
-            "tracer": tracer,
-            "revision_count": 0,
-            "max_revisions": settings.LANGGRAPH_MAX_REVISIONS,
-            "nodes_executed": [],
-        }
+        initial_state = self._build_initial_state(
+            request=request,
+            top_passages=top_passages,
+            key_concepts=key_concepts,
+            prerequisites=prerequisites,
+            tracer=tracer,
+            all_parent_chunks=all_parent_chunks,
+            document_id=document_id,
+            doc_title=doc_title,
+            target_language=target_language,
+            prompt_hash=prompt_hash,
+        )
 
         # Run the LangGraph execution
         logger.info("🚀 Iniciando ejecución del grafo de LangGraph para doc='%s'...", doc_title)
@@ -605,3 +602,100 @@ class LangGraphOrchestrator(PipelineStages):
             final_response.metadata.graph_nodes_executed,
         )
         return final_response
+
+    def _build_initial_state(
+        self,
+        request: AdaptationRequest,
+        top_passages: List[Dict[str, Any]],
+        key_concepts: List[str],
+        prerequisites: List[str],
+        tracer: Optional[Any],
+        all_parent_chunks: Optional[List[Dict[str, Any]]],
+        document_id: Optional[str],
+        doc_title: str,
+        target_language: str,
+        prompt_hash: str,
+    ) -> AgentState:
+        """Builds the initial AgentState shared by the sync and streaming entry points."""
+        return {
+            "request": request,
+            "doc_title": doc_title,
+            "target_language": target_language,
+            "top_passages": top_passages,
+            "all_parent_chunks": all_parent_chunks or top_passages,
+            "key_concepts": key_concepts,
+            "prerequisites": prerequisites,
+            "document_id": document_id,
+            "prompt_hash": prompt_hash,
+            "tracer": tracer,
+            "revision_count": 0,
+            "max_revisions": settings.LANGGRAPH_MAX_REVISIONS,
+            "nodes_executed": [],
+        }
+
+    async def iter_pipeline(
+        self,
+        request: AdaptationRequest,
+        top_passages: List[Dict[str, Any]],
+        key_concepts: Optional[List[str]] = None,
+        prerequisites: Optional[List[str]] = None,
+        tracer: Optional[Any] = None,
+        all_parent_chunks: Optional[List[Dict[str, Any]]] = None,
+        document_id: Optional[str] = None,
+    ) -> AsyncIterator[Dict[str, Any]]:
+        """
+        Streams one progress event per executed graph node.
+
+        Yields `{"stage": <node_name>}` after each node finishes and a final
+        `{"stage": "done", "response": <AdaptationResponse>}`. The node names
+        match the graph keys (planner, writer, deduplicator,
+        grounding_verifier, critic, refiner, formatter), so callers can map
+        them to their own step labels.
+        """
+        key_concepts = key_concepts or []
+        prerequisites = prerequisites or []
+        doc_title = self._clean_document_title(request)
+        target_language = request.language or settings.DEFAULT_OUTPUT_LANGUAGE
+        prompt_hash = self._compute_request_hash(request, doc_title, target_language)
+
+        force_regenerate = getattr(request, "force_regenerate", False) or getattr(request, "forzar_regenerar", False)
+        if not force_regenerate and prompt_hash in self._response_cache:
+            cached_resp = self._response_cache[prompt_hash]
+            cached_resp.metadata.origin = "cache"
+            cached_resp.metadata.prompt_hash = prompt_hash
+            yield {"stage": "done", "response": cached_resp}
+            return
+
+        initial_state = self._build_initial_state(
+            request=request,
+            top_passages=top_passages,
+            key_concepts=key_concepts,
+            prerequisites=prerequisites,
+            tracer=tracer,
+            all_parent_chunks=all_parent_chunks,
+            document_id=document_id,
+            doc_title=doc_title,
+            target_language=target_language,
+            prompt_hash=prompt_hash,
+        )
+
+        logger.info("🚀 Iniciando ejecución streaming del grafo para doc='%s'...", doc_title)
+        # Accumulate the per-node updates so the final response can be read
+        # without a second (expensive) execution.
+        final_state: Dict[str, Any] = dict(initial_state)
+        async for chunk in self.graph.astream(initial_state, stream_mode="updates"):
+            for node_name, update in chunk.items():
+                if isinstance(update, dict):
+                    final_state.update(update)
+                yield {"stage": node_name}
+
+        final_response = final_state.get("final_response")
+        if not final_response:
+            logger.warning("El grafo no produjo final_response directamente; ejecutando formatter de respaldo.")
+            final_response = self._node_formatter(final_state)["final_response"]
+
+        logger.info(
+            "🎉 LangGraph streaming completado. Nodos ejecutados: %s",
+            final_response.metadata.graph_nodes_executed,
+        )
+        yield {"stage": "done", "response": final_response}

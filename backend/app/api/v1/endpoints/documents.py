@@ -31,7 +31,7 @@ import queue
 import tempfile
 import threading
 from pathlib import Path
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, AsyncGenerator, Dict, Generator, List, Optional
 
 import anyio
 from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
@@ -76,6 +76,21 @@ class DocumentAdaptRequest(BaseModel):
 def _format_sse(payload: Dict[str, Any]) -> str:
     """Serializes one progress event as a Server-Sent Events frame."""
     return f"data: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+# Spanish fallback messages for each generation step. The frontend localizes
+# the step labels itself using the stage key, so these are only a resilience
+# fallback for clients that render the raw message.
+_GENERATION_STAGE_MESSAGES: Dict[str, str] = {
+    "retrieval": "Recuperando los fragmentos más relevantes (RAG)…",
+    "planner": "Planificando cobertura y tópicos pedagógicos…",
+    "writer": "Redactando el contenido educativo…",
+    "deduplicator": "Eliminando ítems duplicados…",
+    "grounding_verifier": "Verificando el anclaje a las fuentes…",
+    "critic": "Auditando la calidad pedagógica…",
+    "refiner": "Completando ítems faltantes…",
+    "formatter": "Formateando y guardando el contenido…",
+}
 
 
 def _save_upload_to_temp(content_bytes: bytes, suffix: str) -> str:
@@ -253,18 +268,103 @@ async def get_document(document_id: str):
     return record
 
 
+def _build_adaptation_request(
+    record: DocumentRecord,
+    request: "DocumentAdaptRequest",
+    top_passages: List[Dict[str, Any]],
+    user_id: Optional[str],
+) -> AdaptationRequest:
+    """Assembles the internal AdaptationRequest from the HTTP payload + passages."""
+    return AdaptationRequest(
+        title=record.title,
+        content="\n\n".join(passage.get("content", "") for passage in top_passages),
+        recipient_profile=request.recipient_profile,
+        output_format=request.output_format,
+        niche=request.niche,
+        detail_level=request.detail_level,
+        quantity_level=request.quantity_level,
+        target_quantity=request.target_quantity,
+        quantity=request.quantity,
+        language=request.language,
+        additional_instructions=request.additional_instructions,
+        force_regenerate=request.force_regenerate,
+        user_id=user_id or record.user_id,
+    )
+
+
+async def _adapt_event_stream(
+    document_id: str,
+    record: DocumentRecord,
+    request: "DocumentAdaptRequest",
+    query: str,
+    store: Any,
+    user_id: Optional[str],
+) -> AsyncGenerator[str, None]:
+    """
+    Streams retrieval plus one event per LangGraph node as SSE.
+
+    Emits `{"stage": <name>}` while working and a final
+    `{"stage": "done", "response": <AdaptationResponse>}` frame, mirroring the
+    ingestion stream contract so the frontend can reuse one consumer.
+    """
+    yield _format_sse({"stage": "retrieval", "message": _GENERATION_STAGE_MESSAGES["retrieval"]})
+
+    try:
+        top_passages = await anyio.to_thread.run_sync(
+            lambda: retrieve_context(
+                document_id=document_id, query=query, top_k=settings.MAX_TOP_K_CHUNKS
+            )
+        )
+    except Exception as exc:  # reported to the client as a failed event
+        logger.exception("Error retrieving context for document_id=%s", document_id)
+        yield _format_sse({"stage": "failed", "message": f"Retrieval error: {exc}"})
+        return
+
+    if not top_passages:
+        yield _format_sse(
+            {"stage": "failed", "message": "No relevant passages were found for this document."}
+        )
+        return
+
+    all_parent_chunks = list(store.parent_documents.values())
+    adaptation_request = _build_adaptation_request(record, request, top_passages, user_id)
+
+    try:
+        async for event in langgraph_orchestrator.iter_pipeline(
+            request=adaptation_request,
+            top_passages=top_passages,
+            key_concepts=[],
+            prerequisites=[],
+            all_parent_chunks=all_parent_chunks,
+            document_id=document_id,
+        ):
+            stage = event.get("stage")
+            if stage == "done":
+                response: AdaptationResponse = event["response"]
+                yield _format_sse({"stage": "done", "response": response.model_dump(by_alias=True)})
+            else:
+                yield _format_sse(
+                    {"stage": stage, "message": _GENERATION_STAGE_MESSAGES.get(stage, "")}
+                )
+    except Exception as error:
+        logger.exception("Error generating content for document_id=%s", document_id)
+        yield _format_sse({"stage": "failed", "message": f"Content generation error: {error}"})
+
+
 @router.post("/documents/{document_id}/adapt", response_model=AdaptationResponse)
 async def adapt_document(
     document_id: str,
     request: DocumentAdaptRequest,
     user_id: Optional[str] = Query(None),
+    stream: bool = Query(False, description="Stream generation progress as Server-Sent Events"),
 ):
     """
     Generates educational content from an already-indexed document.
 
     Retrieval runs against the document's FAISS store; generation runs the
-    multi-agent pipeline. This is the fast second call: ingestion and
-    embeddings already happened when the document was uploaded.
+    multi-agent pipeline. With `stream=true` it reports live progress (one
+    event per graph node) and ends with the full response; with `stream=false`
+    it returns the response directly.
     """
     repo = get_document_repository()
     record = repo.get_document(document_id)
@@ -289,6 +389,14 @@ async def adapt_document(
     query = " ".join(
         part for part in [record.title, request.recipient_profile, request.output_format, request.niche] if part
     )
+
+    if stream:
+        return StreamingResponse(
+            _adapt_event_stream(document_id, record, request, query, store, user_id),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
+
     top_passages = await anyio.to_thread.run_sync(
         lambda: retrieve_context(document_id=document_id, query=query, top_k=settings.MAX_TOP_K_CHUNKS)
     )
@@ -299,22 +407,7 @@ async def adapt_document(
         )
 
     all_parent_chunks = list(store.parent_documents.values())
-
-    adaptation_request = AdaptationRequest(
-        title=record.title,
-        content="\n\n".join(passage.get("content", "") for passage in top_passages),
-        recipient_profile=request.recipient_profile,
-        output_format=request.output_format,
-        niche=request.niche,
-        detail_level=request.detail_level,
-        quantity_level=request.quantity_level,
-        target_quantity=request.target_quantity,
-        quantity=request.quantity,
-        language=request.language,
-        additional_instructions=request.additional_instructions,
-        force_regenerate=request.force_regenerate,
-        user_id=user_id or record.user_id,
-    )
+    adaptation_request = _build_adaptation_request(record, request, top_passages, user_id)
 
     try:
         return await langgraph_orchestrator.run_pipeline(
