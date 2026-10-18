@@ -15,6 +15,7 @@ import { CommonModule } from '@angular/common';
 import { timer, Subscription } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { PipelineStage } from './pipeline-progress.component';
+import { PipelineStateService } from '../../core/services/pipeline-state.service';
 
 export interface GenerationParams {
   perfil?: string;
@@ -701,11 +702,11 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
 
   @Input() title: string = 'Creando tu contenido educativo';
   @Input() messages: string[] = [
-    'Leyendo tu documento…',
-    'Buscando los fragmentos más relevantes…',
-    'Adaptando el lenguaje a tu audiencia…',
-    'Verificando que todo esté anclado a la fuente…',
-    'Guardando de forma segura…'
+    'Leyendo y segmentando el documento…',
+    'Generando los embeddings e indexando…',
+    'Recuperando los fragmentos más relevantes (RAG)…',
+    'Redactando el contenido educativo con IA…',
+    'Verificando el anclaje a la fuente y guardando…'
   ];
   @Input() progress: number | null = null;
   @Input() compact: boolean = false;
@@ -717,24 +718,24 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   @Output() retry = new EventEmitter<void>();
 
   // SIGNALS
-  elapsedSeconds = signal<number>(0);
+  readonly pipeline = inject(PipelineStateService);
+  /** Single source of truth for elapsed time: the global pipeline service. */
+  elapsedSeconds = computed<number>(() => this.pipeline.elapsedSeconds());
   microcopyIndex = signal<number>(0);
   isDetailsOpen = signal<boolean>(environment.showPipelineDetails ?? false);
   isError = signal<boolean>(false);
   errorMessage = signal<string>('');
   isTabVisible = signal<boolean>(true);
 
-  private timerSub?: Subscription;
   private microcopySub?: Subscription;
 
+  /** Fallback stepper used only when no `stages` input is provided. */
   defaultStages: PipelineStage[] = [
-    { id: 1, nombre: '1. Ingesta', microcopy: 'Extrayendo PDF/MD/TXT localmente', estado: 'activo' },
+    { id: 1, nombre: '1. Ingesta', microcopy: 'Leyendo el documento', estado: 'activo' },
     { id: 2, nombre: '2. Chunking', microcopy: 'División en fragmentos semánticos', estado: 'pendiente' },
-    { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización con Nomic/BERT', estado: 'pendiente' },
-    { id: 4, nombre: '4. RAG Search', microcopy: 'Búsqueda vectorial & BM25', estado: 'pendiente' },
-    { id: 5, nombre: '5. Redactor IA', microcopy: 'Adaptación pedagógica orquestada', estado: 'pendiente' },
-    { id: 6, nombre: '6. Revisor Crítico', microcopy: 'Evaluación de anclaje y calidad', estado: 'pendiente' },
-    { id: 7, nombre: '7. Guardado OCI', microcopy: 'Persistencia en Object Storage', estado: 'pendiente' }
+    { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización semántica', estado: 'pendiente' },
+    { id: 4, nombre: '4. Indexado', microcopy: 'Guardando el índice de búsqueda', estado: 'pendiente' },
+    { id: 5, nombre: '5. Generación', microcopy: 'Recuperación RAG y redacción pedagógica', estado: 'pendiente' }
   ];
 
   currentStages = computed(() => {
@@ -757,21 +758,17 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   });
 
   ngOnInit(): void {
-    // 1. Timer ticker
-    this.timerSub = timer(1000, 1000).subscribe(() => {
-      if (this.isTabVisible() && !this.isError()) {
-        this.elapsedSeconds.update(s => s + 1);
-      }
-    });
+    // Elapsed time is owned by PipelineStateService so the inline loader and
+    // the global banner always show the same clock.
 
-    // 2. Microcopy rotator (every 3 seconds)
+    // Microcopy rotator (every 3 seconds)
     this.microcopySub = timer(3000, 3000).subscribe(() => {
       if (this.isTabVisible() && !this.activeStage && !this.isError()) {
         this.microcopyIndex.update(idx => idx + 1);
       }
     });
 
-    // 3. Page Visibility listener to pause CSS/timers when tab is hidden
+    // Page Visibility listener to pause CSS/timers when tab is hidden
     if (typeof document !== 'undefined') {
       const handleVisibilityChange = () => {
         this.isTabVisible.set(!document.hidden);
@@ -784,7 +781,6 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   }
 
   ngOnDestroy(): void {
-    if (this.timerSub) this.timerSub.unsubscribe();
     if (this.microcopySub) this.microcopySub.unsubscribe();
   }
 
@@ -804,7 +800,8 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   onRetry(): void {
     this.isError.set(false);
     this.errorMessage.set('');
-    this.elapsedSeconds.set(0);
+    // The elapsed clock is reset by PipelineStateService.begin() when the
+    // retried run starts, so there is nothing to reset here.
     this.retry.emit();
   }
 }

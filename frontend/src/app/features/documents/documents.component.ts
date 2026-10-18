@@ -4,6 +4,7 @@ import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { DomSanitizer, SafeResourceUrl } from '@angular/platform-browser';
 import { DocumentService } from '../../core/services/document.service';
+import { PipelineStateService } from '../../core/services/pipeline-state.service';
 import { AppDocument } from '../../core/models/document.model';
 
 @Component({
@@ -35,12 +36,13 @@ import { AppDocument } from '../../core/models/document.model';
       <div 
         class="upload-dropzone glass-card"
         [class.is-dragging]="isDragging()"
+        [class.is-disabled]="pipeline.running()"
         (dragover)="onDragOver($event)"
         (dragleave)="onDragLeave($event)"
         (drop)="onDrop($event)"
       >
         <input #fileInput type="file" (change)="onFileSelected($event)" accept=".pdf,.md,.txt" style="display:none;" />
-        <div class="dropzone-body" (click)="fileInput.click()">
+        <div class="dropzone-body" (click)="onDropzoneClick(fileInput)">
           <div class="drop-icon-wrapper">
             <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#6366F1" stroke-width="2">
               <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
@@ -338,6 +340,12 @@ import { AppDocument } from '../../core/models/document.model';
       transform: translateY(-2px);
     }
 
+    /* Blocks new uploads while another pipeline run is active */
+    .upload-dropzone.is-disabled {
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
     .dropzone-body {
       display: flex;
       align-items: center;
@@ -580,6 +588,7 @@ import { AppDocument } from '../../core/models/document.model';
 })
 export class DocumentsComponent implements OnInit {
   readonly documentService = inject(DocumentService);
+  readonly pipeline = inject(PipelineStateService);
   private router = inject(Router);
   private sanitizer = inject(DomSanitizer);
 
@@ -627,9 +636,16 @@ export class DocumentsComponent implements OnInit {
     this.isDragging.set(false);
   }
 
+  /** Opens the file picker unless another pipeline run is in progress. */
+  onDropzoneClick(fileInput: HTMLInputElement): void {
+    if (!this.pipeline.guard()) return;
+    fileInput.click();
+  }
+
   onDrop(event: DragEvent): void {
     event.preventDefault();
     this.isDragging.set(false);
+    if (!this.pipeline.guard()) return;
     if (event.dataTransfer?.files && event.dataTransfer.files.length > 0) {
       this.handleFileUpload(event.dataTransfer.files[0]);
     }
@@ -643,6 +659,7 @@ export class DocumentsComponent implements OnInit {
   }
 
   private async handleFileUpload(file: File): Promise<void> {
+    if (!this.pipeline.guard()) return;
     this.isUploading.set(true);
     try {
       await this.documentService.uploadDocument(file);

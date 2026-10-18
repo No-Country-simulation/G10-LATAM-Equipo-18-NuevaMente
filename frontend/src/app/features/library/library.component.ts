@@ -136,8 +136,10 @@ interface ToastState {
                 />
               </td>
               <td class="td-title">
-                <strong>{{ proj.nombre }}</strong>
-                <span class="doc-date">{{ proj.fecha }}</span>
+                <div class="title-stack">
+                  <strong>{{ proj.nombre }}</strong>
+                  <span class="doc-date">{{ proj.fecha }}</span>
+                </div>
               </td>
               <td><span class="badge-profile">{{ proj.perfil }}</span></td>
               <td><span class="badge-format">{{ proj.formato }}</span></td>
@@ -152,6 +154,7 @@ interface ToastState {
                 </span>
               </td>
               <td class="td-actions">
+                <div class="actions-row">
                 <button 
                   class="btn-action-primary btn-action-view" 
                   (click)="openInWorkspace(proj)" 
@@ -200,6 +203,7 @@ interface ToastState {
                 >
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                 </button>
+                </div>
               </td>
             </tr>
           </tbody>
@@ -441,6 +445,10 @@ interface ToastState {
     }
 
     .td-title {
+      vertical-align: middle;
+    }
+
+    .title-stack {
       display: flex;
       flex-direction: column;
       gap: 0.2rem;
@@ -479,6 +487,10 @@ interface ToastState {
     }
 
     .td-actions {
+      vertical-align: middle;
+    }
+
+    .actions-row {
       display: flex;
       align-items: center;
       justify-content: flex-start;

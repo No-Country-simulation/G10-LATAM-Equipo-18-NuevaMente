@@ -1,16 +1,14 @@
-import { Component, signal, computed, inject, ViewChild, OnInit, OnDestroy } from '@angular/core';
+import { Component, signal, computed, inject, ViewChild, OnInit, effect } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule, FormBuilder, Validators } from '@angular/forms';
 import { Router } from '@angular/router';
-import { Subscription } from 'rxjs';
-import { switchMap } from 'rxjs/operators';
 import { toSignal } from '@angular/core/rxjs-interop';
 
-import { DocumentIngestEvent, DocumentRecord, NuevaMenteApi, NUEVAMENTE_API } from '../../core/api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse, PerfilDestinatario, FormatoSalida, NichoSector, NivelDetalle, NivelCantidad, RagFuente } from '../../core/models/adaptation.model';
 import { CONTENT_QUANTITY_CONFIG, getQuantityHintText, getTargetItemCount } from '../../core/config/content-quantity.config';
+import { PipelineStateService } from '../../core/services/pipeline-state.service';
 
-import { PipelineProgressComponent, PipelineStage } from './pipeline-progress.component';
+import { PipelineProgressComponent } from './pipeline-progress.component';
 import { GenerationLoaderComponent } from './generation-loader.component';
 import { FlashcardsRendererComponent } from './renderers/flashcards-renderer.component';
 import { QuizRendererComponent } from './renderers/quiz-renderer.component';
@@ -358,7 +356,7 @@ import { AppDocument } from '../../core/models/document.model';
               <strong>Error al procesar:</strong>
               <span>{{ pipelineErrorMessage() }}</span>
             </div>
-            <button type="button" class="btn-close-err" (click)="pipelineErrorMessage.set(null)">✕</button>
+            <button type="button" class="btn-close-err" (click)="pipeline.clearError()">✕</button>
           </div>
 
           <!-- Live Configuration Summary Chips & Primary CTA -->
@@ -373,7 +371,7 @@ import { AppDocument } from '../../core/models/document.model';
             <button 
               type="submit" 
               class="btn-cta-generate" 
-              [disabled]="adaptForm.invalid && !(activeTab() === 'upload' && uploadedFile()) && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed)"
+              [disabled]="isPipelineRunning() || (adaptForm.invalid && !(activeTab() === 'upload' && uploadedFile()) && !(activeTab() === 'from_documents' && selectedWorkspaceDoc()?.indexed))"
             >
               ⚡ Generar Contenido Educativo →
             </button>
@@ -878,12 +876,12 @@ import { AppDocument } from '../../core/models/document.model';
     }
   `]
 })
-export class WorkspaceComponent implements OnInit, OnDestroy {
-  private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
+export class WorkspaceComponent implements OnInit {
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
   readonly stateService = inject(StateService);
   readonly documentService = inject(DocumentService);
+  readonly pipeline = inject(PipelineStateService);
   private router = inject(Router);
 
   activeTab = signal<'upload' | 'text' | 'from_documents'>('upload');
@@ -893,10 +891,6 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
 
   pickerSearchQuery = signal<string>('');
   pickerTypeFilter = signal<string>('all');
-
-  isPipelineRunning = signal<boolean>(false);
-  pipelineErrorMessage = signal<string | null>(null);
-  currentResponse = signal<AdaptationResponse | null>(null);
 
   isExportMenuOpen = signal<boolean>(false);
   isJsonDrawerOpen = signal<boolean>(false);
@@ -918,13 +912,14 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     this.useAiVision.set(checked);
   }
 
-  private pipelineSub?: Subscription;
+  // Pipeline state lives in the root PipelineStateService so a generation
+  // keeps running when the user navigates away from this view.
+  readonly isPipelineRunning = this.pipeline.running;
+  readonly pipelineErrorMessage = this.pipeline.errorMessage;
+  readonly pipelineStages = this.pipeline.stages;
+  readonly activeStage = this.pipeline.activeStage;
 
-  /** Live pipeline stages shown by the generation loader, driven by real SSE events. */
-  pipelineStages = signal<PipelineStage[]>(this.buildPipelineStages());
-  activeStage = computed<PipelineStage | null>(
-    () => this.pipelineStages().find(stage => stage.estado === 'activo') || null
-  );
+  currentResponse = signal<AdaptationResponse | null>(null);
 
   perfiles = [
     { value: 'Principiante', label: 'Principiante', icon: '🌱', desc: 'Explicaciones didácticas y analogías sencillas' },
@@ -968,6 +963,26 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     if (activeResp) {
       this.currentResponse.set(activeResp);
     }
+
+    // A generation that finished while the user was on another view is picked
+    // up here: the global service keeps the response until it is consumed.
+    const pipelineResp = this.pipeline.response();
+    if (pipelineResp) {
+      this.currentResponse.set(pipelineResp);
+      this.stateService.setIsViewingActiveResult(true);
+      this.pipeline.consumeFinished();
+    }
+
+    // Mirror completions that arrive while this view is alive (the run itself
+    // is owned by the service, so it keeps going if the user navigates away).
+    effect(() => {
+      const resp = this.pipeline.response();
+      if (resp && this.isPipelineRunning() === false && this.pipeline.finished()) {
+        this.currentResponse.set(resp);
+        this.stateService.setIsViewingActiveResult(true);
+        this.pipeline.consumeFinished();
+      }
+    });
 
     // Keep the "Desde Mis Documentos" picker in sync with the backend.
     void this.documentService.refresh();
@@ -1199,7 +1214,9 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
 
   /**
    * Runs the real two-step pipeline: ingest the document (streaming progress),
-   * then generate educational content from the indexed document.
+   * then generate educational content from the indexed document. The run is
+   * owned by PipelineStateService, so it keeps going if the user navigates
+   * away, and duplicate starts are blocked while another run is active.
    */
   runPipeline(): void {
     const indexedDoc = this.activeTab() === 'from_documents' ? this.selectedWorkspaceDoc() : null;
@@ -1207,10 +1224,10 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     const usingIndexedDoc = !!indexedDoc?.indexed;
     if (this.adaptForm.invalid && !usingUpload && !usingIndexedDoc) return;
 
-    this.pipelineErrorMessage.set(null);
+    // Duplicate-action guard: refuse to start a second pipeline.
+    if (!this.pipeline.guard()) return;
+
     this.currentResponse.set(null);
-    this.isPipelineRunning.set(true);
-    this.pipelineStages.set(this.buildPipelineStages());
 
     const formVal = this.adaptForm.value;
     const title = formVal.documento_titulo || 'Documento Técnico';
@@ -1228,123 +1245,22 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     };
 
     if (usingIndexedDoc && indexedDoc) {
-      // The document is already ingested and indexed: step 1 is done, so mark
-      // the ingest stages complete and generate directly from its vector store.
-      this.pipelineStages.update(list => list.map((stage, i): PipelineStage =>
-        i < list.length - 1 ? { ...stage, estado: 'completado' } : stage));
-      this.startAdaptProgress();
-      this.pipelineSub = this.api.adaptDocument(indexedDoc.id, req, userId)
-        .subscribe(this.generationObserver(req));
+      // Already indexed: the service marks the ingest stages complete and
+      // generates directly from the document's vector store.
+      this.pipeline.runGeneration({ documentId: indexedDoc.id, request: req, userId });
       return;
     }
 
-    const ingestInput = {
-      file: usingUpload ? this.uploadedFile() : null,
-      text: usingUpload ? null : (formVal.documento_contenido || ''),
-      title,
-      userId,
-      useAiVision: this.useAiVision()
-    };
-
-    this.pipelineSub = this.api.ingestDocument(ingestInput, event => this.onIngestEvent(event))
-      .pipe(
-        switchMap((record: DocumentRecord) => {
-          // Step 1 finished: the document is indexed, now retrieve + generate.
-          this.startAdaptProgress();
-          return this.api.adaptDocument(record.document_id, req, userId);
-        })
-      )
-      .subscribe(this.generationObserver(req));
-  }
-
-  /** Subscribe handlers shared by both generation paths (new vs. indexed doc). */
-  private generationObserver(req: AdaptationRequest): { next: (r: AdaptationResponse) => void; error: (e: any) => void } {
-    return {
-      next: (resp: AdaptationResponse) => {
-        this.currentResponse.set(resp);
-        this.stateService.addProjectFromResponse(req, resp);
-        this.completeStages();
-        this.isPipelineRunning.set(false);
+    this.pipeline.runGeneration({
+      ingestInput: {
+        file: usingUpload ? this.uploadedFile() : null,
+        text: usingUpload ? null : (formVal.documento_contenido || ''),
+        title,
+        userId,
+        useAiVision: this.useAiVision()
       },
-      error: (err: any) => {
-        console.error('Error en pipeline RAG:', err);
-        const detail = err?.error?.detail || err?.message || 'Error de procesamiento en backend';
-        this.pipelineErrorMessage.set(typeof detail === 'string' ? detail : JSON.stringify(detail));
-        this.failStages(this.pipelineErrorMessage() || 'Error');
-        this.isPipelineRunning.set(false);
-      }
-    };
-  }
-
-  /**
-   * Builds the initial (all pending) list of pipeline stages for the loader.
-   * These mirror exactly what the backend reports over SSE: ingest, chunk,
-   * embed and index, followed by a single generation step (the generation
-   * endpoint is not streamed, so it stays active until the response arrives).
-   */
-  private buildPipelineStages(): PipelineStage[] {
-    return [
-      { id: 1, nombre: '1. Ingesta', microcopy: 'Leyendo el documento', estado: 'pendiente' },
-      { id: 2, nombre: '2. Chunking', microcopy: 'División en fragmentos semánticos', estado: 'pendiente' },
-      { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización semántica', estado: 'pendiente' },
-      { id: 4, nombre: '4. Indexado', microcopy: 'Guardando el índice de búsqueda', estado: 'pendiente' },
-      { id: 5, nombre: '5. Generación', microcopy: 'Recuperación RAG y redacción pedagógica', estado: 'pendiente' }
-    ];
-  }
-
-  /** Maps a backend ingestion stage name to its index in the UI stepper. */
-  private ingestStageIndex(stage: string): number {
-    switch (stage) {
-      case 'uploading': return 0;
-      case 'ingesting': return 1;
-      case 'embedding': return 2;
-      case 'indexing': return 3;
-      default: return -1;
-    }
-  }
-
-  private onIngestEvent(event: DocumentIngestEvent): void {
-    if (event.stage === 'failed') {
-      this.failStages(event.message || 'Falló la ingesta del documento.');
-      return;
-    }
-    if (event.stage === 'ready' || event.stage === 'done') {
-      this.setStageProgress(4, 'Documento indexado. Generando contenido…');
-      return;
-    }
-    const index = this.ingestStageIndex(event.stage);
-    if (index >= 0) {
-      this.setStageProgress(index, event.message);
-    }
-  }
-
-  /** Marks every stage before `index` completed and `index` itself active. */
-  private setStageProgress(index: number, message?: string): void {
-    this.pipelineStages.update(list => list.map((stage, i): PipelineStage => {
-      if (i < index) return { ...stage, estado: 'completado' };
-      if (i === index) return { ...stage, estado: 'activo', microcopy: message || stage.microcopy };
-      return { ...stage, estado: 'pendiente' };
-    }));
-  }
-
-  private startAdaptProgress(): void {
-    // Generation is a single non-streamed request: keep the last stage active
-    // until the response resolves, with no simulated progression.
-    this.setStageProgress(4, 'Recuperando fragmentos y generando contenido…');
-  }
-
-  private completeStages(): void {
-    this.pipelineStages.update(list => list.map((stage): PipelineStage => ({ ...stage, estado: 'completado' })));
-  }
-
-  private failStages(message: string): void {
-    this.pipelineStages.update(list => {
-      const activeIdx = Math.max(0, list.findIndex(stage => stage.estado === 'activo'));
-      return list.map((stage, i): PipelineStage => {
-        if (i < activeIdx) return { ...stage, estado: 'completado' };
-        if (i === activeIdx) return { ...stage, estado: 'error', microcopy: message };
-        return { ...stage, estado: 'pendiente' };
-      });
+      request: req,
+      userId
     });
   }
 
@@ -1362,15 +1278,8 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
   }
 
   cancelPipeline(): void {
-    if (this.pipelineSub) {
-      this.pipelineSub.unsubscribe();
-    }
-    this.isPipelineRunning.set(false);
-  }
-
-  ngOnDestroy(): void {
-    // Keep pipelineSub alive in background if running so user can navigate to
-    // Library or Documents without losing the generation process.
+    // Delegates to the global service, which aborts the in-flight request.
+    this.pipeline.cancel();
   }
 
   getGenerationParams(): any {
@@ -1398,8 +1307,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
 
   resetForm(): void {
     this.stateService.setIsViewingActiveResult(false);
-    this.pipelineErrorMessage.set(null);
-    this.isPipelineRunning.set(false);
+    this.pipeline.clearError();
     this.feedbackSubmitted.set(false);
     this.userVote.set(null);
   }

@@ -2,6 +2,7 @@ import { Injectable, signal, computed, inject } from '@angular/core';
 import { firstValueFrom } from 'rxjs';
 import { AppDocument, DocumentType } from '../models/document.model';
 import { NUEVAMENTE_API, NuevaMenteApi, DocumentRecord } from '../api/nuevamente-api';
+import { PipelineStateService } from './pipeline-state.service';
 
 /**
  * DocumentService
@@ -25,6 +26,7 @@ import { NUEVAMENTE_API, NuevaMenteApi, DocumentRecord } from '../api/nuevamente
 })
 export class DocumentService {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
+  private pipeline = inject(PipelineStateService);
 
   private documentsSignal = signal<AppDocument[]>([]);
   readonly selectedWorkspaceDocument = signal<AppDocument | null>(null);
@@ -61,13 +63,13 @@ export class DocumentService {
 
   /**
    * Uploads a file through the real ingestion pipeline (storage + embeddings +
-   * index) and refreshes the list once it is ready.
+   * index) and refreshes the list once it is ready. The run is routed through
+   * PipelineStateService so the global banner shows the progress and a second
+   * upload is refused while one is already running.
    */
   async uploadDocument(file: File): Promise<AppDocument | null> {
     const title = file.name.replace(/\.[^.]+$/, '');
-    const record = await firstValueFrom(
-      this.api.ingestDocument({ file, title, userId: this.currentUserId() })
-    );
+    const record = await this.pipeline.ingestOnly({ file, title, userId: this.currentUserId() });
     await this.refresh();
     return this.documentsSignal().find(doc => doc.id === record.document_id)
       ?? this.toAppDocument(record);

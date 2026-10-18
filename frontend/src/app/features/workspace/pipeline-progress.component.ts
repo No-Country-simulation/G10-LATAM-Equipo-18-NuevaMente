@@ -1,13 +1,9 @@
 import { Component, Input, Output, EventEmitter, OnInit, OnDestroy, signal } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { PipelineStage } from '../../core/models/pipeline.model';
 
-export interface PipelineStage {
-  id: number;
-  nombre: string;
-  microcopy: string;
-  estado: 'pendiente' | 'activo' | 'completado' | 'error';
-  duracion_ms?: number;
-}
+// Re-exported for backwards compatibility with existing feature imports.
+export { PipelineStage } from '../../core/models/pipeline.model';
 
 @Component({
   selector: 'app-pipeline-progress',

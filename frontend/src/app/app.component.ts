@@ -1,4 +1,4 @@
-import { Component, OnInit, signal, inject } from '@angular/core';
+import { Component, OnInit, signal, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
 import { ThemeService } from './core/services/theme.service';
@@ -6,6 +6,7 @@ import { I18nService } from './core/services/i18n.service';
 import { AuthStore } from './core/store/auth.store';
 import { StateService } from './core/services/state.service';
 import { DocumentService } from './core/services/document.service';
+import { PipelineStateService } from './core/services/pipeline-state.service';
 
 @Component({
   selector: 'app-root',
@@ -109,6 +110,26 @@ import { DocumentService } from './core/services/document.service';
 
       <!-- Main Content Area with Protected Router Outlet -->
       <main class="main-content-area">
+        <!-- GLOBAL PIPELINE BANNER: announced from any view while a run is active -->
+        <div class="pipeline-banner" *ngIf="pipeline.running() && !isAuthRoute()" (click)="goToProcessView()">
+          <span class="banner-spinner" aria-hidden="true"></span>
+          <span class="banner-label">
+            {{ pipeline.mode() === 'ingest' ? 'Ingesta en curso' : 'Generación en curso' }}
+          </span>
+          <span class="banner-step" *ngIf="pipeline.activeStage() as stage">
+            Paso {{ currentStepIndex() + 1 }}/{{ pipeline.stages().length }}: {{ stage.nombre }}
+          </span>
+          <span class="banner-time">{{ elapsedLabel() }}</span>
+          <span class="banner-cta">Ver progreso →</span>
+        </div>
+
+        <!-- Finished notice when the result is waiting for the user -->
+        <div class="pipeline-banner pipeline-banner-done" *ngIf="pipeline.finished() && !pipeline.running() && !isAuthRoute()" (click)="goToProcessView()">
+          <span class="banner-check" aria-hidden="true">✅</span>
+          <span class="banner-label">Contenido educativo listo</span>
+          <span class="banner-cta">Ver resultado →</span>
+        </div>
+
         <router-outlet></router-outlet>
       </main>
 
@@ -198,6 +219,46 @@ import { DocumentService } from './core/services/document.service';
 
     .main-content-area { flex: 1; margin-left: 250px; padding: 2.5rem; min-height: 100vh; }
 
+    /* Global pipeline banner (running / finished notices) */
+    .pipeline-banner {
+      position: sticky;
+      top: 0;
+      z-index: 300;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin: -1rem 0 1.5rem;
+      padding: 0.7rem 1.1rem;
+      border-radius: 12px;
+      background: linear-gradient(90deg, rgba(79, 70, 229, 0.12), rgba(34, 211, 238, 0.08));
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .pipeline-banner-done {
+      background: rgba(16, 185, 129, 0.1);
+      border-color: rgba(16, 185, 129, 0.4);
+    }
+    .banner-label { font-weight: 800; color: var(--text-primary); }
+    .banner-step { color: var(--text-secondary); }
+    .banner-time {
+      font-variant-numeric: tabular-nums;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .banner-cta { margin-left: auto; font-weight: 700; color: #6366F1; }
+    .banner-check { font-size: 1rem; }
+    .banner-spinner {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      border: 2px solid rgba(99, 102, 241, 0.3);
+      border-top-color: #6366F1;
+      animation: banner-spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+    @keyframes banner-spin { to { transform: rotate(360deg); } }
+
     .session-modal-overlay {
       position: fixed; inset: 0; background: rgba(0, 0, 0, 0.75); backdrop-filter: blur(6px);
       z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1.5rem;
@@ -225,6 +286,7 @@ export class AppComponent implements OnInit {
   readonly authStore = inject(AuthStore);
   private stateService = inject(StateService);
   readonly documentService = inject(DocumentService);
+  readonly pipeline = inject(PipelineStateService);
   private router = inject(Router);
 
   isSidebarCollapsed = signal<boolean>(false);
@@ -244,6 +306,26 @@ export class AppComponent implements OnInit {
   isAuthRoute(): boolean {
     const url = this.router.url;
     return url.includes('/auth') || url.includes('/login') || url === '/terms' || url === '/privacy';
+  }
+
+  /** Zero-based index of the active stage for the banner's "Paso X/Y". */
+  currentStepIndex(): number {
+    const stages = this.pipeline.stages();
+    const idx = stages.findIndex(stage => stage.estado === 'activo');
+    return idx >= 0 ? idx : stages.length - 1;
+  }
+
+  /** Elapsed run time as mm:ss for the global banner. */
+  elapsedLabel(): string {
+    const total = this.pipeline.elapsedSeconds();
+    const minutes = Math.floor(total / 60).toString().padStart(2, '0');
+    const seconds = (total % 60).toString().padStart(2, '0');
+    return `${minutes}:${seconds}`;
+  }
+
+  /** Returns to the view where the run was started (or its result). */
+  goToProcessView(): void {
+    this.router.navigateByUrl(this.pipeline.originRoute());
   }
 
   logout(): void {
