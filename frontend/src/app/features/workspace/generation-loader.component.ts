@@ -14,15 +14,11 @@ import {
 import { CommonModule } from '@angular/common';
 import { timer, Subscription } from 'rxjs';
 import { environment } from '../../../environments/environment';
-import { PipelineStage } from './pipeline-progress.component';
+import { PipelineStage, PipelineParams } from '../../core/models/pipeline.model';
 import { PipelineStateService } from '../../core/services/pipeline-state.service';
 
-export interface GenerationParams {
-  perfil?: string;
-  formato?: string;
-  nicho?: string;
-  nivel?: string;
-}
+/** Backwards-compatible alias kept for existing template bindings. */
+export type GenerationParams = PipelineParams;
 
 @Component({
   selector: 'app-generation-loader',
@@ -176,9 +172,9 @@ export interface GenerationParams {
             type="button" 
             class="btn-cancel-secondary"
             (click)="onCancel()"
-            title="Cancelar generación y conservar datos del formulario"
+            title="Cancelar el proceso en curso y conservar los datos del formulario"
           >
-            ✕ Cancelar Generación
+            ✕ {{ pipeline.mode() === 'ingest' ? 'Cancelar indexación' : 'Cancelar generación' }}
           </button>
         </div>
 
@@ -200,11 +196,13 @@ export interface GenerationParams {
             class="stage-item-card"
             [class.is-active]="st.estado === 'activo'"
             [class.is-done]="st.estado === 'completado'"
+            [class.is-error]="st.estado === 'error'"
           >
             <div class="st-badge">
               <span *ngIf="st.estado === 'completado'">✓</span>
               <span *ngIf="st.estado === 'activo'" class="dot-spinner"></span>
               <span *ngIf="st.estado === 'pendiente'">{{ st.id }}</span>
+              <span *ngIf="st.estado === 'error'">!</span>
             </div>
             <div class="st-content">
               <strong>{{ st.nombre }}</strong>
@@ -600,6 +598,10 @@ export interface GenerationParams {
       border-color: #10B981;
       background: rgba(16, 185, 129, 0.06);
     }
+    .stage-item-card.is-error {
+      border-color: #EF4444;
+      background: rgba(239, 68, 68, 0.06);
+    }
 
     .st-badge {
       width: 22px;
@@ -614,6 +616,7 @@ export interface GenerationParams {
     }
     .is-done .st-badge { background: #10B981; color: #FFF; }
     .is-active .st-badge { background: #22D3EE; color: #0F172A; }
+    .is-error .st-badge { background: #EF4444; color: #FFF; }
 
     .dot-spinner {
       width: 10px;
@@ -713,6 +716,11 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   @Input() activeStage: PipelineStage | null = null;
   @Input() params: GenerationParams | null = null;
   @Input() stages: PipelineStage[] = [];
+  /**
+   * Forces the technical details panel open/closed. When null, the
+   * environment default (showPipelineDetails) is used.
+   */
+  @Input() showDetails: boolean | null = null;
 
   @Output() cancel = new EventEmitter<void>();
   @Output() retry = new EventEmitter<void>();
@@ -760,6 +768,7 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     // Elapsed time is owned by PipelineStateService so the inline loader and
     // the global banner always show the same clock.
+    this.isDetailsOpen.set(this.showDetails ?? (environment.showPipelineDetails ?? false));
 
     // Microcopy rotator (every 3 seconds)
     this.microcopySub = timer(3000, 3000).subscribe(() => {

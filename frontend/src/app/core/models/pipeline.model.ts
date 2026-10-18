@@ -15,4 +15,20 @@ export interface PipelineStage {
   microcopy: string;
   estado: 'pendiente' | 'activo' | 'completado' | 'error';
   duracion_ms?: number;
+  /** Backend key of the step (ingest stage or LangGraph node) used to advance it. */
+  key?: string;
+}
+
+/**
+ * Display context of a run (chips shown by the loader). Kept in core so the
+ * service and the restorable process view can read it without touching the
+ * Workspace form.
+ */
+export interface PipelineParams {
+  titulo?: string;
+  perfil?: string;
+  formato?: string;
+  nicho?: string;
+  nivel?: string;
+  cantidad?: number;
 }

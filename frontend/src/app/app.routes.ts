@@ -70,6 +70,12 @@ export const routes: Routes = [
     canMatch: [authGuard]
   },
   {
+    path: 'proceso',
+    loadComponent: () => import('./features/process/process-view.component').then(m => m.ProcessViewComponent),
+    canActivate: [authGuard],
+    canMatch: [authGuard]
+  },
+  {
     path: 'library',
     component: LibraryComponent,
     canActivate: [authGuard],

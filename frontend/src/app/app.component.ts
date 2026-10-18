@@ -111,7 +111,7 @@ import { PipelineStateService } from './core/services/pipeline-state.service';
       <!-- Main Content Area with Protected Router Outlet -->
       <main class="main-content-area">
         <!-- GLOBAL PIPELINE BANNER: announced from any view while a run is active -->
-        <div class="pipeline-banner" *ngIf="pipeline.running() && !isAuthRoute()" (click)="goToProcessView()">
+        <div class="pipeline-banner" *ngIf="pipeline.running() && !isAuthRoute() && !isProcessRoute()" (click)="goToProcessView()">
           <span class="banner-spinner" aria-hidden="true"></span>
           <span class="banner-label">
             {{ pipeline.mode() === 'ingest' ? 'Ingesta en curso' : 'Generación en curso' }}
@@ -124,7 +124,7 @@ import { PipelineStateService } from './core/services/pipeline-state.service';
         </div>
 
         <!-- Finished notice when the result is waiting for the user -->
-        <div class="pipeline-banner pipeline-banner-done" *ngIf="pipeline.finished() && !pipeline.running() && !isAuthRoute()" (click)="goToProcessView()">
+        <div class="pipeline-banner pipeline-banner-done" *ngIf="pipeline.finished() && !pipeline.running() && !isAuthRoute() && !isProcessRoute()" (click)="goToResultView()">
           <span class="banner-check" aria-hidden="true">✅</span>
           <span class="banner-label">Contenido educativo listo</span>
           <span class="banner-cta">Ver resultado →</span>
@@ -308,6 +308,11 @@ export class AppComponent implements OnInit {
     return url.includes('/auth') || url.includes('/login') || url === '/terms' || url === '/privacy';
   }
 
+  /** True while the dedicated process view is on screen (its own header says it all). */
+  isProcessRoute(): boolean {
+    return this.router.url.startsWith('/proceso');
+  }
+
   /** Zero-based index of the active stage for the banner's "Paso X/Y". */
   currentStepIndex(): number {
     const stages = this.pipeline.stages();
@@ -323,9 +328,14 @@ export class AppComponent implements OnInit {
     return `${minutes}:${seconds}`;
   }
 
-  /** Returns to the view where the run was started (or its result). */
+  /** Opens the dedicated, restorable process view. */
   goToProcessView(): void {
-    this.router.navigateByUrl(this.pipeline.originRoute());
+    this.router.navigateByUrl('/proceso');
+  }
+
+  /** Opens the Workspace where the finished result is displayed. */
+  goToResultView(): void {
+    this.router.navigateByUrl('/workspace');
   }
 
   logout(): void {

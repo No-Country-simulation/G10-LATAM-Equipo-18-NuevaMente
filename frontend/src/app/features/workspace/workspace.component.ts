@@ -1247,7 +1247,7 @@ export class WorkspaceComponent implements OnInit {
     if (usingIndexedDoc && indexedDoc) {
       // Already indexed: the service marks the ingest stages complete and
       // generates directly from the document's vector store.
-      this.pipeline.runGeneration({ documentId: indexedDoc.id, request: req, userId });
+      this.pipeline.runGeneration({ documentId: indexedDoc.id, request: req, userId, params: this.getGenerationParams() });
       return;
     }
 
@@ -1260,7 +1260,8 @@ export class WorkspaceComponent implements OnInit {
         useAiVision: this.useAiVision()
       },
       request: req,
-      userId
+      userId,
+      params: this.getGenerationParams()
     });
   }
 

@@ -23,13 +23,15 @@ import { Subscription, switchMap } from 'rxjs';
 import {
   NUEVAMENTE_API,
   NuevaMenteApi,
+  DocumentGenerationEvent,
   DocumentIngestInput,
   DocumentIngestEvent,
   DocumentRecord
 } from '../api/nuevamente-api';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
-import { PipelineMode, PipelineStage } from '../models/pipeline.model';
+import { PipelineMode, PipelineStage, PipelineParams } from '../models/pipeline.model';
 import { StateService } from './state.service';
+import { I18nService } from './i18n.service';
 
 @Injectable({
   providedIn: 'root'
@@ -37,6 +39,7 @@ import { StateService } from './state.service';
 export class PipelineStateService {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private stateService = inject(StateService);
+  private i18n = inject(I18nService);
 
   /** 'ingest' while only indexing, 'generate' once the LLM pipeline runs. */
   readonly mode = signal<PipelineMode | null>(null);
@@ -50,6 +53,8 @@ export class PipelineStateService {
   readonly elapsedSeconds = signal<number>(0);
   /** Route of the view that started the run, so the banner can return to it. */
   readonly originRoute = signal<string>('/workspace');
+  /** Display context of the current run (chips in the process view). */
+  readonly params = signal<PipelineParams | null>(null);
 
   readonly activeStage = computed<PipelineStage | null>(
     () => this.stages().find(stage => stage.estado === 'activo') || null
@@ -86,19 +91,21 @@ export class PipelineStateService {
     documentId?: string;
     request: AdaptationRequest;
     userId?: string | null;
+    params?: PipelineParams | null;
   }): void {
     if (!this.guard()) return;
 
     const usesIngest = !!opts.ingestInput;
     this.begin(usesIngest ? 'ingest' : 'generate', '/workspace', this.buildGenerationStages());
     this.lastRequest.set(opts.request);
+    this.params.set(opts.params ?? null);
 
     if (opts.documentId) {
       // Already indexed: the ingest group is done, generation starts right away.
       this.mode.set('generate');
       this.setStageProgress(4, 'Generando el contenido educativo con IA (puede tardar unos minutos)…');
       this.sub = this.api
-        .adaptDocument(opts.documentId, opts.request, opts.userId)
+        .adaptDocument(opts.documentId, opts.request, opts.userId, event => this.onGenerationEvent(event))
         .subscribe(this.generationObserver());
       return;
     }
@@ -109,7 +116,7 @@ export class PipelineStateService {
         switchMap((record: DocumentRecord) => {
           this.mode.set('generate');
           this.setStageProgress(4, 'Generando el contenido educativo con IA (puede tardar unos minutos)…');
-          return this.api.adaptDocument(record.document_id, opts.request, opts.userId);
+          return this.api.adaptDocument(record.document_id, opts.request, opts.userId, event => this.onGenerationEvent(event));
         })
       )
       .subscribe(this.generationObserver());
@@ -173,6 +180,7 @@ export class PipelineStateService {
     this.errorMessage.set(null);
     this.response.set(null);
     this.finished.set(false);
+    this.params.set(null);
     this.elapsedSeconds.set(0);
     this.running.set(true);
   }
@@ -213,6 +221,21 @@ export class PipelineStateService {
     }
   }
 
+  /** Mapping from backend generation step keys to stepper indices. */
+  private generationStageIndex(stage: string): number {
+    switch (stage) {
+      case 'retrieval': return 4;
+      case 'planner': return 5;
+      case 'writer': return 6;
+      case 'deduplicator': return 7;
+      case 'grounding_verifier': return 8;
+      case 'critic': return 9;
+      case 'refiner': return 10;
+      case 'formatter': return 11;
+      default: return -1;
+    }
+  }
+
   private onIngestEvent(event: DocumentIngestEvent): void {
     if (event.stage === 'failed') {
       this.failStages(event.message || 'Falló la ingesta del documento.');
@@ -229,6 +252,35 @@ export class PipelineStateService {
     const index = this.ingestStageIndex(event.stage);
     if (index >= 0) {
       this.setStageProgress(index, event.message);
+    }
+  }
+
+  private onGenerationEvent(event: DocumentGenerationEvent): void {
+    if (event.stage === 'failed') {
+      this.failStages(event.message || 'Falló la generación del contenido.');
+      return;
+    }
+    if (event.stage === 'done') {
+      return; // The final response is delivered by the observable's next.
+    }
+    const index = this.generationStageIndex(event.stage);
+    if (index >= 0) {
+      const message = event.message || this.defaultGenerationMessage(event.stage);
+      this.setStageProgress(index, message);
+    }
+  }
+
+  private defaultGenerationMessage(stage: string): string {
+    switch (stage) {
+      case 'retrieval': return this.i18n.t('stage_retrieval_desc');
+      case 'planner': return this.i18n.t('stage_planner_desc');
+      case 'writer': return this.i18n.t('stage_writer_desc');
+      case 'deduplicator': return this.i18n.t('stage_deduplicator_desc');
+      case 'grounding_verifier': return this.i18n.t('stage_grounding_desc');
+      case 'critic': return this.i18n.t('stage_critic_desc');
+      case 'refiner': return this.i18n.t('stage_refiner_desc');
+      case 'formatter': return this.i18n.t('stage_formatter_desc');
+      default: return '';
     }
   }
 
@@ -261,19 +313,32 @@ export class PipelineStateService {
 
   /** Ingestion-only stepper (Documents page upload). */
   private buildIngestStages(): PipelineStage[] {
+    const t = (k: string) => this.i18n.t(k);
     return [
-      { id: 1, nombre: '1. Ingesta', microcopy: 'Leyendo el documento', estado: 'pendiente' },
-      { id: 2, nombre: '2. Chunking', microcopy: 'División en fragmentos semánticos', estado: 'pendiente' },
-      { id: 3, nombre: '3. Embeddings', microcopy: 'Vectorización semántica', estado: 'pendiente' },
-      { id: 4, nombre: '4. Indexado', microcopy: 'Guardando el índice de búsqueda', estado: 'pendiente' }
+      { id: 1, nombre: '1. ' + t('stage_ingest_name'), microcopy: t('stage_ingest_desc'), estado: 'pendiente', key: 'ingesting' },
+      { id: 2, nombre: '2. ' + t('stage_chunking_name'), microcopy: t('stage_chunking_desc'), estado: 'pendiente', key: 'chunking' },
+      { id: 3, nombre: '3. ' + t('stage_embeddings_name'), microcopy: t('stage_embeddings_desc'), estado: 'pendiente', key: 'embedding' },
+      { id: 4, nombre: '4. ' + t('stage_indexing_name'), microcopy: t('stage_indexing_desc'), estado: 'pendiente', key: 'indexing' }
     ];
   }
 
   /** Ingestion + generation stepper (Workspace pipeline). */
   private buildGenerationStages(): PipelineStage[] {
+    const lang = this.i18n.currentLang();
+    const t = (k: string) => this.i18n.t(k);
     return [
-      ...this.buildIngestStages(),
-      { id: 5, nombre: '5. Generación', microcopy: 'Recuperación RAG y redacción pedagógica con IA (puede tardar unos minutos)', estado: 'pendiente' }
+      { id: 1, nombre: '1. ' + t('stage_ingest_name'), microcopy: t('stage_ingest_desc'), estado: 'pendiente', key: 'ingesting' },
+      { id: 2, nombre: '2. ' + t('stage_chunking_name'), microcopy: t('stage_chunking_desc'), estado: 'pendiente', key: 'chunking' },
+      { id: 3, nombre: '3. ' + t('stage_embeddings_name'), microcopy: t('stage_embeddings_desc'), estado: 'pendiente', key: 'embedding' },
+      { id: 4, nombre: '4. ' + t('stage_indexing_name'), microcopy: t('stage_indexing_desc'), estado: 'pendiente', key: 'indexing' },
+      { id: 5, nombre: '5. ' + t('stage_retrieval_name'), microcopy: t('stage_retrieval_desc'), estado: 'pendiente', key: 'retrieval' },
+      { id: 6, nombre: '6. ' + t('stage_planner_name'), microcopy: t('stage_planner_desc'), estado: 'pendiente', key: 'planner' },
+      { id: 7, nombre: '7. ' + t('stage_writer_name'), microcopy: t('stage_writer_desc'), estado: 'pendiente', key: 'writer' },
+      { id: 8, nombre: '8. ' + t('stage_deduplicator_name'), microcopy: t('stage_deduplicator_desc'), estado: 'pendiente', key: 'deduplicator' },
+      { id: 9, nombre: '9. ' + t('stage_grounding_name'), microcopy: t('stage_grounding_desc'), estado: 'pendiente', key: 'grounding_verifier' },
+      { id: 10, nombre: '10. ' + t('stage_critic_name'), microcopy: t('stage_critic_desc'), estado: 'pendiente', key: 'critic' },
+      { id: 11, nombre: '11. ' + t('stage_refiner_name'), microcopy: t('stage_refiner_desc'), estado: 'pendiente', key: 'refiner' },
+      { id: 12, nombre: '12. ' + t('stage_formatter_name'), microcopy: t('stage_formatter_desc'), estado: 'pendiente', key: 'formatter' }
     ];
   }
 }
