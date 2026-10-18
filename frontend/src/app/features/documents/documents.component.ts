@@ -619,6 +619,8 @@ export class DocumentsComponent implements OnInit {
     this.isUploading.set(true);
     try {
       await this.documentService.uploadDocument(file, this.useAiVision());
+      void this.documentService.refresh();
+      this.router.navigate(['/documents']);
     } catch (e) {
       console.error('Error uploading file:', e);
     } finally {

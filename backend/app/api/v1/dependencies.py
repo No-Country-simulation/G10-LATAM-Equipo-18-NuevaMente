@@ -5,7 +5,7 @@ from app.core.security import decode_access_token, verify_api_token, get_db
 def get_current_user(
     authorization: Optional[str] = Header(None),
     x_api_key: Optional[str] = Header(None)
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     # 1. Try API Key if provided
     if x_api_key:
         user = verify_api_token(x_api_key)
@@ -39,14 +39,15 @@ def get_current_user(
         
         # Fallback if DB user was seeded without DB lookup
         return {
-            "id": user_id,
+            "id": user_id or payload.get("email", "usr_anonymous"),
             "email": payload.get("email", ""),
             "name": payload.get("name", "Usuario"),
             "role": payload.get("role", "Instructor"),
-            "avatar_letter": payload.get("name", "U")[0].upper() if payload.get("name") else "U",
+            "avatar_letter": (payload.get("name", "U")[:1].upper() if payload.get("name") else "U"),
             "is_verified": True,
             "mfa_enabled": False,
             "created_at": payload.get("iat", 0)
         }
 
-    raise HTTPException(status_code=401, detail="Se requiere autenticación. Proporcione un Header Authorization Bearer o X-API-Key.")
+    # No auth provided — allow anonymous access for endpoints that opt-in.
+    return None

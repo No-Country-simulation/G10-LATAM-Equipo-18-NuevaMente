@@ -782,8 +782,8 @@ import { AppDocument } from '../../core/models/document.model';
     :host-context(.dark) .sticky-action-bar { background: rgba(30, 41, 59, 0.85); }
 
     .bar-left { display: flex; align-items: center; gap: 1rem; }
-    .btn-back { display: inline-flex; align-items: center; gap: 0.4rem; background: transparent; border: 1px solid var(--border-subtle); padding: 0.45rem 0.85rem; border-radius: 10px; font-size: 0.85rem; font-weight: 700; cursor: pointer; color: var(--text-primary); transition: all 0.2s; }
-    .btn-back:hover { background: var(--bg-app); border-color: #6366F1; color: #6366F1; }
+    .btn-back { display: inline-flex; align-items: center; gap: 0.4rem; background: #4F46E5; border: 1px solid #4F46E5; padding: 0.45rem 0.85rem; border-radius: 10px; font-size: 0.85rem; font-weight: 700; cursor: pointer; color: #FFFFFF; transition: all 0.2s; }
+    .btn-back:hover { background: #4338CA; border-color: #4338CA; color: #FFFFFF; }
     .saved-badge { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8rem; font-weight: 700; color: #059669; background: rgba(16, 185, 129, 0.12); padding: 0.35rem 0.75rem; border-radius: 20px; text-decoration: none; cursor: pointer; }
 
     .bar-right { display: flex; align-items: center; gap: 0.75rem; }
@@ -898,7 +898,7 @@ export class WorkspaceComponent implements OnInit {
     perfil_destinatario: ['Desarrollador' as PerfilDestinatario, [Validators.required]],
     formato_salida: ['Flashcards' as FormatoSalida, [Validators.required]],
     nicho_sector: ['Fintech' as NichoSector, [Validators.required]],
-    nivel_detalle: ['Tecnico' as NivelDetalle, [Validators.required]],
+    nivel_detalle: ['Didactico' as NivelDetalle, [Validators.required]],
     nivel_cantidad: ['Estandar' as NivelCantidad, [Validators.required]],
     cantidad_objetivo: [20]
   });

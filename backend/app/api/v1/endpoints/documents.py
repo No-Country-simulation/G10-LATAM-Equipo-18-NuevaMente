@@ -34,8 +34,10 @@ from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Generator, List, Optional
 
 import anyio
-from fastapi import APIRouter, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import StreamingResponse
+
+from app.api.v1.dependencies import get_current_user
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import settings
@@ -142,6 +144,7 @@ async def create_document(
     use_ai_vision: bool = Form(False),
     user_id: Optional[str] = Form(None),
     stream: bool = Query(True, description="Stream progress as Server-Sent Events"),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user),
 ):
     """
     Ingests a document and indexes it for retrieval.
@@ -185,17 +188,18 @@ async def create_document(
     # ("manual_vcn.pdf") instead of the internal temporary file name.
     source_filename = Path(filename).name
     local_path = _save_upload_to_temp(content_bytes, suffix)
+    derived_user_id = current_user["id"] if current_user else user_id
 
     if stream:
         return StreamingResponse(
-            _ingest_event_stream(local_path, resolved_title, user_id, use_ai_vision, source_filename),
+            _ingest_event_stream(local_path, resolved_title, derived_user_id, use_ai_vision, source_filename),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
 
     try:
         record = await anyio.to_thread.run_sync(
-            lambda: _ingest(local_path, resolved_title, user_id, use_ai_vision, None, source_filename)
+            lambda: _ingest(local_path, resolved_title, derived_user_id, use_ai_vision, None, source_filename)
         )
     finally:
         _remove_quietly(local_path)
@@ -251,19 +255,31 @@ def _ingest_event_stream(
 
 
 @router.get("/documents", response_model=List[DocumentRecord])
-async def list_documents(user_id: Optional[str] = Query(None)):
-    """Lists indexed documents, newest first, optionally filtered by owner."""
-    return get_document_repository().list_documents(user_id=user_id)
+async def list_documents(
+    user_id: Optional[str] = Query(None),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user),
+):
+    """Lists indexed documents, newest first, filtered by owner."""
+    owner_id = current_user["id"] if current_user else user_id
+    return get_document_repository().list_documents(user_id=owner_id)
 
 
 @router.get("/documents/{document_id}", response_model=DocumentRecord)
-async def get_document(document_id: str):
+async def get_document(
+    document_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user),
+):
     """Returns one document's metadata record."""
     record = get_document_repository().get_document(document_id)
     if record is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document '{document_id}' was not found.",
+        )
+    if current_user and record.user_id and str(record.user_id) != str(current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para acceder a este documento.",
         )
     return record
 
@@ -357,6 +373,7 @@ async def adapt_document(
     request: DocumentAdaptRequest,
     user_id: Optional[str] = Query(None),
     stream: bool = Query(False, description="Stream generation progress as Server-Sent Events"),
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user),
 ):
     """
     Generates educational content from an already-indexed document.
@@ -372,6 +389,11 @@ async def adapt_document(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Document '{document_id}' was not found.",
+        )
+    if current_user and record.user_id and str(record.user_id) != str(current_user["id"]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="No tiene permiso para acceder a este documento.",
         )
     if record.status != "ready":
         raise HTTPException(
@@ -392,7 +414,7 @@ async def adapt_document(
 
     if stream:
         return StreamingResponse(
-            _adapt_event_stream(document_id, record, request, query, store, user_id),
+            _adapt_event_stream(document_id, record, request, query, store, current_user["id"] if current_user else user_id),
             media_type="text/event-stream",
             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
         )
@@ -407,7 +429,7 @@ async def adapt_document(
         )
 
     all_parent_chunks = list(store.parent_documents.values())
-    adaptation_request = _build_adaptation_request(record, request, top_passages, user_id)
+    adaptation_request = _build_adaptation_request(record, request, top_passages, current_user["id"] if current_user else user_id)
 
     try:
         return await langgraph_orchestrator.run_pipeline(
