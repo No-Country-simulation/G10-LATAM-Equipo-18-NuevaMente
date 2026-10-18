@@ -26,7 +26,7 @@ def get_storage_backend() -> StorageBackend:
     if _storage_singleton is not None:
         return _storage_singleton
 
-    if settings.OCI_ENABLED:
+    if settings.OCI_ENABLED or settings.STORAGE_METHOD == "oci":
         try:
             candidate = OciStorageBackend()
             if candidate.is_connected:
@@ -36,6 +36,8 @@ def get_storage_backend() -> StorageBackend:
             if settings.APP_ENV == "production" and not settings.ALLOW_LOCAL_STORAGE:
                 logger.critical("CRITICAL: Fallo inicializando OCI en producción: %s", exc)
                 raise RuntimeError(f"CRITICAL: OCI Object Storage es obligatorio en producción: {exc}")
+            else:
+                logger.warning("WARNING: OCI no pudo inicializarse, usando fallback local: %s", exc)
 
     if settings.APP_ENV == "production" and not settings.ALLOW_LOCAL_STORAGE:
         raise RuntimeError("CRITICAL: OCI Object Storage es obligatorio en producción y no se pudo inicializar.")

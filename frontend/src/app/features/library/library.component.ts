@@ -1,5 +1,6 @@
 import { Component, signal, computed, inject, OnInit } from '@angular/core';
 import { CommonModule } from '@angular/common';
+import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
 import { StateService, RecentProject } from '../../core/services/state.service';
 import { ExportService } from '../../core/services/export.service';
@@ -152,7 +153,17 @@ interface ToastState {
               </td>
               <td class="td-actions">
                 <button 
-                  class="btn-action-primary" 
+                  class="btn-action-primary btn-action-view" 
+                  (click)="openInWorkspace(proj)" 
+                  title="Ver en Workspace"
+                  [attr.aria-label]="'Ver en Workspace ' + proj.nombre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                  Ver
+                </button>
+
+                <button 
+                  class="btn-action-secondary" 
                   (click)="viewPdf(proj)" 
                   title="Visualizar PDF Didáctico"
                   [attr.aria-label]="'Visualizar PDF de ' + proj.nombre"
@@ -548,6 +559,7 @@ export class LibraryComponent implements OnInit {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private stateService = inject(StateService);
   private exportService = inject(ExportService);
+  private router = inject(Router);
 
   searchTerm = signal<string>('');
   selectedPerfil = signal<string>('');
@@ -639,6 +651,11 @@ export class LibraryComponent implements OnInit {
   updateFormato(event: Event): void {
     const val = (event.target as HTMLSelectElement).value;
     this.selectedFormato.set(val);
+  }
+
+  openInWorkspace(proj: RecentProject): void {
+    this.stateService.loadProjectIntoWorkspace(proj);
+    this.router.navigate(['/workspace']);
   }
 
   viewPdf(proj: RecentProject): void {

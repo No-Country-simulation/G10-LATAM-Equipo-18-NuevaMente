@@ -196,11 +196,9 @@ class Settings(BaseModel):
     SUPABASE_BUCKET_DOCUMENTS: str = os.getenv("SUPABASE_BUCKET_DOCUMENTS", "document-source")
     SUPABASE_BUCKET_ARTIFACTS: str = os.getenv("SUPABASE_BUCKET_ARTIFACTS", "adapted-artifacts")
 
-    # ── Environment & Storage Mode ───────────────────────────────────────────
-    # Server bind address/port. Kept as constants (not .env) so changing the
-    # port is a deliberate code change; .env holds secrets/credentials only.
-    APP_HOST: str = "0.0.0.0"
-    APP_PORT: int = 8001
+    # Server bind address/port configurable via environment or default constants.
+    APP_HOST: str = os.getenv("APP_HOST", "0.0.0.0")
+    APP_PORT: int = int(os.getenv("APP_PORT", "8001"))
     APP_ENV: str = os.getenv("APP_ENV", "development")
     ALLOW_LOCAL_STORAGE: bool = os.getenv("ALLOW_LOCAL_STORAGE", "false").lower() == "true"
     STORAGE_MAX_UPLOAD_MB: int = int(os.getenv("STORAGE_MAX_UPLOAD_MB", "25"))

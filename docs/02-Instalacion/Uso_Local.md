@@ -1,4 +1,4 @@
-﻿# Uso Local
+# Uso Local
 
 > `docs/02-Instalacion/` · [Volver al README](../../README.md)
 
@@ -49,15 +49,14 @@ npm install
 ### Backend (desde `backend/`)
 
 ```bash
-uv run --with email-validator --with genanki uvicorn main:app --reload
+uv run --with email-validator --with genanki python main.py
 ```
 
-- API: `http://localhost:8000`
-- Documentación interactiva: `http://localhost:8000/docs`
+- API: `http://localhost:8001` (o el puerto configurado en `APP_PORT` dentro de `config.py` / `.env`)
+- Documentación interactiva: `http://localhost:8001/docs`
 
-> Las dos dependencias extra (`email-validator` y `genanki`) se pasan en la línea
-> de comandos porque no están declaradas en `pyproject.toml`. Reinicia el backend
-> después de cambiar código.
+> Al ejecutar `python main.py`, el servidor toma automáticamente el host y puerto definidos en `config.py` o en la variable de entorno `APP_PORT` de tu `.env`.
+> Las dos dependencias extra (`email-validator` y `genanki`) se pasan en la línea de comandos con `uv run`.
 
 ### Frontend (desde `frontend/`)
 

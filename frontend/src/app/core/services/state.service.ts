@@ -1,4 +1,4 @@
-import { Injectable } from '@angular/core';
+import { Injectable, signal, computed } from '@angular/core';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
 import { environment } from '../../../environments/environment';
 import { isExpired } from '../utils/trash-utils';
@@ -52,9 +52,15 @@ export class StateService {
 
   private projects: RecentProject[] = [];
 
+  readonly activeAdaptationResponse = signal<AdaptationResponse | null>(null);
+  readonly activeAdaptationRequest = signal<AdaptationRequest | null>(null);
+  readonly isViewingActiveResult = signal<boolean>(false);
+  readonly hasActiveAdaptation = computed(() => !!this.activeAdaptationResponse());
+
   constructor() {
     this.loadUserFromStorage();
     this.loadProjectsFromStorage();
+    this.loadActiveAdaptationFromStorage();
   }
 
   private loadUserFromStorage(): void {
@@ -258,6 +264,79 @@ export class StateService {
     this.projects.unshift(newProject);
     this.updateMetrics();
     this.saveProjectsToStorage();
+    this.setActiveAdaptation(request, response, true);
     return newProject;
+  }
+
+  setActiveAdaptation(request: AdaptationRequest, response: AdaptationResponse, viewing: boolean = true): void {
+    this.activeAdaptationRequest.set(request);
+    this.activeAdaptationResponse.set(response);
+    this.isViewingActiveResult.set(viewing);
+    this.saveActiveAdaptationToStorage();
+  }
+
+  setIsViewingActiveResult(viewing: boolean): void {
+    this.isViewingActiveResult.set(viewing);
+    this.saveActiveAdaptationToStorage();
+  }
+
+  clearActiveAdaptation(): void {
+    this.activeAdaptationRequest.set(null);
+    this.activeAdaptationResponse.set(null);
+    this.isViewingActiveResult.set(false);
+    try {
+      sessionStorage.removeItem('nuevamente_active_adaptation');
+    } catch (e) {
+      console.log('Error al limpiar adaptación activa', e);
+    }
+  }
+
+  loadProjectIntoWorkspace(project: RecentProject): void {
+    if (project.response) {
+      const req: AdaptationRequest = project.request || {
+        documento_titulo: project.nombre,
+        documento_contenido: '',
+        perfil_destinatario: (project.perfil as any) || 'Desarrollador',
+        formato_salida: (project.formato as any) || 'Flashcards',
+        nicho_sector: 'General',
+        nivel_detalle: 'Didactico',
+        nivel_cantidad: 'Estandar'
+      };
+      this.setActiveAdaptation(req, project.response, true);
+    }
+  }
+
+  private saveActiveAdaptationToStorage(): void {
+    try {
+      const resp = this.activeAdaptationResponse();
+      const req = this.activeAdaptationRequest();
+      if (resp && req) {
+        sessionStorage.setItem('nuevamente_active_adaptation', JSON.stringify({
+          request: req,
+          response: resp,
+          isViewing: this.isViewingActiveResult()
+        }));
+      } else {
+        sessionStorage.removeItem('nuevamente_active_adaptation');
+      }
+    } catch (e) {
+      console.log('Error al guardar adaptación activa en storage', e);
+    }
+  }
+
+  private loadActiveAdaptationFromStorage(): void {
+    try {
+      const saved = sessionStorage.getItem('nuevamente_active_adaptation');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.response) {
+          this.activeAdaptationResponse.set(parsed.response);
+          this.activeAdaptationRequest.set(parsed.request || null);
+          this.isViewingActiveResult.set(parsed.isViewing ?? true);
+        }
+      }
+    } catch (e) {
+      console.log('Error al cargar adaptación activa de storage', e);
+    }
   }
 }

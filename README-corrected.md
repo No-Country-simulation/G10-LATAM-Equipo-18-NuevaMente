@@ -98,7 +98,7 @@ flowchart LR
 
 - **Backend (desarrollo):** Desde `backend/`
   ```bash
-  uv run --with email-validator --with genanki uvicorn main:app --reload
+  uv run --with email-validator --with genanki python main.py
   ```
 - **Frontend (desarrollo):** Desde `frontend/`
   ```bash
@@ -140,6 +140,7 @@ Paso a paso guiado para poner en marcha el proyecto desde cero:
 
 ### 2. Guías Prácticas / How-To (Orientadas a tareas específicas)
 Instrucciones paso a paso para resolver configuraciones puntuales y despliegue:
+- [Despliegue con Docker y Docker Compose en OCI](docs/02-Instalacion/Despliegue_Docker_OCI.md): Despliegue contenerizado del frontend y backend en Compute VM.
 - [Creación de Instancia en Oracle Cloud (OCI Always Free)](docs/02-Instalacion/Creacion_de_Instancia_OCI.md): Configuración de máquina virtual, VCN, seguridad e IP pública.
 - [Configuración de LLMs y Proveedores](docs/02-Instalacion/Configuracion_de_LLMs.md): Credenciales de Gemini, Groq, OpenRouter y configuración de cascada.
 - [Configuración de Almacenamiento](docs/02-Instalacion/Configuracion_de_Storages.md): Selección de OCI Object Storage, Supabase o almacenamiento local.

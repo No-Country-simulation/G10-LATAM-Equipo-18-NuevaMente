@@ -33,6 +33,22 @@ def get_oci_client():
     if _client is None:
         try:
             import oci
+            auth_mode = os.getenv("OCI_AUTH_MODE", "auto").lower()
+
+            # 1. Instance Principals for VMs running inside Oracle Cloud (Always Free)
+            if auth_mode in ("instance_principal", "auto") and os.name != "nt":
+                try:
+                    signer = oci.auth.signers.InstancePrincipalsSecurityTokenSigner()
+                    _client = oci.object_storage.ObjectStorageClient(
+                        config={"region": settings.OCI_REGION},
+                        signer=signer
+                    )
+                    return _client
+                except Exception:
+                    if auth_mode == "instance_principal":
+                        pass
+
+            # 2. Config file or ENV secrets
             if os.path.exists(settings.OCI_CONFIG_FILE):
                 config = oci.config.from_file(settings.OCI_CONFIG_FILE)
             elif os.getenv("OCI_TENANCY_OCID"):

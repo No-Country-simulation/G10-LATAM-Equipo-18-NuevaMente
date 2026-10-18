@@ -20,6 +20,9 @@ export class HttpAuthApiService extends AuthApi {
       return `${api}/v1/auth`;
     }
     if (api.startsWith('http://') || api.startsWith('https://')) {
+      if (api.includes('/api/v1')) {
+        return `${api}/auth`;
+      }
       return `${api}/api/v1/auth`;
     }
     return '/api/v1/auth';

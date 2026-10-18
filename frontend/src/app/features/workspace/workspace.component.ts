@@ -45,10 +45,30 @@ import { AppDocument } from '../../core/models/document.model';
   ],
   template: `
     <div class="workspace-layout">
+      <!-- RESUME ACTIVE ADAPTATION BANNER -->
+      <div class="active-adaptation-banner glass-card" *ngIf="stateService.hasActiveAdaptation() && !isViewingResult() && !isPipelineRunning()">
+        <div class="banner-content">
+          <span class="banner-badge">ADAPTACIÓN ACTIVA</span>
+          <p class="banner-title">
+            Tienes una adaptación generada en memoria: 
+            <strong>{{ stateService.activeAdaptationRequest()?.documento_titulo || 'Documento' }}</strong> 
+            ({{ stateService.activeAdaptationRequest()?.formato_salida }})
+          </p>
+        </div>
+        <div class="banner-actions">
+          <button type="button" class="btn-return-result" (click)="returnToActiveResult()">
+            Ver resultado activo →
+          </button>
+          <button type="button" class="btn-discard" (click)="discardActiveAdaptation()" title="Descartar">
+            ✕
+          </button>
+        </div>
+      </div>
+
       <!-- HERO & PRESETS (Only visible when no result is currently shown) -->
-      <div class="workspace-header" *ngIf="!currentResponse() && !isPipelineRunning()">
+      <div class="workspace-header" *ngIf="!isViewingResult() && !isPipelineRunning()">
         <div>
-          <span class="value-prop-tag">✨ PROCESAMIENTO RAG DE ALTA FIDELIDAD</span>
+          <span class="value-prop-tag">PROCESAMIENTO RAG DE ALTA FIDELIDAD</span>
           <h2>Workspace de Adaptación Educativa</h2>
           <p class="value-prop-subtitle">De semanas de trabajo instruccional a minutos, con fidelidad total a la fuente.</p>
         </div>
@@ -56,14 +76,14 @@ import { AppDocument } from '../../core/models/document.model';
         <!-- Quick Presets -->
         <div class="presets-row">
           <span class="presets-label">Presets Rápidos:</span>
-          <button type="button" class="preset-btn" (click)="applyPreset('beginner-flashcards')">⚡ Demo Principiante · Flashcards (20)</button>
-          <button type="button" class="preset-btn" (click)="applyPreset('leader-summary')">📊 Demo Líder · Resumen (5)</button>
-          <button type="button" class="preset-btn" (click)="applyPreset('dev-quiz')">🎯 Demo Dev · Quiz (10)</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('beginner-flashcards')">Demo Principiante · Flashcards (20)</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('leader-summary')">Demo Líder · Resumen (5)</button>
+          <button type="button" class="preset-btn" (click)="applyPreset('dev-quiz')">Demo Dev · Quiz (10)</button>
         </div>
       </div>
 
       <!-- ZONE 1: INPUT FORM PANEL -->
-      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !currentResponse()">
+      <div class="glass-card input-zone-card" *ngIf="!isPipelineRunning() && !isViewingResult()">
         <form [formGroup]="adaptForm" (ngSubmit)="runPipeline()">
           <!-- Document Title -->
           <div class="form-group">
@@ -363,7 +383,7 @@ import { AppDocument } from '../../core/models/document.model';
       ></app-generation-loader>
 
       <!-- ZONE 3: RESULT VIEWER -->
-      <div class="result-viewer-container" *ngIf="currentResponse() && !isPipelineRunning()">
+      <div class="result-viewer-container" *ngIf="isViewingResult() && currentResponse() && !isPipelineRunning()">
         <!-- STICKY ACTION BAR -->
         <div class="sticky-action-bar glass-card">
           <div class="bar-left">
@@ -582,10 +602,48 @@ import { AppDocument } from '../../core/models/document.model';
     }
     .pipeline-error-alert .err-text { display: flex; flex-direction: column; gap: 0.2rem; }
     .btn-close-err { margin-left: auto; background: transparent; border: none; color: #F87171; cursor: pointer; font-size: 1.1rem; }
-    .workspace-layout { max-width: 1200px; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem; }
-    .workspace-header h2 { font-size: 2.2rem; font-weight: 800; margin-bottom: 0.4rem; color: var(--text-primary); }
-    .value-prop-tag { font-size: 0.75rem; font-weight: 800; color: #6366F1; letter-spacing: 0.08em; margin-bottom: 0.25rem; display: block; }
-    .value-prop-subtitle { color: var(--text-secondary); font-size: 1.05rem; margin-bottom: 1.25rem; }
+    .active-adaptation-banner {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1.25rem;
+      padding: 1.1rem 1.5rem;
+      border-radius: 16px;
+      background: linear-gradient(135deg, rgba(79, 70, 229, 0.12) 0%, rgba(34, 211, 238, 0.08) 100%);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      animation: fadeIn 0.25s ease-out;
+    }
+    .active-adaptation-banner .banner-content { display: flex; flex-direction: column; gap: 0.25rem; }
+    .active-adaptation-banner .banner-badge { font-size: 0.72rem; font-weight: 800; color: #818CF8; letter-spacing: 0.08em; }
+    .active-adaptation-banner .banner-title { font-size: 0.95rem; color: var(--text-primary); margin: 0; }
+    .active-adaptation-banner .banner-actions { display: flex; align-items: center; gap: 0.75rem; flex-shrink: 0; }
+    .btn-return-result {
+      background: #4F46E5;
+      color: #FFFFFF;
+      border: none;
+      padding: 0.55rem 1.1rem;
+      border-radius: 10px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .btn-return-result:hover { background: #4338CA; transform: translateY(-1px); }
+    .btn-discard {
+      background: transparent;
+      border: 1px solid var(--border-subtle);
+      color: var(--text-muted);
+      width: 32px;
+      height: 32px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 0.9rem;
+      transition: all 0.2s;
+    }
+    .btn-discard:hover { border-color: #EF4444; color: #EF4444; }
 
     .presets-row { display: flex; align-items: center; gap: 0.6rem; flex-wrap: wrap; }
     .presets-label { font-size: 0.82rem; font-weight: 700; color: var(--text-muted); }
@@ -751,7 +809,7 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
   private api = inject<NuevaMenteApi>(NUEVAMENTE_API);
   private fb = inject(FormBuilder);
   private exportService = inject(ExportService);
-  private stateService = inject(StateService);
+  readonly stateService = inject(StateService);
   readonly documentService = inject(DocumentService);
   private router = inject(Router);
 
@@ -816,7 +874,17 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
 
   readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
 
+  readonly isViewingResult = computed(() => {
+    return this.stateService.isViewingActiveResult() && !!this.currentResponse();
+  });
+
   ngOnInit(): void {
+    // If an active adaptation exists in stateService, mirror it locally
+    const activeResp = this.stateService.activeAdaptationResponse();
+    if (activeResp) {
+      this.currentResponse.set(activeResp);
+    }
+
     // Keep the "Desde Mis Documentos" picker in sync with the backend.
     void this.documentService.refresh();
 
@@ -1228,8 +1296,21 @@ export class WorkspaceComponent implements OnInit, OnDestroy {
     };
   }
 
-  resetForm(): void {
+  returnToActiveResult(): void {
+    const activeResp = this.stateService.activeAdaptationResponse();
+    if (activeResp) {
+      this.currentResponse.set(activeResp);
+    }
+    this.stateService.setIsViewingActiveResult(true);
+  }
+
+  discardActiveAdaptation(): void {
+    this.stateService.clearActiveAdaptation();
     this.currentResponse.set(null);
+  }
+
+  resetForm(): void {
+    this.stateService.setIsViewingActiveResult(false);
     this.pipelineErrorMessage.set(null);
     this.isPipelineRunning.set(false);
     this.feedbackSubmitted.set(false);

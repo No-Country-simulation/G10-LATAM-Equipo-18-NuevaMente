@@ -38,30 +38,8 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
         <div class="brand-content">
           <!-- Logo Header -->
           <div class="brand-logo">
-            <svg class="logo-icon" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M20 4L4 12L20 20L36 12L20 4Z" fill="url(#logo-grad-1)"/>
-              <path d="M4 12V24L20 32V20L4 12Z" fill="url(#logo-grad-2)" fill-opacity="0.8"/>
-              <path d="M36 12V24L20 32V20L36 12Z" fill="url(#logo-grad-3)" fill-opacity="0.9"/>
-              <circle cx="20" cy="4" r="3" fill="#22D3EE"/>
-              <circle cx="4" cy="12" r="3" fill="#6366F1"/>
-              <circle cx="36" cy="12" r="3" fill="#A855F7"/>
-              <circle cx="20" cy="32" r="3.5" fill="#22D3EE"/>
-              <defs>
-                <linearGradient id="logo-grad-1" x1="4" y1="4" x2="36" y2="20" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#4F46E5"/>
-                  <stop offset="1" stop-color="#7C3AED"/>
-                </linearGradient>
-                <linearGradient id="logo-grad-2" x1="4" y1="12" x2="20" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#6366F1"/>
-                  <stop offset="1" stop-color="#22D3EE"/>
-                </linearGradient>
-                <linearGradient id="logo-grad-3" x1="36" y1="12" x2="20" y2="32" gradientUnits="userSpaceOnUse">
-                  <stop stop-color="#7C3AED"/>
-                  <stop offset="1" stop-color="#4F46E5"/>
-                </linearGradient>
-              </defs>
-            </svg>
-            <span class="logo-text">NuevaMente</span>
+            <img src="assets/branding/isotype.png" alt="NuevaMente Logo" class="logo-icon-img" />
+            <span class="logo-text">Nueva<span class="logo-m">M</span><span class="logo-ente">ente</span></span>
           </div>
 
           <!-- Main Headlines -->
@@ -398,22 +376,65 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
       pointer-events: none;
     }
 
-    .brand-content { position: relative; z-index: 10; max-width: 520px; margin: 0 auto; }
-    .brand-logo { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 2.5rem; }
-    .logo-icon { width: 44px; height: 44px; }
-    .logo-text { font-size: 1.85rem; font-weight: 800; font-family: var(--font-heading); background: linear-gradient(135deg, #FFFFFF 0%, #CBD5E1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .brand-content { position: relative; z-index: 10; max-width: 540px; margin: 0 auto; }
+    .brand-logo { display: flex; align-items: center; gap: 0.95rem; margin-bottom: 2.25rem; }
+    .logo-icon-img { width: 50px; height: 50px; object-fit: contain; filter: drop-shadow(0 4px 16px rgba(99, 102, 241, 0.5)); }
+    .logo-text { font-size: 2.2rem; font-weight: 800; font-family: var(--font-heading); color: #FFFFFF; letter-spacing: -0.02em; display: inline-flex; align-items: center; }
+    .logo-m { color: #A855F7; }
+    .logo-ente { color: #38BDF8; }
     
-    .text-block h1 { font-size: 2.4rem; font-weight: 800; line-height: 1.25; margin-bottom: 1rem; }
-    .subtitle { font-size: 1.05rem; color: #94A3B8; line-height: 1.65; margin-bottom: 2rem; }
+    .text-block h1, .accessible-title {
+      font-size: 2.6rem;
+      font-weight: 800;
+      line-height: 1.2;
+      margin-bottom: 1.15rem;
+      color: #FFFFFF !important;
+      letter-spacing: -0.02em;
+      text-shadow: 0 2px 14px rgba(0, 0, 0, 0.6);
+    }
+    .subtitle {
+      font-size: 1.12rem;
+      color: #F1F5F9 !important;
+      line-height: 1.7;
+      margin-bottom: 2.25rem;
+      font-weight: 400;
+      text-shadow: 0 1px 6px rgba(0, 0, 0, 0.4);
+    }
 
-    .floating-chips { display: flex; flex-wrap: wrap; gap: 0.75rem; margin-bottom: 2.5rem; }
-    .chip-item { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 0.9rem; border-radius: 20px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); font-size: 0.82rem; color: #E2E8F0; font-weight: 600; }
+    .floating-chips { display: flex; flex-wrap: wrap; gap: 0.85rem; margin-bottom: 2.5rem; }
+    .chip-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.55rem;
+      padding: 0.6rem 1.1rem;
+      border-radius: 24px;
+      background: rgba(30, 41, 59, 0.95);
+      border: 1px solid rgba(129, 140, 248, 0.5);
+      font-size: 0.88rem;
+      color: #FFFFFF !important;
+      font-weight: 600;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(8px);
+    }
+    .chip-item svg {
+      color: #38BDF8;
+      filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+    }
 
-    .pipeline-svg-container { position: relative; background: rgba(15, 23, 42, 0.6); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 16px; padding: 1rem; margin-bottom: 2.5rem; }
-    .btn-pause-anim { position: absolute; top: 12px; right: 12px; background: rgba(255, 255, 255, 0.1); border: 1px solid rgba(255, 255, 255, 0.2); color: #FFF; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
+    .pipeline-svg-container {
+      position: relative;
+      background: rgba(15, 23, 42, 0.85);
+      border: 1px solid rgba(99, 102, 241, 0.35);
+      border-radius: 16px;
+      padding: 1.25rem;
+      margin-bottom: 2.5rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+    }
+    .btn-pause-anim { position: absolute; top: 12px; right: 12px; background: rgba(255, 255, 255, 0.12); border: 1px solid rgba(255, 255, 255, 0.25); color: #FFF; font-size: 0.72rem; padding: 0.3rem 0.6rem; border-radius: 6px; cursor: pointer; }
     .pipeline-svg { width: 100%; height: auto; display: block; }
     
-    .brand-footer { font-size: 0.8rem; color: #64748B; }
+    .brand-footer { font-size: 0.85rem; color: #94A3B8; font-weight: 500; }
+    .oracle-tag { color: #CBD5E1; }
 
     /* RIGHT FORM PANEL */
     .form-panel { flex: 1; position: relative; padding: 3rem; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #090D16; }

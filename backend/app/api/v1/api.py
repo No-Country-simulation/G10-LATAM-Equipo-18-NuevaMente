@@ -12,7 +12,7 @@ Output:
 """
 
 from fastapi import APIRouter
-from app.api.v1.endpoints import documents, health, auth, anki, trash, storage, contents
+from app.api.v1.endpoints import documents, health, auth, anki, trash, storage, contents, multimodal
 
 api_router = APIRouter()
 api_router.include_router(documents.router, tags=["Documentos y Generación RAG"])
@@ -22,3 +22,4 @@ api_router.include_router(auth.router, tags=["Autenticación de Usuarios"])
 api_router.include_router(anki.router, tags=["Integración Anki Flashcards"])
 api_router.include_router(trash.router, tags=["Papelera y Borrado Lógico"])
 api_router.include_router(storage.router, tags=["Almacenamiento OCI Object Storage"])
+api_router.include_router(multimodal.router, tags=["Multimodal & Visión"])
