@@ -86,8 +86,8 @@ import { CommonModule } from '@angular/common';
         (change)="toggleVision($event)"
       />
       <span class="vision-text">
-        <strong>Usar AI Vision (OCR)</strong>
-        <small>Extrae texto de PDFs escaneados con visión artificial</small>
+        <strong>Usar OCR</strong>
+        <small>Extraer texto de PDFs escaneados</small>
       </span>
     </label>
 
