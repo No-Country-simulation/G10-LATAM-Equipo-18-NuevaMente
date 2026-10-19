@@ -28,6 +28,14 @@ import { Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/mode
           </div>
 
           <div class="concepts-box">
+            <div class="box-label">Modelos utilizados:</div>
+            <div class="concept-tags">
+              <span *ngFor="let m of modelosUsados" class="badge-tag badge-green">{{ m }}</span>
+              <span *ngIf="!modelosUsados.length" class="badge-tag">Sin datos</span>
+            </div>
+          </div>
+
+          <div class="concepts-box">
             <div class="box-label">Conceptos Clave (Graph RAG DAG):</div>
             <div class="concept-tags">
               <span *ngFor="let c of metadatos?.conceptos_clave" class="badge-tag">{{ c }}</span>
@@ -145,6 +153,12 @@ import { Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/mode
       border-radius: 12px;
       border: 1px solid #bfdbfe;
     }
+    .badge-tag.badge-green {
+      background: #ecfdf5;
+      color: #059669;
+      border-color: #a7f3d0;
+      font-family: monospace;
+    }
 
     .obs-box {
       margin-top: 1rem;
@@ -161,4 +175,13 @@ export class MetadataDashboardComponent {
   @Input() metadatos?: Metadatos;
   @Input() evaluacion?: EvaluacionCalidad;
   @Input() oci?: AlmacenamientoOCI;
+
+  /** Structured 'provider/model' list, falling back to the legacy summary string. */
+  get modelosUsados(): string[] {
+    const detail = this.metadatos?.modelos_usados_detalle;
+    if (detail && detail.length) {
+      return detail;
+    }
+    return this.metadatos?.modelos_usados ? [this.metadatos.modelos_usados] : [];
+  }
 }

@@ -91,6 +91,8 @@ export interface Metadatos {
   tiempo_estimado_estudio_minutos: number;
   conceptos_clave: string[];
   prerrequisitos?: string[];
+  modelos_usados?: string;
+  modelos_usados_detalle?: string[];
 }
 
 export interface EvaluacionCalidad {

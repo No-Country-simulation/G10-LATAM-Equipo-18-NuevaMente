@@ -7,7 +7,7 @@ Garantiza:
   - Reintentos automáticos con backoff exponencial para errores 429/5xx o timeouts.
   - Esquema jerárquico canónico:
       * Fuentes: usuarios/{user_id}/documentos/{sha256}/{nombre_saneado}
-      * Contenidos: usuarios/{user_id}/contenidos/{content_id}/v{version}.json
+      * Contenidos: usuarios/{user_id}/contenidos/{content_id}/{formato}-{titulo}-v{version}.json
   - Estados reales: 'pendiente' -> 'completado' | 'error'. Nunca 'completado' sin confirmación del SDK.
   - Soporte de versionado incremental v{n+1}.json ("Ampliar").
   - Deduplicación por SHA-256 previa a la subida.
@@ -81,6 +81,8 @@ class StorageQueueService:
         user_id: Optional[str],
         json_data: dict,
         version: int = 1,
+        output_format: Optional[str] = None,
+        document_title: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Registra un trabajo de guardado de contenido educativo en 'storage_jobs' con estado 'pendiente'.
@@ -88,7 +90,13 @@ class StorageQueueService:
         """
         user_clean = StorageBackend.sanitize_user_id(user_id)
         bucket = settings.OCI_BUCKET_CONTENT
-        object_key = StorageBackend.build_content_key(user_clean, content_id, version=version)
+        object_key = StorageBackend.build_content_key(
+            user_clean,
+            content_id,
+            version=version,
+            output_format=output_format,
+            document_title=document_title,
+        )
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now = time.time()
 

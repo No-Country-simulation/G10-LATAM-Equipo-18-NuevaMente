@@ -457,6 +457,7 @@ class LangGraphOrchestrator(PipelineStages):
             llm_provider=self.last_provider,
             llm_model=self.last_model,
             models_used=self._format_models_used(),
+            models_used_detail=self._format_models_detail(),
             critic_provider=self.critic_provider,
             critic_model=self.critic_model,
             embedding_provider=embedding_provider,
@@ -492,6 +493,8 @@ class LangGraphOrchestrator(PipelineStages):
             user_id=user_id,
             json_data=response_payload,
             version=version_num,
+            output_format=request.output_format,
+            document_title=doc_title,
         )
         immediate_ok = queue_service.process_job(job_info["job_id"])
         upload_status_val = "completado" if immediate_ok else "pendiente"

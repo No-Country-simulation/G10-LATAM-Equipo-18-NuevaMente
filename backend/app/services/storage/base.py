@@ -9,6 +9,7 @@ Purpose:
 from abc import ABC, abstractmethod
 import hashlib
 import re
+import unicodedata
 from typing import Dict, Any, Optional, List
 
 
@@ -89,12 +90,40 @@ class StorageBackend(ABC):
         safe_name = cls.sanitize_filename(filename)
         return f"usuarios/{safe_user}/documentos/{sha256_hash}/{safe_name}"
 
+    @staticmethod
+    def slugify_label(text: Optional[str], max_len: int = 40) -> str:
+        """
+        Convierte un texto (formato de salida, título) en un slug legible para
+        usarlo dentro de la clave del objeto: minúsculas, sin acentos ni
+        caracteres especiales, separados por guiones.
+        """
+        if not text:
+            return ""
+        ascii_text = unicodedata.normalize("NFKD", str(text)).encode("ascii", "ignore").decode("ascii")
+        slug = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_text).strip("-").lower()
+        return slug[:max_len].strip("-")
+
     @classmethod
-    def build_content_key(cls, user_id: Optional[str], content_id: str, version: int = 1) -> str:
+    def build_content_key(
+        cls,
+        user_id: Optional[str],
+        content_id: str,
+        version: int = 1,
+        output_format: Optional[str] = None,
+        document_title: Optional[str] = None,
+    ) -> str:
         """
         Construye la clave jerárquica para un artefacto educativo JSON:
-        usuarios/{user_id}/contenidos/{content_id}/v{version}.json
+        usuarios/{user_id}/contenidos/{content_id}/{formato}-{titulo}-v{version}.json
+
+        El nombre del archivo incluye el formato de salida y parte del título del
+        documento para que el objeto sea identificable en la consola de OCI.
+        Sin formato/título (registros antiguos) se conserva el nombre v{version}.json.
         """
         safe_user = cls.sanitize_user_id(user_id)
         clean_content_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", content_id).strip("_")
-        return f"usuarios/{safe_user}/contenidos/{clean_content_id}/v{version}.json"
+        fmt_slug = cls.slugify_label(output_format, max_len=20)
+        title_slug = cls.slugify_label(document_title, max_len=40)
+        label = "-".join(part for part in (fmt_slug, title_slug) if part)
+        filename = f"{label}-v{version}.json" if label else f"v{version}.json"
+        return f"usuarios/{safe_user}/contenidos/{clean_content_id}/{filename}"

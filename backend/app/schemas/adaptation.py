@@ -108,6 +108,7 @@ class ResponseMetadata(BaseModel):
     llm_provider: Optional[str] = Field("gemini", alias="proveedor_llm")
     llm_model: Optional[str] = Field(None, alias="modelo_llm")
     models_used: Optional[str] = Field(None, alias="modelos_usados")
+    models_used_detail: Optional[List[str]] = Field(default_factory=list, alias="modelos_usados_detalle")
     critic_provider: Optional[str] = Field(None, alias="proveedor_critico")
     critic_model: Optional[str] = Field(None, alias="modelo_critico")
     embedding_provider: Optional[str] = Field("gemini", alias="proveedor_embeddings")

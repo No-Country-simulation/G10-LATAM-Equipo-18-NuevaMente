@@ -1113,6 +1113,15 @@ class PipelineStages:
             parts.append(f"{label}({len(self._models_used[provider])})")
         return ", ".join(parts)
 
+    def _format_models_detail(self) -> List[str]:
+        """Flat 'provider/model' list with every LLM used during this run."""
+        detail: List[str] = []
+        for provider in sorted(self._models_used):
+            label = self._PROVIDER_SHORT.get(provider, provider)
+            for model in sorted(self._models_used[provider]):
+                detail.append(f"{label}/{model}")
+        return detail
+
     @staticmethod
     def _slugify(text: str) -> str:
         return re.sub(r"[^a-zA-Z0-9]+", "-", text).strip("-").lower()
