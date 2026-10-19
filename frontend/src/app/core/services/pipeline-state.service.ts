@@ -79,7 +79,10 @@ export class PipelineStateService {
       const finished = this.finished();
       const running = this.running();
       if (resp && finished && !running) {
-        if (this.router.url !== '/workspace') {
+        if (this.router.url === '/proceso') {
+          this.stateService.setIsViewingActiveResult(true);
+          this.router.navigateByUrl('/workspace');
+        } else if (this.router.url !== '/workspace') {
           this.router.navigateByUrl('/workspace');
         }
         this.stateService.setIsViewingActiveResult(true);

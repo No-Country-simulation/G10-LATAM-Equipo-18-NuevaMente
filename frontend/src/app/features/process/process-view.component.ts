@@ -18,6 +18,7 @@ import { Component, inject } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { PipelineStateService } from '../../core/services/pipeline-state.service';
+import { StateService } from '../../core/services/state.service';
 import { GenerationLoaderComponent } from '../workspace/generation-loader.component';
 
 @Component({
@@ -139,6 +140,7 @@ import { GenerationLoaderComponent } from '../workspace/generation-loader.compon
 })
 export class ProcessViewComponent {
   readonly pipeline = inject(PipelineStateService);
+  private stateService = inject(StateService);
   private router = inject(Router);
 
   headerTitle(): string {
@@ -163,6 +165,11 @@ export class ProcessViewComponent {
   /** A retry needs the original form, so we return the user to the origin view. */
   onRetry(): void {
     this.router.navigateByUrl(this.pipeline.originRoute());
+  }
+
+  goToResult(): void {
+    this.stateService.setIsViewingActiveResult(true);
+    this.router.navigateByUrl('/workspace');
   }
 
   goToWorkspace(): void {
