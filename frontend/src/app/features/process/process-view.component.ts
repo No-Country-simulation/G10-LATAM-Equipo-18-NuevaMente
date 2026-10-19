@@ -175,8 +175,4 @@ export class ProcessViewComponent {
   goToWorkspace(): void {
     this.router.navigateByUrl('/workspace');
   }
-
-  goToResult(): void {
-    this.router.navigateByUrl('/workspace');
-  }
 }
