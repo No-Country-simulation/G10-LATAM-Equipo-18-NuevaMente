@@ -36,8 +36,8 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
       <!-- Dropzone Upload Section (shared component, same as Workspace) -->
       <div class="upload-dropzone glass-card">
         <app-shared-dropzone
-          [disabled]="pipeline.running() || isUploading() || pendingFile() !== null"
-          [showOcr]="pendingFile() === null"
+          *ngIf="!pendingFile()"
+          [disabled]="pipeline.running() || isUploading()"
           (fileSelected)="onFileSelectedForUpload($event)"
           (useAiVisionChange)="useAiVision.set($event)"
         />
