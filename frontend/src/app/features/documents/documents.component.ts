@@ -36,13 +36,36 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
       <!-- Dropzone Upload Section (shared component, same as Workspace) -->
       <div class="upload-dropzone glass-card">
         <app-shared-dropzone
-          [disabled]="pipeline.running()"
+          [disabled]="pipeline.running() || isUploading() || pendingFile() !== null"
           (fileSelected)="onFileSelectedForUpload($event)"
           (useAiVisionChange)="useAiVision.set($event)"
         />
         <div class="upload-loader" *ngIf="isUploading()">
           <div class="spinner"></div>
           <span>Procesando e indexando documento...</span>
+        </div>
+
+        <!-- Panel de confirmación cuando hay archivo seleccionado -->
+        <div *ngIf="pendingFile() && !isUploading()" class="upload-confirm mt-4" style="padding: 1rem; border: 1px solid var(--border-subtle); border-radius: 10px; background: rgba(15,23,42,0.02);">
+          <div style="display:flex; align-items:center; justify-content:space-between; gap:1rem; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:700;">{{ pendingFile()!.name }}</div>
+              <div style="font-size:0.85rem; opacity:0.7;">{{ (pendingFile()!.size/1024/1024) | number:'1.0-2' }} MB</div>
+            </div>
+            <div style="display:flex; gap:0.5rem;">
+              <button type="button" class="btn ghost" (click)="clearPending()" [disabled]="isUploading()" style="padding:0.5rem 1rem; border:1px solid var(--border-subtle); border-radius:8px; background:transparent; cursor:pointer;">Cancelar</button>
+              <button type="button" class="btn primary" (click)="uploadPending()" [disabled]="isUploading()" style="padding:0.5rem 1rem; border:none; border-radius:8px; background:#4F46E5; color:#fff; font-weight:700; cursor:pointer;">Procesar documento</button>
+            </div>
+          </div>
+
+          <!-- OCR solo para PDF -->
+          <label *ngIf="pendingFile()!.name.toLowerCase().endsWith('.pdf')" class="vision-toggle" style="display:flex; align-items:flex-start; gap:0.75rem; margin-top:1rem; padding:0.75rem 1rem; border:1px solid var(--border-subtle); border-radius:10px; background:rgba(79,70,229,0.04); cursor:pointer;" (click)="$event.stopPropagation()">
+            <input type="checkbox" [checked]="useAiVision()" (change)="useAiVision.set($any($event.target).checked)" [disabled]="isUploading()" style="margin-top:0.2rem; accent-color:#6366F1;"/>
+            <span style="display:flex; flex-direction:column; gap:0.1rem;">
+              <strong style="font-size:0.9rem;">Usar OCR</strong>
+              <small style="font-size:0.8rem; opacity:0.7;">Extraer texto de PDFs escaneados</small>
+            </span>
+          </label>
         </div>
       </div>
 
@@ -232,7 +255,7 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
             <button type="button" class="btn-secondary" *ngIf="previewDoc()!.content" (click)="downloadDoc(previewDoc()!)">
               📥 Descargar
             </button>
-            <button type="button" class="btn-primary" [disabled]="!previewDoc()!.indexed" (click)="useInWorkspace(previewDoc()!)">
+            <button type="button" class="btn-primary" [disabled]="!(previewDoc()!.indexed || previewDoc()!.status === 'indexado')" (click)="useInWorkspace(previewDoc()!)">
               🚀 Cargar en Workspace de Adaptación
             </button>
           </div>
@@ -581,6 +604,7 @@ export class DocumentsComponent implements OnInit {
   isUploading = signal<boolean>(false);
   /** OCR (AI Vision) opt-in for the PDF being uploaded. */
   useAiVision = signal<boolean>(false);
+  pendingFile = signal<File | null>(null);
 
   previewDoc = signal<AppDocument | null>(null);
   sanitizedPreviewUrl = signal<SafeResourceUrl | null>(null);
@@ -612,22 +636,28 @@ export class DocumentsComponent implements OnInit {
   /** Called by the shared dropzone once the user picks a file. */
   onFileSelectedForUpload(file: File): void {
     this.useAiVision.set(false);
-    void this.handleFileUpload(file);
+    this.pendingFile.set(file);
   }
 
-  private async handleFileUpload(file: File): Promise<void> {
-    if (!this.pipeline.guard()) return;
+  clearPending(): void {
+    this.pendingFile.set(null);
+    this.useAiVision.set(false);
+  }
+
+  async uploadPending(): Promise<void> {
+    const file = this.pendingFile();
+    if (!file) return;
     this.isUploading.set(true);
     try {
       const vision = this.useAiVision();
       await this.documentService.uploadDocument(file, vision);
       void this.documentService.refresh();
-      this.router.navigate(['/documents']);
+      this.pendingFile.set(null);
+      this.useAiVision.set(false);
     } catch (e) {
       console.error('Error uploading file:', e);
     } finally {
       this.isUploading.set(false);
-      this.useAiVision.set(false);
     }
   }
 

@@ -200,7 +200,6 @@ export class SharedDropzoneComponent {
     // A fresh file resets the OCR opt-in.
     this.useAiVision.set(false);
     this.fileSelected.emit(file);
-    // Emit the current vision state (false) so parent can reset it immediately.
     this.useAiVisionChange.emit(false);
   }
   clear() {
