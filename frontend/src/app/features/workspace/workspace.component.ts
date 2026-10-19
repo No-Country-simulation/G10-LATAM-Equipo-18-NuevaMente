@@ -276,6 +276,22 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
+          <!-- Selector: Idioma de generación -->
+          <div class="selectors-section">
+            <label class="section-title">Idioma de generación</label>
+            <div class="segmented-control">
+              <button 
+                type="button" 
+                *ngFor="let lang of idiomasGeneracion" 
+                class="seg-btn"
+                [class.active]="adaptForm.get('idioma_salida')?.value === lang.code"
+                (click)="adaptForm.patchValue({ idioma_salida: lang.code })"
+              >
+                {{ lang.label }}
+              </button>
+            </div>
+          </div>
+
           <!-- Selector 4 & 5 Dual Row (Nicho + Nivel Detalle) -->
           <div class="form-row-dual">
             <!-- Chips: Nicho Sector (4) -->
@@ -891,6 +907,12 @@ export class WorkspaceComponent implements OnInit {
   sectores: NichoSector[] = ['Fintech', 'Salud', 'E-commerce', 'General'];
   niveles: NivelDetalle[] = ['Didactico', 'Conciso', 'Tecnico', 'Exhaustivo'];
   nivelesCantidad: NivelCantidad[] = ['Breve', 'Estandar', 'Amplio', 'Exhaustivo', 'Personalizado'];
+
+  idiomasGeneracion = [
+    { code: 'es', label: 'ES' },
+    { code: 'en', label: 'EN' },
+    { code: 'pt', label: 'PT' }
+  ];
 
   adaptForm = this.fb.group({
     documento_titulo: ['', [Validators.required]],
