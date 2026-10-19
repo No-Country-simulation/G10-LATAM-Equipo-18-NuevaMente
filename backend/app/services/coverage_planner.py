@@ -167,6 +167,7 @@ class CoveragePlanner:
         # Cap only when requested quantity exceeds the realistic substantive threshold
         if requested_items > max_viable and total_chars < 800:
             total_capacity = max_viable
+            viable_target = max(1, min(requested_items, total_capacity))
             warning = None
             logger.info(
                 "CoveragePlanner: disproportionate request capped %d → %d (content: %d chars, format: %s)",
