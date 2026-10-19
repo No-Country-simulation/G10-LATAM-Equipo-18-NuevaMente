@@ -16,6 +16,8 @@ export interface AdaptationRequest {
   cantidad_generar?: number;
   tamano_chunk?: number;
   instrucciones_adicionales?: string;
+  idioma_salida?: string;
+  language?: string;
 }
 
 export interface RagFuente {

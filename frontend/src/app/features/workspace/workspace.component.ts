@@ -900,7 +900,8 @@ export class WorkspaceComponent implements OnInit {
     nicho_sector: ['Fintech' as NichoSector, [Validators.required]],
     nivel_detalle: ['Didactico' as NivelDetalle, [Validators.required]],
     nivel_cantidad: ['Estandar' as NivelCantidad, [Validators.required]],
-    cantidad_objetivo: [20]
+    cantidad_objetivo: [20],
+    idioma_salida: ['es' as string]
   });
 
   readonly formValues = toSignal(this.adaptForm.valueChanges, { initialValue: this.adaptForm.value });
@@ -1142,9 +1143,11 @@ export class WorkspaceComponent implements OnInit {
       perfil_destinatario: formVal.perfil_destinatario || 'Desarrollador',
       formato_salida: formVal.formato_salida || 'Flashcards',
       nicho_sector: formVal.nicho_sector || 'General',
-      nivel_detalle: formVal.nivel_detalle || 'Tecnico',
+      nivel_detalle: formVal.nivel_detalle || 'Didactico',
       nivel_cantidad: formVal.nivel_cantidad || 'Estandar',
-      cantidad_objetivo: formVal.cantidad_objetivo || 20
+      cantidad_objetivo: this.effectiveTargetCount(),
+      cantidad_generar: this.effectiveTargetCount(),
+      idioma_salida: (formVal as any).idioma_salida || 'es'
     };
 
     if (usingIndexedDoc && indexedDoc) {
@@ -1225,7 +1228,8 @@ export class WorkspaceComponent implements OnInit {
       nicho_sector: 'Fintech',
       nivel_detalle: 'Didactico',
       nivel_cantidad: 'Estandar',
-      cantidad_objetivo: 20
+      cantidad_objetivo: 20,
+      idioma_salida: 'es'
     });
     this.activeTab.set('from_documents');
   }

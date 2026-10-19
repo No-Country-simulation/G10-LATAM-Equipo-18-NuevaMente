@@ -166,6 +166,7 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       cantidad_objetivo: request.cantidad_objetivo,
       cantidad_generar: request.cantidad_generar,
       instrucciones_adicionales: request.instrucciones_adicionales,
+      idioma_salida: (request.idioma_salida || request.language || 'es'),
       forzar_regenerar: true
     };
 
