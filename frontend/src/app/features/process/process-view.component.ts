@@ -168,7 +168,7 @@ export class ProcessViewComponent {
   }
 
   goToResult(): void {
-    this.stateService.setIsViewingActiveResult(false);
+    this.stateService.setIsViewingActiveResult(true);
     this.router.navigateByUrl('/workspace');
   }
 

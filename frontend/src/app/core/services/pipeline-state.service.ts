@@ -83,13 +83,13 @@ export class PipelineStateService {
           this.stateService.setIsViewingActiveResult(true);
           this.router.navigateByUrl('/workspace');
         } else if (this.router.url === '/workspace') {
-          this.stateService.setIsViewingActiveResult(false);
+          this.stateService.setIsViewingActiveResult(true);
         } else {
+          this.stateService.setIsViewingActiveResult(true);
           this.router.navigateByUrl('/workspace');
-          this.stateService.setIsViewingActiveResult(false);
         }
       }
-    });
+    }, { allowSignalWrites: true });
   }
 
   /** Blocks a second upload/generation while one is already in progress. */

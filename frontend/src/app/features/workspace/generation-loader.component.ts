@@ -713,9 +713,27 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   ];
   @Input() progress: number | null = null;
   @Input() compact: boolean = false;
-  @Input() activeStage: PipelineStage | null = null;
+
+  private readonly activeStageSignal = signal<PipelineStage | null>(null);
+  @Input()
+  set activeStage(val: PipelineStage | null) {
+    this.activeStageSignal.set(val);
+  }
+  get activeStage(): PipelineStage | null {
+    return this.activeStageSignal();
+  }
+
   @Input() params: GenerationParams | null = null;
-  @Input() stages: PipelineStage[] = [];
+
+  private readonly stagesSignal = signal<PipelineStage[]>([]);
+  @Input()
+  set stages(val: PipelineStage[]) {
+    this.stagesSignal.set(val || []);
+  }
+  get stages(): PipelineStage[] {
+    return this.stagesSignal();
+  }
+
   /**
    * Forces the technical details panel open/closed. When null, the
    * environment default (showPipelineDetails) is used.
@@ -747,12 +765,14 @@ export class GenerationLoaderComponent implements OnInit, OnDestroy {
   ];
 
   currentStages = computed(() => {
-    return this.stages && this.stages.length > 0 ? this.stages : this.defaultStages;
+    const list = this.stagesSignal();
+    return list && list.length > 0 ? list : this.defaultStages;
   });
 
   currentMicrocopy = computed(() => {
-    if (this.activeStage && this.activeStage.microcopy) {
-      return this.activeStage.microcopy;
+    const stage = this.activeStageSignal();
+    if (stage && stage.microcopy) {
+      return stage.microcopy;
     }
     const msgs = this.messages && this.messages.length > 0 ? this.messages : ['Procesando tu contenido…'];
     return msgs[this.microcopyIndex() % msgs.length];

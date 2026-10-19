@@ -199,9 +199,9 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
-          <!-- Selector 1: Perfil del Destinatario (4) -->
+          <!-- Selector: Perfil del Destinatario -->
           <div class="selectors-section">
-            <label class="section-title">1. Perfil del Destinatario (4 Opciones)</label>
+            <label class="section-title">Perfil del Destinatario</label>
             <div class="cards-selector-grid">
               <div 
                 *ngFor="let p of perfiles" 
@@ -218,9 +218,9 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
-          <!-- Selector 2: Formato Pedagógico (5) -->
+          <!-- Selector: Formato Pedagógico de Salida -->
           <div class="selectors-section">
-            <label class="section-title">2. Formato Pedagógico de Salida (5 Opciones)</label>
+            <label class="section-title">Formato Pedagógico de Salida</label>
             <div class="cards-selector-grid formats-grid">
               <div 
                 *ngFor="let f of formatos" 
@@ -237,9 +237,9 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
-          <!-- Selector 3: Cantidad de Contenido (Breve / Estándar / Amplio / Exhaustivo / Personalizado) -->
+          <!-- Selector: Cantidad de Contenido -->
           <div class="selectors-section">
-            <label class="section-title">3. Cantidad de Contenido a Generar</label>
+            <label class="section-title">Cantidad de Contenido a Generar</label>
             <div class="segmented-control quantity-segmented">
               <button 
                 type="button" 
@@ -276,9 +276,25 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
-          <!-- Selector: Idioma de generación -->
+          <!-- Selector: Nicho / Sector de Aplicación -->
           <div class="selectors-section">
-            <label class="section-title">Idioma de generación</label>
+            <label class="section-title">Nicho / Sector de Aplicación</label>
+            <div class="segmented-control">
+              <button 
+                type="button" 
+                *ngFor="let s of sectores" 
+                class="seg-btn"
+                [class.active]="adaptForm.get('nicho_sector')?.value === s"
+                (click)="adaptForm.patchValue({ nicho_sector: s })"
+              >
+                {{ s }}
+              </button>
+            </div>
+          </div>
+
+          <!-- Selector: Idioma de Generación -->
+          <div class="selectors-section">
+            <label class="section-title">Idioma de Generación</label>
             <div class="segmented-control">
               <button 
                 type="button" 
@@ -292,38 +308,19 @@ import { AppDocument } from '../../core/models/document.model';
             </div>
           </div>
 
-          <!-- Selector 4 & 5 Dual Row (Nicho + Nivel Detalle) -->
-          <div class="form-row-dual">
-            <!-- Chips: Nicho Sector (4) -->
-            <div class="form-group flex-1">
-              <label>4. Nicho / Sector de Aplicación</label>
-              <div class="chips-selector">
-                <button 
-                  type="button" 
-                  *ngFor="let s of sectores" 
-                  class="chip-select"
-                  [class.active]="adaptForm.get('nicho_sector')?.value === s"
-                  (click)="adaptForm.patchValue({ nicho_sector: s })"
-                >
-                  {{ s }}
-                </button>
-              </div>
-            </div>
-
-            <!-- Segmented Control: Nivel de Detalle (4) -->
-            <div class="form-group flex-1">
-              <label>5. Nivel de Detalle Pedagógico</label>
-              <div class="segmented-control">
-                <button 
-                  type="button" 
-                  *ngFor="let d of niveles" 
-                  class="seg-btn"
-                  [class.active]="adaptForm.get('nivel_detalle')?.value === d"
-                  (click)="adaptForm.patchValue({ nivel_detalle: d })"
-                >
-                  {{ d }}
-                </button>
-              </div>
+          <!-- Selector: Nivel de Detalle Pedagógico -->
+          <div class="selectors-section">
+            <label class="section-title">Nivel de Detalle Pedagógico</label>
+            <div class="segmented-control">
+              <button 
+                type="button" 
+                *ngFor="let d of niveles" 
+                class="seg-btn"
+                [class.active]="adaptForm.get('nivel_detalle')?.value === d"
+                (click)="adaptForm.patchValue({ nivel_detalle: d })"
+              >
+                {{ d }}
+              </button>
             </div>
           </div>
 
@@ -909,9 +906,9 @@ export class WorkspaceComponent implements OnInit {
   nivelesCantidad: NivelCantidad[] = ['Breve', 'Estandar', 'Amplio', 'Exhaustivo', 'Personalizado'];
 
   idiomasGeneracion = [
-    { code: 'es', label: 'ES' },
-    { code: 'en', label: 'EN' },
-    { code: 'pt', label: 'PT' }
+    { code: 'es', label: 'Español' },
+    { code: 'en', label: 'English' },
+    { code: 'pt', label: 'Português' }
   ];
 
   adaptForm = this.fb.group({
@@ -932,6 +929,17 @@ export class WorkspaceComponent implements OnInit {
     return this.stateService.isViewingActiveResult() && !!this.currentResponse();
   });
 
+  // Mirror completions that arrive while this view is alive (the run itself
+  // is owned by the service, so it keeps going if the user navigates away).
+  private readonly pipelineCompletionEffect = effect(() => {
+    const resp = this.pipeline.response();
+    if (resp && this.isPipelineRunning() === false && this.pipeline.finished()) {
+      this.currentResponse.set(resp);
+      this.stateService.setIsViewingActiveResult(true);
+      this.pipeline.consumeFinished();
+    }
+  }, { allowSignalWrites: true });
+
   ngOnInit(): void {
     // If an active adaptation exists in stateService, mirror it locally
     const activeResp = this.stateService.activeAdaptationResponse();
@@ -944,20 +952,9 @@ export class WorkspaceComponent implements OnInit {
     const pipelineResp = this.pipeline.response();
     if (pipelineResp) {
       this.currentResponse.set(pipelineResp);
-      this.stateService.setIsViewingActiveResult(false);
+      this.stateService.setIsViewingActiveResult(true);
       this.pipeline.consumeFinished();
     }
-
-    // Mirror completions that arrive while this view is alive (the run itself
-    // is owned by the service, so it keeps going if the user navigates away).
-    effect(() => {
-      const resp = this.pipeline.response();
-      if (resp && this.isPipelineRunning() === false && this.pipeline.finished()) {
-        this.currentResponse.set(resp);
-        this.stateService.setIsViewingActiveResult(false);
-        this.pipeline.consumeFinished();
-      }
-    });
 
     // Keep the "Desde Mis Documentos" picker in sync with the backend.
     void this.documentService.refresh();
