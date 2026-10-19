@@ -7,7 +7,7 @@ Garantiza:
   - Reintentos automáticos con backoff exponencial para errores 429/5xx o timeouts.
   - Esquema jerárquico canónico:
       * Fuentes: usuarios/{user_id}/documentos/{sha256}/{nombre_saneado}
-      * Contenidos: usuarios/{user_id}/contenidos/{content_id}/{formato}-{titulo}-v{version}.json
+      * Contenidos: usuarios/{user_id}/contenidos/{content_id}/{titulo}-{formato}-{perfil}-{yyyymmdd}.json
   - Estados reales: 'pendiente' -> 'completado' | 'error'. Nunca 'completado' sin confirmación del SDK.
   - Soporte de versionado incremental v{n+1}.json ("Ampliar").
   - Deduplicación por SHA-256 previa a la subida.
@@ -83,6 +83,7 @@ class StorageQueueService:
         version: int = 1,
         output_format: Optional[str] = None,
         document_title: Optional[str] = None,
+        recipient_profile: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Registra un trabajo de guardado de contenido educativo en 'storage_jobs' con estado 'pendiente'.
@@ -96,6 +97,7 @@ class StorageQueueService:
             version=version,
             output_format=output_format,
             document_title=document_title,
+            recipient_profile=recipient_profile,
         )
         job_id = f"job-{uuid.uuid4().hex[:12]}"
         now = time.time()

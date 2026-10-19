@@ -495,6 +495,7 @@ class LangGraphOrchestrator(PipelineStages):
             version=version_num,
             output_format=request.output_format,
             document_title=doc_title,
+            recipient_profile=request.recipient_profile,
         )
         immediate_ok = queue_service.process_job(job_info["job_id"])
         upload_status_val = "completado" if immediate_ok else "pendiente"

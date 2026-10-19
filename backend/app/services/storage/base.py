@@ -10,6 +10,7 @@ from abc import ABC, abstractmethod
 import hashlib
 import re
 import unicodedata
+from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 
 
@@ -111,19 +112,29 @@ class StorageBackend(ABC):
         version: int = 1,
         output_format: Optional[str] = None,
         document_title: Optional[str] = None,
+        recipient_profile: Optional[str] = None,
+        created_at: Optional[datetime] = None,
     ) -> str:
         """
         Construye la clave jerárquica para un artefacto educativo JSON:
-        usuarios/{user_id}/contenidos/{content_id}/{formato}-{titulo}-v{version}.json
+        usuarios/{user_id}/contenidos/{content_id}/{titulo}-{formato}-{perfil}-{yyyymmdd}[-v{version}].json
 
-        El nombre del archivo incluye el formato de salida y parte del título del
-        documento para que el objeto sea identificable en la consola de OCI.
-        Sin formato/título (registros antiguos) se conserva el nombre v{version}.json.
+        El nombre identifica el objeto en la consola de OCI y en la columna
+        object_key_json de Supabase: título del documento, formato de salida,
+        perfil del destinatario y fecha de creación (UTC, AAAAMMDD).
+        La versión solo se añade cuando es superior a 1 ("Ampliar") para no
+        sobrescribir el artefacto generado el mismo día. Sin metadatos
+        (registros antiguos / script de migración) se conserva v{version}.json.
         """
         safe_user = cls.sanitize_user_id(user_id)
         clean_content_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", content_id).strip("_")
-        fmt_slug = cls.slugify_label(output_format, max_len=20)
         title_slug = cls.slugify_label(document_title, max_len=40)
-        label = "-".join(part for part in (fmt_slug, title_slug) if part)
-        filename = f"{label}-v{version}.json" if label else f"v{version}.json"
+        fmt_slug = cls.slugify_label(output_format, max_len=20)
+        profile_slug = cls.slugify_label(recipient_profile, max_len=20)
+        label = "-".join(part for part in (title_slug, fmt_slug, profile_slug) if part)
+        if not label:
+            return f"usuarios/{safe_user}/contenidos/{clean_content_id}/v{version}.json"
+        stamp = (created_at or datetime.now(timezone.utc)).strftime("%Y%m%d")
+        suffix = f"-v{version}" if version > 1 else ""
+        filename = f"{label}-{stamp}{suffix}.json"
         return f"usuarios/{safe_user}/contenidos/{clean_content_id}/{filename}"
