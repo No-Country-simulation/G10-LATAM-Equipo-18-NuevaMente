@@ -157,26 +157,12 @@ class CoveragePlanner:
             len(ch.get("content", "")) for ch in substantive
         )
 
-        # Baseline substantive threshold: only cap if the requested quantity is
-        # grossly disproportionate to the actual text available (e.g. 50 items from 200 chars).
-        # A single substantive paragraph (~300-500 chars) easily supports 5-10 pedagogical items
-        # through reasoning (definitions, application, edge cases, cause-effect).
-        min_chars_per_item = 50 if "flashcard" in fmt else (80 if "quiz" in fmt else 120)
-        max_viable = max(3, total_chars // min_chars_per_item)
-
-        # Cap only when requested quantity exceeds the realistic substantive threshold
-        if requested_items > max_viable and total_chars < 800:
-            total_capacity = max_viable
-            viable_target = max(1, min(requested_items, total_capacity))
-            warning = None
-            logger.info(
-                "CoveragePlanner: disproportionate request capped %d → %d (content: %d chars, format: %s)",
-                requested_items, viable_target, total_chars, fmt,
-            )
-        else:
-            total_capacity = max(requested_items, max_viable)
-            viable_target = requested_items
-            warning = None
+        # Respect the user's requested item count directly.
+        # Modern LLM generation seamlessly derives deep pedagogical items (definitions,
+        # architecture components, security rules, edge cases) even from concise technical specs.
+        total_capacity = max(requested_items, 1)
+        viable_target = max(1, requested_items)
+        warning = None
 
         if fmt in _HOLISTIC_FORMATS:
             strategy = "holistic"
