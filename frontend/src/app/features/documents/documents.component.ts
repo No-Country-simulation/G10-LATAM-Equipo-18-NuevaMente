@@ -37,6 +37,7 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
       <div class="upload-dropzone glass-card">
         <app-shared-dropzone
           [disabled]="pipeline.running() || isUploading() || pendingFile() !== null"
+          [showOcr]="pendingFile() === null"
           (fileSelected)="onFileSelectedForUpload($event)"
           (useAiVisionChange)="useAiVision.set($event)"
         />

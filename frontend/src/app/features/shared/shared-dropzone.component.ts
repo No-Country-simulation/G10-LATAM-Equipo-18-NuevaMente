@@ -77,7 +77,7 @@ import { CommonModule } from '@angular/common';
     <!-- OCR (AI Vision) opt-in, only offered for PDFs -->
     <label
       class="vision-toggle"
-      *ngIf="isPdfSelected()"
+      *ngIf="isPdfSelected() && showOcr"
       (click)="$event.stopPropagation()"
     >
       <input
@@ -142,6 +142,7 @@ export class SharedDropzoneComponent {
   @Input() disabled = false;
   @Input() compact = false;
   @Input() accept = '.pdf,.md,.txt';
+  @Input() showOcr = true;
 
   @Output() fileSelected = new EventEmitter<File>();
   @Output() useAiVisionChange = new EventEmitter<boolean>();
