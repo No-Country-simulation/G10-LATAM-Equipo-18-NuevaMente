@@ -921,7 +921,7 @@ export class WorkspaceComponent implements OnInit {
     const pipelineResp = this.pipeline.response();
     if (pipelineResp) {
       this.currentResponse.set(pipelineResp);
-      this.stateService.setIsViewingActiveResult(true);
+      this.stateService.setIsViewingActiveResult(false);
       this.pipeline.consumeFinished();
     }
 
@@ -931,7 +931,7 @@ export class WorkspaceComponent implements OnInit {
       const resp = this.pipeline.response();
       if (resp && this.isPipelineRunning() === false && this.pipeline.finished()) {
         this.currentResponse.set(resp);
-        this.stateService.setIsViewingActiveResult(true);
+        this.stateService.setIsViewingActiveResult(false);
         this.pipeline.consumeFinished();
       }
     });
@@ -1214,6 +1214,20 @@ export class WorkspaceComponent implements OnInit {
     this.pipeline.clearError();
     this.feedbackSubmitted.set(false);
     this.userVote.set(null);
+    this.selectedWorkspaceDoc.set(null);
+    this.documentService.clearWorkspaceSelection();
+    this.currentResponse.set(null);
+    this.adaptForm.reset({
+      documento_titulo: '',
+      documento_contenido: '',
+      perfil_destinatario: 'Desarrollador',
+      formato_salida: 'Flashcards',
+      nicho_sector: 'Fintech',
+      nivel_detalle: 'Didactico',
+      nivel_cantidad: 'Estandar',
+      cantidad_objetivo: 20
+    });
+    this.activeTab.set('from_documents');
   }
 
   navigateToLibrary(): void {

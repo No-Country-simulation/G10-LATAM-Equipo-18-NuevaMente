@@ -82,10 +82,12 @@ export class PipelineStateService {
         if (this.router.url === '/proceso') {
           this.stateService.setIsViewingActiveResult(true);
           this.router.navigateByUrl('/workspace');
-        } else if (this.router.url !== '/workspace') {
+        } else if (this.router.url === '/workspace') {
+          this.stateService.setIsViewingActiveResult(false);
+        } else {
           this.router.navigateByUrl('/workspace');
+          this.stateService.setIsViewingActiveResult(false);
         }
-        this.stateService.setIsViewingActiveResult(true);
       }
     });
   }
