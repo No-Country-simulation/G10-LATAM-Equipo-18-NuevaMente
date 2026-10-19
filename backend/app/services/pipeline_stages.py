@@ -59,6 +59,68 @@ def _is_spanish(target_language: Optional[str]) -> bool:
     return lang.startswith("es") or "span" in lang
 
 
+def _clean_concept_text(raw_concept: str, context: str = "", doc_title: str = "") -> str:
+    """Sanitizes raw concept strings stripping markdown, page numbering, roman numeral
+    noise, and trailing binary/punctuation artifacts.
+    Falls back to meaningful terms extracted from context or doc_title when the result
+    is non-substantive.
+    """
+    if not raw_concept:
+        raw_concept = ""
+    # Strip markdown headers, bold, italics, backticks, blockquotes
+    clean = re.sub(r"[\#\*\_\~\`\>]+", "", str(raw_concept)).strip()
+    # Strip PDF xref/EOF artifacts
+    clean = re.sub(r"(?:%?\s*startxref[\s\d]*|%%EOF|xref\s*\d+\s*\d+|\b\d{5,}\b)", "", clean, flags=re.IGNORECASE).strip()
+    # Strip embedded page number patterns: "53 de 363", "página 12"
+    clean = re.sub(r"\b\d+\s*(?:de|of|/)\s*\d+\b", "", clean, flags=re.IGNORECASE).strip()
+    clean = re.sub(r"\b(?:p[áa]gina|page)\s*\d+\b", "", clean, flags=re.IGNORECASE).strip()
+    # Strip leading numbering or punctuation (e.g. "1.2. ", "VII.", ":", "-")
+    clean = re.sub(r"^[\d\.\-\)\:\,\;\s]+", "", clean).strip()
+    clean = re.sub(r"[\:\%\-_\.\,\;\s]+$", "", clean).strip()
+    # Strip dangling connectors left after page-number removal
+    dangling_pat = re.compile(r"\b(?:de|en|sobre|para|con|of|for|the|el|la|los|las|y)\s*$", re.IGNORECASE)
+    for _ in range(3):
+        new_clean = dangling_pat.sub("", clean).strip()
+        new_clean = re.sub(r"[\:\%\-_\.\,\;\s]+$", "", new_clean).strip()
+        if new_clean == clean:
+            break
+        clean = new_clean
+
+    is_roman = bool(re.match(r"^[IVXLCDMivxlcdm\s\.]+$", clean))
+    is_number = bool(re.match(r"^\d+$", clean))
+    is_truncated_prefix = clean.lower() in {
+        "configuración y aplicación", "configuración y aplicación de",
+        "configuración", "aplicación", "implementación", "implementar",
+        "configuring and applying", "configuration and application", "configuration",
+    }
+
+    # When cleaned result is invalid, extract from context or doc_title
+    if is_roman or is_number or is_truncated_prefix or len(clean) < 3 or re.match(r"^[\W_]+$", clean):
+        fallback_term = ""
+        if context:
+            words = [
+                w for w in re.findall(r"[A-ZÁÉÍÓÚÜÑa-záéíóúüñ]{4,}", context)
+                if w.lower() not in {
+                    "este", "esta", "para", "como", "sobre", "desde", "hasta",
+                    "pagina", "page", "section", "seccion", "capitulo", "chapter",
+                    "configuracion", "configuración", "aplicacion", "aplicación",
+                    "implementar", "implementación", "siguiendo", "directrices", "tecnicas", "técnicas"
+                }
+            ]
+            if len(words) >= 2:
+                fallback_term = " ".join(words[:3]).capitalize()
+            elif words:
+                fallback_term = words[0].capitalize()
+        if not fallback_term or len(fallback_term) < 3:
+            fallback_term = doc_title.strip() if doc_title and len(doc_title.strip()) > 2 else "Componente Técnico"
+        if is_truncated_prefix:
+            clean = f"{clean} de {fallback_term}"
+        else:
+            clean = fallback_term
+
+    return clean
+
+
 QUANTITY_TABLE: Dict[str, Dict[str, int]] = {
     settings.FORMAT_FLASHCARDS: {"breve": 10, "estandar": 20, "amplio": 40, "exhaustivo": 80, "brief": 10, "standard": 20, "wide": 40, "comprehensive": 80},
     settings.FORMAT_QUIZ: {"breve": 5, "estandar": 10, "amplio": 20, "exhaustivo": 30, "brief": 5, "standard": 10, "wide": 20, "comprehensive": 30},
@@ -975,14 +1037,14 @@ class PipelineStages:
             if is_spanish:
                 return {
                     "paso": item_idx,
-                    "titulo": f"Paso {item_idx}: Configuración y aplicación de {main_concept}",
+                    "titulo": f"Configuración y aplicación de {main_concept}",
                     "instruccion": f"Implementar {main_concept} siguiendo las directrices técnicas: {target_sentence}",
                     "ejemplo": f"// Ejemplo de configuración práctica para {main_concept}\nejecutar_accion('{main_concept}')",
                     "fuentes": [fuente],
                 }
             return {
                 "paso": item_idx,
-                "titulo": f"Step {item_idx}: Configuring {main_concept}",
+                "titulo": f"Configuring {main_concept}",
                 "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
                 "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
                 "fuentes": [fuente],
@@ -1064,16 +1126,26 @@ class PipelineStages:
                 quizzes=quizzes,
             )
         elif "tutorial" in fmt:
+            _step_prefix = re.compile(r"^(?:paso|step)\s*\d+[\s:\.\-]+", re.IGNORECASE)
+            for i, it in enumerate(items):
+                # Enforce 1-based sequential step numbering
+                it["paso"] = i + 1
+                # Strip any "Paso X:" / "Step X:" prefix from titulo (LLM or fallback)
+                raw_tit = str(it.get("titulo") or "").strip()
+                while _step_prefix.match(raw_tit):
+                    raw_tit = _step_prefix.sub("", raw_tit).strip()
+                it["titulo"] = raw_tit or (f"Módulo {i + 1}" if is_spanish else f"Module {i + 1}")
+
             sections = [
                 {
                     "encabezado": (
-                        f"Paso {it.get('paso', i+1)}: {it.get('titulo', f'Módulo {i+1}')}"
+                        f"Paso {it['paso']}: {it['titulo']}"
                         if is_spanish
-                        else f"Step {it.get('paso', i+1)}: {it.get('titulo', f'Module {i+1}')}"
+                        else f"Step {it['paso']}: {it['titulo']}"
                     ),
                     "contenido": f"{it.get('instruccion', '')}\n\n{it.get('ejemplo', '')}".strip(),
                 }
-                for i, it in enumerate(items)
+                for it in items
             ]
             return AdaptedContent(
                 title=final_title,
@@ -1091,6 +1163,18 @@ class PipelineStages:
                 title=final_title,
                 contextualized_introduction=intro,
                 executive_summary=f"{header}\n\n" + "\n".join(summary_bullets),
+                items=items,
+            )
+        elif "guion" in fmt or "clase" in fmt or "script" in fmt:
+            for i, it in enumerate(items):
+                # Enforce 1-based sequential scene numbering
+                it["escena"] = i + 1
+                # Strip markdown header artifacts from narration
+                if "narracion" in it and isinstance(it["narracion"], str):
+                    it["narracion"] = re.sub(r"^(?:#{1,6}\s*|\*{1,2})", "", it["narracion"]).strip()
+            return AdaptedContent(
+                title=final_title,
+                contextualized_introduction=intro,
                 items=items,
             )
         else:
