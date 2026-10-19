@@ -611,6 +611,7 @@ export class DocumentsComponent implements OnInit {
 
   /** Called by the shared dropzone once the user picks a file. */
   onFileSelectedForUpload(file: File): void {
+    this.useAiVision.set(false);
     void this.handleFileUpload(file);
   }
 
@@ -618,13 +619,15 @@ export class DocumentsComponent implements OnInit {
     if (!this.pipeline.guard()) return;
     this.isUploading.set(true);
     try {
-      await this.documentService.uploadDocument(file, this.useAiVision());
+      const vision = this.useAiVision();
+      await this.documentService.uploadDocument(file, vision);
       void this.documentService.refresh();
       this.router.navigate(['/documents']);
     } catch (e) {
       console.error('Error uploading file:', e);
     } finally {
       this.isUploading.set(false);
+      this.useAiVision.set(false);
     }
   }
 
