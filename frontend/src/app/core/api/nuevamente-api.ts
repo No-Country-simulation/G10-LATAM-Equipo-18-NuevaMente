@@ -76,6 +76,7 @@ export interface NuevaMenteApi {
   checkHealth(): Observable<{ status: string; service: string }>;
   login(email: string, password: string): Observable<{ token: string; user: { name: string; email: string } }>;
   exportAnkiDeck(deckName: string, flashcards: any[]): Observable<Blob>;
+  exportPdf(response: AdaptationResponse): Observable<Blob>;
   
   // Trash & Library management
   listLibrary(): Observable<RecentProject[]>;

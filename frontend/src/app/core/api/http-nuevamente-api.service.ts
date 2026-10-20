@@ -342,6 +342,15 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       );
   }
 
+  exportPdf(response: AdaptationResponse): Observable<Blob> {
+    return this.http.post(`${this.baseUrl}/export/pdf`, response, {
+      headers: this.getHeaders(),
+      responseType: 'blob'
+    }).pipe(
+      catchError(() => this.mockApi.exportPdf(response))
+    );
+  }
+
   /**
    * Lists the authenticated user's active packages from the backend
    * `contenidos` table. Falls back to the local state when the backend is

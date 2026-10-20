@@ -1,5 +1,5 @@
 import { Injectable, inject } from '@angular/core';
-import { Observable, of, timer } from 'rxjs';
+import { Observable, of, throwError, timer } from 'rxjs';
 import { map } from 'rxjs/operators';
 import { DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
 import { StateService, RecentProject } from '../services/state.service';
@@ -183,6 +183,11 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
     const csvContent = flashcards.map(f => `"${f.frente.replace(/"/g, '""')}","${f.dorso.replace(/"/g, '""')}"`).join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     return of(blob);
+  }
+
+  exportPdf(response: AdaptationResponse): Observable<Blob> {
+    // In mock/offline mode, throw an error so the export service falls back to client-side print view
+    return throwError(() => new Error('PDF server-side export not available in mock mode'));
   }
 
   // --- DYNAMIC PAYLOAD BUILDERS WITH VARIETY FOR HIGH VOLUMES ---

@@ -1,10 +1,12 @@
-import { Injectable } from '@angular/core';
+import { Injectable, inject } from '@angular/core';
 import { AdaptationResponse } from '../models/adaptation.model';
+import { NUEVAMENTE_API } from '../api/nuevamente-api';
 
 @Injectable({
   providedIn: 'root'
 })
 export class ExportService {
+  private api = inject(NUEVAMENTE_API, { optional: true });
 
   exportMarkdown(response: AdaptationResponse): void {
     const title = response.contenido_adaptado.titulo || 'Adaptación Educativa NuevaMente';
@@ -68,6 +70,26 @@ export class ExportService {
   }
 
   exportPdfDidactico(response: AdaptationResponse): void {
+    const title = response?.contenido_adaptado?.titulo || 'Adaptación Educativa NuevaMente';
+    const filename = `${title.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'material-educativo'}.pdf`;
+
+    if (this.api) {
+      this.api.exportPdf(response).subscribe({
+        next: (blob: Blob) => {
+          this.triggerDownload(blob, filename);
+        },
+        error: (err: any) => {
+          console.warn('[ExportService] Falló la descarga de PDF del servidor, recurriendo a vista de impresión:', err);
+          this.openPrintWindowFallback(response);
+        }
+      });
+      return;
+    }
+
+    this.openPrintWindowFallback(response);
+  }
+
+  openPrintWindowFallback(response: AdaptationResponse): void {
     const printWindow = window.open('', '_blank', 'width=950,height=900,scrollbars=yes');
     if (!printWindow) {
       alert('Por favor permite ventanas emergentes (popups) en tu navegador para ver la vista previa del PDF.');
