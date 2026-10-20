@@ -65,11 +65,17 @@ export class ExportService {
       csv += `${q},${a}\n`;
     });
 
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    this.triggerDownload(blob, `anki-deck-${Date.now()}.csv`);
+    // Include UTF-8 BOM (\uFEFF) so Excel and text editors properly render accents and special characters
+    const bom = '\uFEFF';
+    const blob = new Blob([bom + csv], { type: 'text/csv;charset=utf-8;' });
+    this.triggerDownload(blob, `flashcards-${Date.now()}.csv`);
   }
 
-  exportPdfDidactico(response: AdaptationResponse): void {
+  viewPdfPreview(response: AdaptationResponse): void {
+    this.openPrintWindowFallback(response);
+  }
+
+  exportPdfDirect(response: AdaptationResponse): void {
     const title = response?.contenido_adaptado?.titulo || 'Adaptación Educativa NuevaMente';
     const filename = `${title.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'material-educativo'}.pdf`;
 
@@ -89,6 +95,11 @@ export class ExportService {
     this.openPrintWindowFallback(response);
   }
 
+  exportPdfDidactico(response: AdaptationResponse): void {
+    // Keep backward-compatible signature defaulting to direct PDF or fallback
+    this.exportPdfDirect(response);
+  }
+
   openPrintWindowFallback(response: AdaptationResponse): void {
     const printWindow = window.open('', '_blank', 'width=950,height=900,scrollbars=yes');
     if (!printWindow) {
@@ -98,7 +109,8 @@ export class ExportService {
 
     const title = response.contenido_adaptado.titulo || 'Adaptación Educativa NuevaMente';
     const items = response.contenido_adaptado.items || [];
-    const scorePct = Math.round((response.evaluacion_calidad.anclaje_fuente_score || 0.98) * 100);
+    const scoreVal = response.evaluacion_calidad.anclaje_fuente_score;
+    const scorePct = scoreVal !== undefined && scoreVal !== null ? `${Math.round(scoreVal * 100)}%` : 'Sin verificar';
     const dateStr = new Date().toLocaleDateString('es-ES', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
     let itemsHtml = '';
@@ -259,7 +271,7 @@ export class ExportService {
           </div>
 
           <div class="quality-panel-pdf">
-            <div class="quality-title">🛡️ Panel de Calidad y Anclaje RAG Verificado (Score: ${scorePct}%)</div>
+            <div class="quality-title">🛡️ Panel de Calidad y Anclaje RAG Verificado (Score: ${scorePct})</div>
             <p style="font-size:12px; color:#065f46; margin:0;">
               <strong>Claridad Pedagógica:</strong> ${response.evaluacion_calidad.claridad_pedagogica} | 
               <strong>Observaciones:</strong> ${response.evaluacion_calidad.observaciones}

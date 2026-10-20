@@ -288,11 +288,14 @@ export type SortOption = 'vencimiento' | 'recientes' | 'titulo';
           </div>
 
           <div class="preview-body" *ngIf="previewProject()?.response">
-            <div class="preview-meta-row">
               <span class="meta-item"><strong>Perfil:</strong> {{ previewProject()?.perfil }}</span>
               <span class="meta-item"><strong>Formato:</strong> {{ previewProject()?.formato }}</span>
-              <span class="meta-item"><strong>Anclaje:</strong> {{ ((previewProject()?.response?.evaluacion_calidad?.anclaje_fuente_score || 0.98) * 100) | number:'1.0-0' }}%</span>
-            </div>
+              <span class="meta-item" *ngIf="previewProject()?.response?.evaluacion_calidad?.anclaje_fuente_score !== undefined">
+                <strong>Anclaje:</strong> {{ (previewProject()!.response!.evaluacion_calidad!.anclaje_fuente_score! * 100) | number:'1.0-0' }}%
+              </span>
+              <span class="meta-item" *ngIf="previewProject()?.response?.evaluacion_calidad?.anclaje_fuente_score === undefined">
+                <strong>Anclaje:</strong> Sin verificar
+              </span>
 
             <div class="preview-intro-box">
               <p>{{ previewProject()?.response?.contenido_adaptado?.introduccion_contextualizada }}</p>

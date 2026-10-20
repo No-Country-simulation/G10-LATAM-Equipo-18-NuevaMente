@@ -10,6 +10,7 @@ Purpose:
       - Deduplicator Node: fuzzy string duplicate detection and pruning.
       - Grounding Verifier Node: source citation and passage verification.
       - Critic Node: educational quality audit and factual consistency scoring.
+      - Repair Node: surgical LLM-based rewrite of ungrounded/low-clarity items.
       - Refiner Node: conditional self-correction and item completion loop.
       - Formatter Node: Pydantic response assembly, artifact storage, and PDF export.
 
@@ -72,6 +73,7 @@ class AgentState(TypedDict, total=False):
     # Refinement / Iteration loop
     revision_count: int
     max_revisions: int
+    repaired_indices: List[int]
 
     # Graph Trajectory & Final Result
     nodes_executed: List[str]
@@ -96,6 +98,7 @@ class LangGraphOrchestrator(PipelineStages):
         workflow.add_node("deduplicator", self._node_deduplicator)
         workflow.add_node("grounding_verifier", self._node_grounding_verifier)
         workflow.add_node("critic", self._node_critic)
+        workflow.add_node("repair", self._node_repair)
         workflow.add_node("refiner", self._node_refiner)
         workflow.add_node("formatter", self._node_formatter)
 
@@ -111,17 +114,19 @@ class LangGraphOrchestrator(PipelineStages):
             "critic",
             self._should_refine_or_complete,
             {
+                "repair": "repair",
                 "refiner": "refiner",
                 "formatter": "formatter",
             },
         )
 
-        # 4. Refiner leads to formatter (or back to review)
+        # 4. Transitions from self-correction nodes to formatter
+        workflow.add_edge("repair", "formatter")
         workflow.add_edge("refiner", "formatter")
         workflow.add_edge("formatter", END)
 
         compiled_graph = workflow.compile()
-        logger.info("LangGraph workflow compiled successfully with 7 agentic nodes.")
+        logger.info("LangGraph workflow compiled successfully with 8 agentic nodes.")
         return compiled_graph
 
     # ---------------------------------------------------------------------------
@@ -278,6 +283,11 @@ class LangGraphOrchestrator(PipelineStages):
         all_parent_chunks = state.get("all_parent_chunks")
         target_language = state.get("target_language", "Spanish")
 
+        # Ensure all incoming items have stable _gid
+        for i, it in enumerate(verified_items):
+            if "_gid" not in it:
+                it["_gid"] = f"ground_{i}"
+
         grounded_count = sum(1 for it in verified_items if it.get("grounded", False))
         preliminary_score = round(min(1.0, grounded_count / max(1, len(verified_items))), 2)
 
@@ -299,19 +309,66 @@ class LangGraphOrchestrator(PipelineStages):
         }
 
     # ---------------------------------------------------------------------------
-    # CONDITIONAL EDGE: SHOULD REFINE OR COMPLETE
+    # CONDITIONAL EDGE: SHOULD REPAIR, REFINE, OR COMPLETE
     # ---------------------------------------------------------------------------
     def _should_refine_or_complete(self, state: AgentState) -> str:
-        """Determines whether to trigger self-correction/completion or proceed to formatting."""
+        """
+        Routing decision after the Critic node.
+
+        Priority:
+          1. 'repair'  — if any item is ungrounded or low-clarity and has not
+                         already been repaired, and revision budget allows it.
+          2. 'refiner' — if item count is below the effective target and the
+                         document has remaining capacity.
+          3. 'formatter' — otherwise (quality approved or budget exhausted).
+        """
         audited_items = state.get("audited_items", [])
         effective_target = state.get("effective_target", 0)
         coverage_plan = state.get("coverage_plan")
         revision_count = state.get("revision_count", 0)
         max_revisions = state.get("max_revisions", settings.LANGGRAPH_MAX_REVISIONS)
+        repaired_indices = set(state.get("repaired_indices", []))
 
         total_capacity = getattr(coverage_plan, "total_capacity", len(audited_items))
 
-        # Check if items were dropped and document capacity permits generating more
+        # Identify items that need repair and have not been repaired yet.
+        # An item needs repair when it has no verified source or its critic
+        # per_item record reports low clarity. Cross-reference by _gid or index.
+        evaluation = state.get("evaluation")
+        per_item_by_gid: dict = {}
+        if evaluation and hasattr(evaluation, "per_item") and evaluation.per_item:
+            for rec in evaluation.per_item:
+                if isinstance(rec, dict):
+                    gid = rec.get("_gid") or f"ground_{rec.get('index', 0)}"
+                    per_item_by_gid[gid] = rec
+
+        repair_candidates = []
+        for idx, item in enumerate(audited_items):
+            if idx in repaired_indices:
+                continue
+            # Ungrounded: no source is verified
+            ungrounded = not any(s.get("verificado", False) for s in (item.get("fuentes") or []))
+            # Low clarity from critic per-item record matching by _gid
+            low_clarity = False
+            item_gid = item.get("_gid", f"ground_{idx}")
+            if item_gid in per_item_by_gid:
+                clarity = per_item_by_gid[item_gid].get("claridad", "")
+                low_clarity = clarity in ("Baja", "Low")
+            if ungrounded or low_clarity:
+                repair_candidates.append(idx)
+
+        if repair_candidates and revision_count < max_revisions:
+            logger.info(
+                "LangGraph Conditional Router: %d item(s) requieren reparación quirúrgica "
+                "(índices: %s, revisión: %d/%d). Derivando a 'repair'.",
+                len(repair_candidates),
+                repair_candidates,
+                revision_count,
+                max_revisions,
+            )
+            return "repair"
+
+        # Fallback to refiner if quantity is still below target
         if len(audited_items) < effective_target and total_capacity > len(audited_items) and revision_count < max_revisions:
             logger.info(
                 "LangGraph Conditional Router: Se requieren items complementarios "
@@ -332,7 +389,136 @@ class LangGraphOrchestrator(PipelineStages):
         return "formatter"
 
     # ---------------------------------------------------------------------------
-    # NODE 6: REFINER / COMPLETION
+    # NODE 6: REPAIR — SURGICAL LLM REWRITE OF FAILED ITEMS
+    # ---------------------------------------------------------------------------
+    def _node_repair(self, state: AgentState) -> Dict[str, Any]:
+        """
+        Identifies ungrounded or low-clarity items not yet repaired, sends them
+        to the LLM repair stage in a single batch call, re-runs grounding
+        verification on the results, and writes the updated items back into
+        `audited_items`. Each repaired item's index is recorded in
+        `repaired_indices` so the anti-loop guarantee holds: an item is never
+        sent to repair more than once.
+        """
+        logger.info("🔧 [LangGraph Node: Repair] Iniciando reparación quirúrgica de ítems no anclados...")
+        audited_items = list(state.get("audited_items", []))
+        repaired_indices = list(state.get("repaired_indices", []))
+        repaired_set = set(repaired_indices)
+        revision_count = state.get("revision_count", 0)
+        top_passages = state.get("top_passages", [])
+        all_parent_chunks = state.get("all_parent_chunks")
+        target_language = state.get("target_language", "Spanish")
+        request = state["request"]
+
+        # Rebuild the per-item critic map by _gid for clarity information
+        evaluation = state.get("evaluation")
+        per_item_by_gid: dict = {}
+        if evaluation and hasattr(evaluation, "per_item") and evaluation.per_item:
+            for rec in evaluation.per_item:
+                if isinstance(rec, dict):
+                    gid = rec.get("_gid") or f"ground_{rec.get('index', 0)}"
+                    per_item_by_gid[gid] = rec
+
+        # Collect (index, item, issues) tuples for items that need repair
+        items_to_repair = []
+        for idx, item in enumerate(audited_items):
+            if idx in repaired_set:
+                continue
+            item_gid = item.get("_gid", f"ground_{idx}")
+            ungrounded = not any(s.get("verificado", False) for s in (item.get("fuentes") or []))
+            low_clarity = False
+            issues: List[str] = []
+            if item_gid in per_item_by_gid:
+                clarity = per_item_by_gid[item_gid].get("claridad", "")
+                low_clarity = clarity in ("Baja", "Low")
+                issues = per_item_by_gid[item_gid].get("issues", [])
+            if ungrounded:
+                issues = ["Ungrounded: no cited source was verified."] + issues
+            if ungrounded or low_clarity:
+                items_to_repair.append((idx, item, issues))
+
+        if not items_to_repair:
+            logger.info("[Repair] No items require surgical repair; passing through.")
+            nodes = state.get("nodes_executed", []) + ["repair"]
+            return {"nodes_executed": nodes, "revision_count": revision_count + 1}
+
+        logger.info("[Repair] Reparando %d ítem(s): índices %s", len(items_to_repair), [i for i, _, _ in items_to_repair])
+
+        # Surgical LLM batch repair
+        repair_results = self._stage_repair_items(
+            request=request,
+            items_to_repair=items_to_repair,
+            passages=top_passages,
+            all_chunks=all_parent_chunks,
+            target_language=target_language,
+        )
+
+        # Re-verify grounding on repaired items before writing them back
+        for orig_idx, repaired_item in repair_results:
+            # Preserve original item's _gid
+            orig_gid = audited_items[orig_idx].get("_gid", f"ground_{orig_idx}")
+            repaired_item["_gid"] = orig_gid
+            verified_single = self._stage_verify_grounding(
+                [repaired_item],
+                top_passages,
+                all_chunks=all_parent_chunks,
+            )
+            item_to_store = verified_single[0] if verified_single else repaired_item
+            item_to_store["_gid"] = orig_gid
+            audited_items[orig_idx] = item_to_store
+            repaired_indices.append(orig_idx)
+
+        # Check if any repaired item is still garbage/ungrounded; if so, discard and prepare for replacement
+        filtered_items = []
+        for idx, it in enumerate(audited_items):
+            gid = it.get("_gid", f"ground_{idx}")
+            crit_rec = per_item_by_gid.get(gid)
+            is_garbage = self._is_garbage_item(it, crit_rec)
+            is_unverified = not any(s.get("verificado", False) for s in (it.get("fuentes") or []))
+            if idx in repaired_set or idx in [r[0] for r in repair_results]:
+                # If it was repaired but still fails, discard it
+                if is_garbage or is_unverified:
+                    logger.info("[Repair] Descartando ítem inutilizable post-reparación (índice: %d, gid: %s)", idx, gid)
+                    continue
+            filtered_items.append(it)
+
+        # If items were discarded, fill deficit with newly refined items from unused topics
+        deficit = effective_target - len(filtered_items)
+        if deficit > 0 and revision_count < max_revisions:
+            logger.info("[Repair] Reponiendo %d ítem(s) descartados vía refiner...", deficit)
+            extra_replacements = self._stage_completion(
+                request=request,
+                doc_title=doc_title,
+                topics=topics,
+                needed=deficit,
+                existing_items=filtered_items,
+                target_language=target_language,
+            )
+            verified_replacements = self._stage_verify_grounding(
+                extra_replacements,
+                top_passages,
+                all_chunks=all_parent_chunks,
+            )
+            for idx_rep, rep_item in enumerate(verified_replacements):
+                # Only publish replacement if verified
+                rep_verified = any(s.get("verificado", False) for s in (rep_item.get("fuentes") or []))
+                if rep_verified and not self._is_garbage_item(rep_item):
+                    if "_gid" not in rep_item:
+                        rep_item["_gid"] = f"replace_{len(filtered_items)}_{idx_rep}"
+                    filtered_items.append(rep_item)
+
+        audited_items = filtered_items
+        nodes = state.get("nodes_executed", []) + ["repair"]
+        logger.info("[Repair] Reparación y descarte completados. Ítems vigentes: %d", len(audited_items))
+        return {
+            "audited_items": audited_items,
+            "repaired_indices": repaired_indices,
+            "revision_count": revision_count + 1,
+            "nodes_executed": nodes,
+        }
+
+    # ---------------------------------------------------------------------------
+    # NODE 7: REFINER / COMPLETION
     # ---------------------------------------------------------------------------
     def _node_refiner(self, state: AgentState) -> Dict[str, Any]:
         """Self-correction loop: generates targeted items to fill gaps detected by the Critic."""
@@ -355,9 +541,21 @@ class LangGraphOrchestrator(PipelineStages):
                 existing_items=audited_items,
                 target_language=target_language,
             )
-            for extra in extra_items:
-                if len(audited_items) < effective_target:
-                    audited_items.append(extra)
+            # Refined items must pass through grounding verification
+            top_passages = state.get("top_passages", [])
+            all_parent_chunks = state.get("all_parent_chunks")
+            verified_extras = self._stage_verify_grounding(
+                extra_items,
+                top_passages,
+                all_chunks=all_parent_chunks,
+            )
+            for idx_extra, extra in enumerate(verified_extras):
+                is_ok = any(s.get("verificado", False) for s in (extra.get("fuentes") or [])) and not self._is_garbage_item(extra)
+                if is_ok:
+                    if "_gid" not in extra:
+                        extra["_gid"] = f"refine_{len(audited_items)}_{idx_extra}"
+                    if len(audited_items) < effective_target:
+                        audited_items.append(extra)
 
         nodes = state.get("nodes_executed", []) + ["refiner"]
         return {
@@ -390,7 +588,20 @@ class LangGraphOrchestrator(PipelineStages):
         if tracer:
             tracer.start_stage("serializacion_respuesta")
 
-        final_items = audited_items[:effective_target]
+        # Exclude any garbage items from publishing entirely
+        evaluation_map: dict = {}
+        if evaluation and hasattr(evaluation, "per_item") and evaluation.per_item:
+            for rec in evaluation.per_item:
+                if isinstance(rec, dict):
+                    gid = rec.get("_gid") or f"ground_{rec.get('index', 0)}"
+                    evaluation_map[gid] = rec
+
+        clean_audited_items = [
+            it for it in audited_items
+            if not self._is_garbage_item(it, evaluation_map.get(it.get("_gid", "")))
+        ]
+
+        final_items = clean_audited_items[:effective_target]
         items_generated = len(final_items)
 
         adapted_content = self._format_adapted_content(
@@ -404,25 +615,104 @@ class LangGraphOrchestrator(PipelineStages):
         if tracer:
             tracer.end_stage("serializacion_respuesta")
 
-        # Grounding verification score
-        verified_citations = sum(
-            1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or []))
-        )
-        heuristic_score = round(min(1.0, verified_citations / max(1, items_generated)), 2)
+        # Grounding verification score:
+        # Respect combined criterion: both lexical heuristic (verificado_lexico) AND
+        # critic reviewer verdict (verificado_revisor). Never overwrite critic verdict.
         is_spanish = _is_spanish(target_language)
-        if evaluation:
-            grounding_score = max(heuristic_score, evaluation.source_grounding_score)
-            evaluation.source_grounding_score = round(grounding_score, 2)
-        else:
-            evaluation = QualityEvaluation(
-                source_grounding_score=heuristic_score,
-                pedagogical_clarity="Alta" if is_spanish else "High",
-                observations=(
-                    "Validado contra pasajes fuente."
-                    if is_spanish
-                    else "Validated against source passages."
-                ),
+        has_per_item = bool(evaluation and hasattr(evaluation, "per_item") and evaluation.per_item)
+
+        if has_per_item:
+            existing_by_gid = {
+                rec.get("_gid", f"ground_{rec.get('index')}"): rec
+                for rec in evaluation.per_item
+                if isinstance(rec, dict)
+            }
+            final_per_item = []
+            verified_count = 0
+            for idx, it in enumerate(final_items):
+                gid = it.get("_gid", f"ground_{idx}")
+                existing_rec = existing_by_gid.get(gid)
+
+                verificado_lexico = bool(any(s.get("verificado", False) for s in (it.get("fuentes") or [])))
+                # If critic audited this item, retain its verificado_revisor. Otherwise fallback to True.
+                if existing_rec and "verificado_revisor" in existing_rec:
+                    verificado_revisor = bool(existing_rec["verificado_revisor"])
+                elif existing_rec and "origen_verificado" in existing_rec:
+                    verificado_revisor = bool(existing_rec.get("verificado_revisor", existing_rec["origen_verificado"]))
+                else:
+                    verificado_revisor = True
+
+                origen_verificado = bool(verificado_lexico and verificado_revisor)
+                if origen_verificado:
+                    verified_count += 1
+
+                claridad = (existing_rec.get("claridad") if existing_rec else None) or evaluation.pedagogical_clarity or ("Alta" if is_spanish else "High")
+                issues = (existing_rec.get("issues") if existing_rec else None)
+                if issues is None:
+                    issues = [] if origen_verificado else ["Sin verificación de cita."]
+
+                final_per_item.append({
+                    "index": idx,
+                    "_gid": gid,
+                    "verificado_lexico": verificado_lexico,
+                    "verificado_revisor": verificado_revisor,
+                    "origen_verificado": origen_verificado,
+                    "claridad": claridad,
+                    "issues": issues,
+                    "es_fallback": bool(it.get("es_fallback", False)),
+                })
+
+            combined_ratio = round(min(1.0, verified_count / max(1, items_generated)), 2)
+            # Conservative principle: floor (min) between combined ratio and critic overall score
+            evaluation.source_grounding_score = round(min(combined_ratio, evaluation.source_grounding_score), 2)
+            evaluation.per_item = final_per_item
+
+            count_note = (
+                f"{verified_count} de {items_generated} elementos verificados."
+                if is_spanish
+                else f"{verified_count} of {items_generated} items verified."
             )
+            base_obs = (evaluation.observations or "").strip()
+            if count_note not in base_obs:
+                evaluation.observations = f"{count_note} {base_obs}".strip()
+        else:
+            verified_count = sum(
+                1 for it in final_items if any(s.get("verificado", False) for s in (it.get("fuentes") or []))
+            )
+            heuristic_score = round(min(1.0, verified_count / max(1, items_generated)), 2)
+            per_item_records = [
+                {
+                    "index": idx,
+                    "_gid": it.get("_gid", f"ground_{idx}"),
+                    "verificado_lexico": any(s.get("verificado", False) for s in (it.get("fuentes") or [])),
+                    "verificado_revisor": True,
+                    "origen_verificado": any(s.get("verificado", False) for s in (it.get("fuentes") or [])),
+                    "claridad": "Alta" if is_spanish else "High",
+                    "issues": [] if any(s.get("verificado", False) for s in (it.get("fuentes") or [])) else ["Sin verificación de cita."],
+                    "es_fallback": bool(it.get("es_fallback", False)),
+                }
+                for idx, it in enumerate(final_items)
+            ]
+            count_note = (
+                f"{verified_count} de {items_generated} elementos verificados."
+                if is_spanish
+                else f"{verified_count} of {items_generated} items verified."
+            )
+            obs_suffix = "Validado contra pasajes fuente." if is_spanish else "Validated against source passages."
+            if evaluation:
+                grounding_score = min(heuristic_score, evaluation.source_grounding_score)
+                evaluation.source_grounding_score = round(grounding_score, 2)
+                evaluation.per_item = per_item_records
+                base_obs = (evaluation.observations or "").strip()
+                if count_note not in base_obs:
+                    evaluation.observations = f"{count_note} {base_obs}".strip()
+            else:
+                evaluation = QualityEvaluation(
+                    source_grounding_score=heuristic_score,
+                    pedagogical_clarity="Alta" if is_spanish else "High",
+                    observations=f"{count_note} {obs_suffix}",
+                    per_item=per_item_records,
+                )
 
         # Resolve vector store model if available
         embedding_provider = "gemini"
@@ -441,6 +731,9 @@ class LangGraphOrchestrator(PipelineStages):
                     embedding_provider = "local"
         except Exception:
             pass
+
+        # Collect which item indices were surgically repaired during this run
+        repaired_items_list = state.get("repaired_indices", [])
 
         metadata = ResponseMetadata(
             profile_applied=request.recipient_profile,
@@ -468,6 +761,7 @@ class LangGraphOrchestrator(PipelineStages):
             graph_orchestration=True,
             graph_nodes_executed=nodes_executed,
             graph_revision_count=revision_count,
+            repaired_items=repaired_items_list,
         )
 
         object_name = (
@@ -634,6 +928,7 @@ class LangGraphOrchestrator(PipelineStages):
             "tracer": tracer,
             "revision_count": 0,
             "max_revisions": settings.LANGGRAPH_MAX_REVISIONS,
+            "repaired_indices": [],
             "nodes_executed": [],
         }
 

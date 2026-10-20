@@ -44,7 +44,24 @@ import { QuizItem } from '../../../core/models/adaptation.model';
       <!-- STEPPER MODE (1 Question at a time) -->
       <div class="glass-card quiz-card" *ngIf="mode() === 'stepper' && !isCompleted()">
         <div class="question-header">
-          <span class="q-badge">PREGUNTA #{{ currentIndex() + 1 }}</span>
+          <div class="q-header-top">
+            <span class="q-badge">PREGUNTA #{{ currentIndex() + 1 }}</span>
+            <div class="item-badges-cluster">
+              <span 
+                class="badge-origin"
+                [class.is-verified]="getItemEvaluation(currentIndex()).statusKey === 'verified'"
+                [class.is-observed]="getItemEvaluation(currentIndex()).statusKey === 'observed'"
+                [class.is-unverified]="getItemEvaluation(currentIndex()).statusKey === 'unverified'"
+                [class.is-fallback]="getItemEvaluation(currentIndex()).statusKey === 'fallback'"
+                [title]="getItemEvaluation(currentIndex()).issues.length > 0 ? getItemEvaluation(currentIndex()).issues[0] : (getItemEvaluation(currentIndex()).origen_verificado ? 'Cita verificada con el documento original' : 'Cita con observaciones o no confirmada')"
+              >
+                {{ getItemEvaluation(currentIndex()).statusLabel }}
+              </span>
+              <span class="badge-clarity-sm" [title]="'Claridad pedagógica: ' + getItemEvaluation(currentIndex()).claridad">
+                Claridad pedagógica: {{ getItemEvaluation(currentIndex()).claridad }}
+              </span>
+            </div>
+          </div>
           <h3>{{ currentQuestion.pregunta }}</h3>
         </div>
 
@@ -61,7 +78,7 @@ import { QuizItem } from '../../../core/models/adaptation.model';
             <span class="option-letter">{{ getOptionLetter(idx) }}</span>
             <span class="option-text">{{ opt }}</span>
             <span class="option-icon" *ngIf="hasSubmitted()">
-              {{ isOptionCorrect(opt) ? '✅' : (selectedOptionIndex() === idx ? '❌' : '') }}
+              {{ isOptionCorrect(opt) ? 'Correcto' : (selectedOptionIndex() === idx ? 'Incorrecto' : '') }}
             </span>
           </button>
         </div>
@@ -69,11 +86,11 @@ import { QuizItem } from '../../../core/models/adaptation.model';
         <!-- Feedback & Pedagogical Justification Card -->
         <div class="justification-box" *ngIf="hasSubmitted()">
           <div class="justification-header">
-            <span class="badge-pedagogic">💡 EXPLICACIÓN PEDAGÓGICA</span>
+            <span class="badge-pedagogic">EXPLICACIÓN PEDAGÓGICA</span>
           </div>
           <p>{{ currentQuestion.justificacion_didactica || currentQuestion.justificacion }}</p>
           <div class="source-tag" *ngIf="currentQuestion.fuentes && currentQuestion.fuentes.length > 0" [title]="formatSourceTooltip(currentQuestion.fuentes[0])">
-            📄 {{ formatSourceLabel(currentQuestion.fuentes[0]) }}
+            Fuente: {{ formatSourceLabel(currentQuestion.fuentes[0]) }}
           </div>
         </div>
 
@@ -93,7 +110,7 @@ import { QuizItem } from '../../../core/models/adaptation.model';
             class="btn-next-question"
             (click)="nextQuestion()"
           >
-            {{ currentIndex() < items.length - 1 ? 'Siguiente Pregunta →' : 'Ver Resultado Final 🏆' }}
+            {{ currentIndex() < items.length - 1 ? 'Siguiente Pregunta →' : 'Ver Resultado Final' }}
           </button>
         </div>
       </div>
@@ -102,7 +119,24 @@ import { QuizItem } from '../../../core/models/adaptation.model';
       <div class="all-questions-list" *ngIf="mode() === 'all' && !isCompleted()">
         <div class="quiz-card glass-card q-block" *ngFor="let q of items; let idx = index">
           <div class="question-header">
-            <span class="q-badge">PREGUNTA #{{ idx + 1 }}</span>
+            <div class="q-header-top">
+              <span class="q-badge">PREGUNTA #{{ idx + 1 }}</span>
+              <div class="item-badges-cluster">
+                <span 
+                  class="badge-origin"
+                  [class.is-verified]="getItemEvaluation(idx).statusKey === 'verified'"
+                  [class.is-observed]="getItemEvaluation(idx).statusKey === 'observed'"
+                  [class.is-unverified]="getItemEvaluation(idx).statusKey === 'unverified'"
+                  [class.is-fallback]="getItemEvaluation(idx).statusKey === 'fallback'"
+                  [title]="getItemEvaluation(idx).issues.length > 0 ? getItemEvaluation(idx).issues[0] : (getItemEvaluation(idx).origen_verificado ? 'Cita verificada con el documento original' : 'Cita no confirmada contra el documento')"
+                >
+                  {{ getItemEvaluation(idx).statusLabel }}
+                </span>
+                <span class="badge-clarity-sm">
+                  Claridad pedagógica: {{ getItemEvaluation(idx).claridad }}
+                </span>
+              </div>
+            </div>
             <h3>{{ q.pregunta }}</h3>
           </div>
           <div class="options-list">
@@ -113,11 +147,11 @@ import { QuizItem } from '../../../core/models/adaptation.model';
             >
               <span class="option-letter">{{ getOptionLetter(oIdx) }}</span>
               <span class="option-text">{{ opt }}</span>
-              <span class="option-icon" *ngIf="isOptionCorrectInQuestion(q, opt)">✅</span>
+              <span class="option-icon" *ngIf="isOptionCorrectInQuestion(q, opt)">Correcto</span>
             </div>
           </div>
           <div class="justification-box">
-            <span class="badge-pedagogic">💡 JUSTIFICACIÓN DE LA RESPUESTA:</span>
+            <span class="badge-pedagogic">JUSTIFICACIÓN DE LA RESPUESTA:</span>
             <p>{{ q.justificacion_didactica || q.justificacion }}</p>
           </div>
         </div>
@@ -226,6 +260,66 @@ import { QuizItem } from '../../../core/models/adaptation.model';
       margin-bottom: 1.5rem;
     }
 
+    .q-header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .item-badges-cluster {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .badge-origin {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      cursor: help;
+    }
+
+    .badge-origin.is-verified {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-origin.is-observed {
+      background: rgba(245, 158, 11, 0.15);
+      color: #b45309;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .badge-origin.is-unverified {
+      background: rgba(239, 68, 68, 0.12);
+      color: #dc2626;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-origin.is-fallback {
+      background: rgba(107, 114, 128, 0.15);
+      color: #4b5563;
+      border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+
+    .badge-clarity-sm {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      background: var(--bg-app);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+      cursor: help;
+    }
+
     .q-badge {
       font-size: 0.75rem;
       font-weight: 800;
@@ -234,7 +328,6 @@ import { QuizItem } from '../../../core/models/adaptation.model';
       padding: 0.2rem 0.5rem;
       border-radius: 6px;
       display: inline-block;
-      margin-bottom: 0.5rem;
     }
 
     .question-header h3 {
@@ -399,6 +492,7 @@ import { QuizItem } from '../../../core/models/adaptation.model';
 })
 export class QuizRendererComponent {
   @Input({ required: true }) items: QuizItem[] = [];
+  @Input() evaluacion?: any;
 
   mode = signal<'stepper' | 'all'>('stepper');
   currentIndex = signal<number>(0);
@@ -407,6 +501,72 @@ export class QuizRendererComponent {
   score = signal<number>(0);
   isCompleted = signal<boolean>(false);
   wrongQuestions = signal<QuizItem[]>([]);
+
+  getItemEvaluation(idx: number): {
+    statusKey: 'verified' | 'observed' | 'unverified' | 'fallback';
+    statusLabel: string;
+    origen_verificado: boolean;
+    claridad: string;
+    issues: string[];
+  } {
+    const item = (this.items || [])[idx];
+    const perItem = this.evaluacion?.per_item || this.evaluacion?.por_item;
+
+    let entry: any = null;
+    if (Array.isArray(perItem)) {
+      if (item?._gid) {
+        entry = perItem.find((p: any) => p._gid === item._gid);
+      }
+      if (!entry && perItem[idx]) {
+        entry = perItem[idx];
+      }
+    }
+
+    const isFallback = Boolean(item?.es_fallback || entry?.es_fallback);
+    const verificadoLexico = Boolean(
+      entry?.verificado_lexico !== undefined
+        ? entry.verificado_lexico
+        : (item?.fuentes?.some((f: any) => f.verificado !== false) ?? false)
+    );
+    const verificadoRevisor = Boolean(
+      entry?.verificado_revisor !== undefined
+        ? entry.verificado_revisor
+        : (entry ? (entry.origen_verificado ?? true) : true)
+    );
+    const origenVerificado = Boolean(
+      entry?.origen_verificado !== undefined
+        ? entry.origen_verificado
+        : (verificadoLexico && verificadoRevisor)
+    );
+
+    let statusKey: 'verified' | 'observed' | 'unverified' | 'fallback' = 'unverified';
+    let statusLabel = 'Sin verificar';
+
+    if (isFallback) {
+      statusKey = 'fallback';
+      statusLabel = 'Fallback';
+    } else if (origenVerificado) {
+      statusKey = 'verified';
+      statusLabel = 'Verificado';
+    } else if (verificadoLexico && !verificadoRevisor) {
+      statusKey = 'observed';
+      statusLabel = 'Revisado con observaciones';
+    } else {
+      statusKey = 'unverified';
+      statusLabel = 'Sin verificar';
+    }
+
+    const claridad = entry?.claridad || this.evaluacion?.claridad_pedagogica || 'Alta';
+    const issues = entry?.issues || (origenVerificado ? [] : ['Cita con observaciones o no confirmada contra el documento']);
+
+    return {
+      statusKey,
+      statusLabel,
+      origen_verificado: origenVerificado,
+      claridad,
+      issues
+    };
+  }
 
   get currentQuestion(): QuizItem {
     return this.items[this.currentIndex()] || { pregunta: '', opciones: [], respuesta_correcta: '', justificacion: '' };

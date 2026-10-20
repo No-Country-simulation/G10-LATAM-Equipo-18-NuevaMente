@@ -10,7 +10,9 @@ import { EvaluacionCalidad } from '../../core/models/adaptation.model';
     <div class="quality-card glass-card" *ngIf="evaluacion">
       <div class="panel-title">
         <h3>🛡️ Panel de Calidad y Anclaje RAG</h3>
-        <span class="verified-badge">VERIFICADO POR AGENTE CRÍTICO</span>
+        <span class="verified-badge" [class.badge-fallback]="isCriticFallback">
+          {{ isCriticFallback ? 'EVALUADOR HEURÍSTICO (FALLBACK)' : 'AUDITADO POR AGENTE CRÍTICO' }}
+        </span>
       </div>
 
       <div class="quality-body">
@@ -52,6 +54,17 @@ import { EvaluacionCalidad } from '../../core/models/adaptation.model';
             <span class="badge-clarity" [class.alta]="evaluacion.claridad_pedagogica === 'Alta'">
               {{ evaluacion.claridad_pedagogica }}
             </span>
+          </div>
+
+          <div class="metric-row" *ngIf="criticProvider">
+            <span class="metric-key">Auditor / Procedencia:</span>
+            <span class="badge-provenance">
+              {{ criticProvider }} <span *ngIf="criticModel">({{ criticModel }})</span>
+            </span>
+          </div>
+
+          <div class="fallback-note" *ngIf="isCriticFallback">
+            <span>ℹ️ El crítico LLM no estuvo disponible; se aplicó la verificación léxica heurística sin inflar puntuaciones.</span>
           </div>
 
           <div class="observations-box">
@@ -165,6 +178,31 @@ import { EvaluacionCalidad } from '../../core/models/adaptation.model';
       color: #059669;
     }
 
+    .badge-provenance {
+      padding: 0.2rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      background: rgba(99, 102, 241, 0.12);
+      color: #4f46e5;
+    }
+
+    .badge-fallback {
+      color: #d97706 !important;
+      background: rgba(245, 158, 11, 0.12) !important;
+    }
+
+    .fallback-note {
+      padding: 0.6rem 0.85rem;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.25);
+      color: #b45309;
+      font-size: 0.8rem;
+      margin-bottom: 0.75rem;
+      line-height: 1.4;
+    }
+
     .observations-box {
       background: var(--bg-app);
       padding: 0.85rem 1rem;
@@ -187,10 +225,25 @@ import { EvaluacionCalidad } from '../../core/models/adaptation.model';
 })
 export class QualityPanelComponent {
   @Input() evaluacion?: EvaluacionCalidad;
+  @Input() metadatos?: any;
 
   get normalizedScore(): number {
-    if (!this.evaluacion) return 0;
+    if (!this.evaluacion || this.evaluacion.anclaje_fuente_score === undefined) return 0;
     const s = this.evaluacion.anclaje_fuente_score;
     return s > 1 ? s / 100 : s;
+  }
+
+  get criticProvider(): string | undefined {
+    return this.metadatos?.proveedor_critico || this.metadatos?.critic_provider;
+  }
+
+  get criticModel(): string | undefined {
+    return this.metadatos?.modelo_critico || this.metadatos?.critic_model;
+  }
+
+  get isCriticFallback(): boolean {
+    const prov = (this.criticProvider || '').toLowerCase();
+    const obs = (this.evaluacion?.observaciones || '').toLowerCase();
+    return prov.includes('heuristico') || prov.includes('analizador_anclaje') || obs.includes('heurística') || obs.includes('heuristic');
   }
 }

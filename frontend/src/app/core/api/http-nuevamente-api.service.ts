@@ -471,11 +471,12 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       },
       contenido_adaptado: adapted,
       evaluacion_calidad: {
-        anclaje_fuente_score: evaluacion?.anclaje_fuente_score ?? 0.98,
+        anclaje_fuente_score: evaluacion?.anclaje_fuente_score !== undefined ? evaluacion.anclaje_fuente_score : undefined,
         claridad_pedagogica: (evaluacion?.claridad_pedagogica === 'High' ? 'Alta' : evaluacion?.claridad_pedagogica === 'Medium' ? 'Media' : evaluacion?.claridad_pedagogica === 'Low' ? 'Baja' : evaluacion?.claridad_pedagogica) ?? 'Alta',
         observaciones: (evaluacion?.observaciones && !evaluacion.observaciones.includes('Heuristic fallback') && !evaluacion.observaciones.includes('Evaluated by'))
           ? evaluacion.observaciones
-          : 'Contenido evaluado y validado contra pasajes fuente del documento técnico.'
+          : 'Contenido evaluado y validado contra pasajes fuente del documento técnico.',
+        per_item: evaluacion?.per_item ?? evaluacion?.por_item ?? []
       },
       almacenamiento_oci: {
         bucket: 'nuevamente-contenidos-educativos',

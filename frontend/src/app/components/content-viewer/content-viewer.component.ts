@@ -233,11 +233,14 @@ import { ContenidoAdaptado, Metadatos, EvaluacionCalidad, AlmacenamientoOCI } fr
               <span class="fidelity-icon">✓</span>
               <span class="fidelity-score">{{ evaluacion?.claridad_pedagogica || 'Alta' }}</span>
             </div>
-            <p class="fidelity-text">
-              Anclaje en fuente: <strong>{{ Math.round((evaluacion?.anclaje_fuente_score || 0.98) * 100) }}%</strong>
+            <p class="fidelity-text" *ngIf="evaluacion?.anclaje_fuente_score !== undefined">
+              Anclaje en fuente: <strong>{{ Math.round(evaluacion!.anclaje_fuente_score! * 100) }}%</strong>
+            </p>
+            <p class="fidelity-text" *ngIf="evaluacion?.anclaje_fuente_score === undefined">
+              Anclaje en fuente: <strong>Sin verificar</strong>
             </p>
             <p class="fidelity-subtext">
-              {{ evaluacion?.observaciones || 'Contenido validado contra el texto original.' }}
+              {{ evaluacion?.observaciones || 'Contenido pendiente de verificación contra el texto original.' }}
             </p>
           </div>
         </div>
@@ -1136,7 +1139,7 @@ export class ContentViewerComponent {
             </div>
             <div class="meta-item">
               <span class="meta-label">Fidelidad RAG</span>
-              <span class="meta-val">${Math.round((this.evaluacion?.anclaje_fuente_score || 0.98) * 100)}% Anclaje</span>
+              <span class="meta-val">${this.evaluacion?.anclaje_fuente_score !== undefined ? `${Math.round(this.evaluacion.anclaje_fuente_score * 100)}% Anclaje` : 'Sin verificar'}</span>
             </div>
             <div class="meta-item">
               <span class="meta-label">Tiempo Estimado</span>

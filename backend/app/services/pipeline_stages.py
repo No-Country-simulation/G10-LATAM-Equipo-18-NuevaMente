@@ -523,12 +523,14 @@ class PipelineStages:
                 matched_via = "direct" if passage_text else None
 
                 if not passage_text and all_passage_texts:
-                    item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
+                    # Use grounding text (factual claims only) for item-word overlap,
+                    # so distractors in quiz opciones don't inflate the match.
+                    grounding_words = set(re.findall(r"\w{4,}", self._get_grounding_text(item).lower()))
                     best_overlap = 0.0
                     best_text = ""
                     for p_text, p_words in zip(all_passage_texts, all_passage_word_sets):
-                        if item_words and p_words:
-                            overlap = len(item_words & p_words) / len(item_words)
+                        if grounding_words and p_words:
+                            overlap = len(grounding_words & p_words) / len(grounding_words)
                             if overlap > best_overlap:
                                 best_overlap = overlap
                                 best_text = p_text
@@ -543,30 +545,84 @@ class PipelineStages:
                 extract = (src.get("extracto") or "").strip().lower()
 
                 is_supported = False
+                fails_entity_check = False
+
                 if passage_text:
-                    if extract and (extract in passage_text or passage_text in extract):
+                    passage_lower = passage_text.lower()
+
+                    # Priority 1: verbatim extract check.
+                    # A textually exact citation is proven by definition; skip the
+                    # anti-negation and numeric gates entirely — they are designed to
+                    # catch paraphrase hallucinations, not verbatim quotes.
+                    if extract and (extract in passage_lower or passage_lower in extract):
                         is_supported = True
+                        logger.debug(
+                            "[GROUNDING] chunk_id=%r verbatim extract matched; bypassing strict gates",
+                            chunk_id,
+                        )
                     else:
-                        extract_words = set(re.findall(r"\w{4,}", extract))
-                        passage_words = set(re.findall(r"\w{4,}", passage_text))
-                        if extract_words:
-                            ew_score = len(extract_words & passage_words) / len(extract_words)
-                            logger.debug(
-                                "[GROUNDING] chunk_id=%r extract_word_overlap=%.2f (via %s)",
-                                chunk_id, ew_score, matched_via,
-                            )
-                            if ew_score >= 0.45:
-                                is_supported = True
-                        if not is_supported and not extract:
-                            item_words = set(re.findall(r"\w{4,}", self._get_item_text(item).lower()))
-                            if item_words and passage_words:
-                                iw_score = len(item_words & passage_words) / len(item_words)
+                        # Anti-negation and strict entity validation.
+                        # Run on grounding text only (factual claims), NOT on the full
+                        # item text that includes distractors in quiz opciones.
+                        # Negation / numeric tokens in distractors are intentionally
+                        # wrong and must not drive source-chunk requirements.
+                        negation_pattern = re.compile(
+                            r"\b(no|nunca|jamas|jamás|sin|excepto|neither|nor|not|never|without|except)\b",
+                            flags=re.IGNORECASE,
+                        )
+                        numeric_entities_pattern = re.compile(
+                            r"\b\d+([.,]\d+)?\b"
+                        )
+
+                        item_grounding_text = self._get_grounding_text(item)
+                        item_negations = set(negation_pattern.findall(item_grounding_text.lower()))
+                        item_numbers = set(numeric_entities_pattern.findall(item_grounding_text))
+
+                        # 1. Anti-negation check: if item expresses a negation, cited chunk must contain it
+                        if item_negations:
+                            passage_negations = set(negation_pattern.findall(passage_lower))
+                            missing_negations = item_negations - passage_negations
+                            if missing_negations:
+                                fails_entity_check = True
                                 logger.debug(
-                                    "[GROUNDING] chunk_id=%r item_word_overlap=%.2f (via %s)",
-                                    chunk_id, iw_score, matched_via,
+                                    "[GROUNDING] chunk_id=%r rejected due to missing negation token(s) in chunk: %s",
+                                    chunk_id, missing_negations,
                                 )
-                                if iw_score >= 0.25:
+
+                        # 2. Strict entity/numeric check: if item states specific numeric values, chunk must contain them
+                        if not fails_entity_check and item_numbers:
+                            passage_numbers = set(re.findall(r"\b\d+([.,]\d+)?\b", passage_text))
+                            missing_numbers = item_numbers - passage_numbers
+                            if missing_numbers:
+                                fails_entity_check = True
+                                logger.debug(
+                                    "[GROUNDING] chunk_id=%r rejected due to missing numeric token(s) in chunk: %s",
+                                    chunk_id, missing_numbers,
+                                )
+
+                        if not fails_entity_check:
+                            # Extract word-overlap check (paraphrased citation)
+                            extract_words = set(re.findall(r"\w{4,}", extract))
+                            passage_words = set(re.findall(r"\w{4,}", passage_lower))
+                            if extract_words:
+                                ew_score = len(extract_words & passage_words) / len(extract_words)
+                                logger.debug(
+                                    "[GROUNDING] chunk_id=%r extract_word_overlap=%.2f (via %s)",
+                                    chunk_id, ew_score, matched_via,
+                                )
+                                if ew_score >= 0.45:
                                     is_supported = True
+                            if not is_supported and not extract:
+                                # Last resort: use grounding text words (no distractors)
+                                grounding_words = set(re.findall(r"\w{4,}", item_grounding_text.lower()))
+                                if grounding_words and passage_words:
+                                    iw_score = len(grounding_words & passage_words) / len(grounding_words)
+                                    logger.debug(
+                                        "[GROUNDING] chunk_id=%r item_word_overlap=%.2f (via %s)",
+                                        chunk_id, iw_score, matched_via,
+                                    )
+                                    if iw_score >= 0.25:
+                                        is_supported = True
                 elif not passage_text:
                     logger.debug(
                         "[GROUNDING] chunk_id=%r → passage_text empty/missing; no verification possible",
@@ -597,7 +653,7 @@ class PipelineStages:
         return verified
 
     # ---------------------------------------------------------------------------
-    # STAGE E: COMPLETION ROUND
+    # STAGE E: COMPLETION & REPAIR ROUNDS
     # ---------------------------------------------------------------------------
     def _stage_completion(
         self,
@@ -624,6 +680,124 @@ class PipelineStages:
                 )
             )
         return extra
+
+    def _stage_repair_items(
+        self,
+        request: AdaptationRequest,
+        items_to_repair: List[Tuple[int, Dict[str, Any], List[str]]],
+        passages: List[Dict[str, Any]],
+        all_chunks: Optional[List[Dict[str, Any]]] = None,
+        target_language: str = "Spanish",
+    ) -> List[Tuple[int, Dict[str, Any]]]:
+        """
+        Surgically repairs failed items using LLM prompted with specific criticism issues
+        and source chunk passages. Executes 1 LLM batch call for the failed items.
+        """
+        if not items_to_repair:
+            return []
+
+        # Build chunk lookup
+        chunk_map: Dict[str, str] = {}
+        for p in (passages or []):
+            cid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+            if cid:
+                chunk_map[cid] = (p.get("content") or p.get("text") or "")[:500]
+        if all_chunks:
+            for p in all_chunks:
+                cid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
+                if cid and cid not in chunk_map:
+                    chunk_map[cid] = (p.get("content") or p.get("text") or "")[:500]
+
+        repair_payload = []
+        for idx, item, issues in items_to_repair:
+            cited_chunks = []
+            for s in (item.get("fuentes") or []):
+                if isinstance(s, dict):
+                    cid = s.get("chunk_id", "")
+                    text = chunk_map.get(cid, "")
+                    cited_chunks.append({"chunk_id": cid, "text": text})
+
+            repair_payload.append({
+                "item_index": idx,
+                "current_item": {
+                    k: v for k, v in item.items() if k not in ("fuentes", "sources")
+                },
+                "issues_detected": issues,
+                "cited_source_context": cited_chunks,
+            })
+
+        system_instruction = (
+            "ROLE: Expert Educational Content Repair Specialist.\n"
+            "TASK: Surgically correct and rewrite the provided educational items so that "
+            "every factual claim is strictly supported by their cited source context. "
+            "Resolve all detected issues without changing the educational format.\n"
+            f"TARGET LANGUAGE: {target_language}\n"
+            "OUTPUT FORMAT: Return strictly a valid JSON array of corrected items, each with "
+            "'item_index' (integer matching input) and the corrected item fields."
+        )
+
+        prompt = (
+            f"Audience Profile: {request.recipient_profile}\n"
+            f"Output Format: {request.output_format}\n"
+            f"Target Language: {target_language}\n\n"
+            "ITEMS TO REPAIR:\n"
+            f"{json.dumps(repair_payload, ensure_ascii=False, indent=2)}\n\n"
+            "Rewrite each item ensuring 100% fidelity to the cited source context. "
+            "Preserve original source citations."
+        )
+
+        repaired_map: Dict[int, Dict[str, Any]] = {}
+        guard = get_llm_guard()
+        raw = None
+        fmt_key = getattr(request, "output_format", "flashcards")
+        cascade = self.router.get_model_cascade(fmt_key)
+        if not cascade:
+            cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
+        for entry in cascade:
+            llm = self._provider_map.get(entry["provider"])
+            if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                continue
+            guard.wait_for_slot(entry["provider"], entry.get("model"))
+            try:
+                raw = llm.generate(
+                    prompt=prompt,
+                    system_instruction=system_instruction,
+                    json_output=True,
+                    model_name=entry.get("model"),
+                )
+                if raw:
+                    guard.record_success(entry["provider"], entry.get("model"))
+                    self._track_model(entry["provider"], entry.get("model"))
+                    break
+            except Exception as exc:
+                guard.record_failure(entry["provider"], entry.get("model"))
+                logger.warning("Repair LLM %s failed: %s", entry.get("provider"), exc)
+
+        if raw:
+            parsed = self._parse_json_batch(raw)
+            if isinstance(parsed, list):
+                for p_item in parsed:
+                    if isinstance(p_item, dict) and "item_index" in p_item:
+                        idx = p_item.get("item_index")
+                        clean = {k: v for k, v in p_item.items() if k != "item_index"}
+                        repaired_map[idx] = clean
+
+        results = []
+        for idx, orig_item, _ in items_to_repair:
+            if idx in repaired_map:
+                rep = dict(repaired_map[idx])
+                # Preserve sources and mark repaired
+                if "fuentes" not in rep or not rep["fuentes"]:
+                    rep["fuentes"] = orig_item.get("fuentes", [])
+                rep["repaired"] = True
+                results.append((idx, rep))
+            else:
+                # Mark original as attempted repair without loop
+                orig_copy = dict(orig_item)
+                orig_copy["repaired"] = True
+                results.append((idx, orig_copy))
+
+        return results
 
     # ---------------------------------------------------------------------------
     # STAGE F: CRITIC EVALUATION & AUDITING
@@ -760,6 +934,11 @@ class PipelineStages:
             text = re.sub(r"\s*```$", "", text)
             data = json.loads(text)
 
+            # Ensure all items have a stable grounding identifier (_gid)
+            for i, it in enumerate(generated_items):
+                if "_gid" not in it:
+                    it["_gid"] = f"ground_{i}"
+
             item_evals = data.get("item_evaluations", [])
             flagged_indices = {
                 e.get("index") for e in item_evals if e.get("is_grounded") is False
@@ -768,7 +947,7 @@ class PipelineStages:
             accepted_items = []
             for i, it in enumerate(generated_items):
                 if i in flagged_indices and it.get("grounded") is False:
-                    logger.info("Critic rejected ungrounded item %d: %s", i, self._get_item_text(it)[:60])
+                    logger.info("Critic rejected ungrounded item %d (%s): %s", i, it.get("_gid"), self._get_item_text(it)[:60])
                 else:
                     accepted_items.append(it)
 
@@ -785,11 +964,43 @@ class PipelineStages:
                 clarity_val = clarity_map.get(clarity_raw, clarity_raw)
                 default_obs = "Validated and evaluated by the educational critic agent."
 
+            eval_by_index = {
+                e.get("index"): e for e in item_evals if isinstance(e, dict) and "index" in e
+            }
+
+            per_item_list = []
+            for i, it in enumerate(generated_items):
+                critic_entry = eval_by_index.get(i, {})
+                critic_grounded = critic_entry.get("is_grounded")
+                verificado_revisor = bool(critic_grounded is not False)
+                verificado_lexico = bool(it.get("grounded", False))
+                # Combined criterion: both lexical and critic reviewer approved
+                origen_verificado = bool(verificado_lexico and verificado_revisor)
+
+                item_clarity_raw = critic_entry.get("clarity", data.get("pedagogical_clarity", "High"))
+                item_clarity = clarity_map.get(str(item_clarity_raw), str(item_clarity_raw))
+
+                item_issues = critic_entry.get("issues", [])
+                if not isinstance(item_issues, list):
+                    item_issues = [str(item_issues)] if item_issues else []
+
+                per_item_list.append({
+                    "index": i,
+                    "_gid": it.get("_gid", f"ground_{i}"),
+                    "verificado_lexico": verificado_lexico,
+                    "verificado_revisor": verificado_revisor,
+                    "origen_verificado": origen_verificado,
+                    "claridad": item_clarity,
+                    "issues": item_issues,
+                    "es_fallback": bool(it.get("es_fallback", False)),
+                })
+
             overall_score = float(data.get("overall_grounding_score", fallback_score))
             evaluation = QualityEvaluation(
                 source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
                 pedagogical_clarity=clarity_val,
-                observations=str(data.get("observations", default_obs))
+                observations=str(data.get("observations", default_obs)),
+                per_item=per_item_list,
             )
             return evaluation, accepted_items
 
@@ -797,6 +1008,23 @@ class PipelineStages:
             logger.warning(f"Critic auditor failed: {e}")
             self.critic_provider = "evaluador_heuristico"
             self.critic_model = "analizador_anclaje_rag"
+            for i, it in enumerate(generated_items):
+                if "_gid" not in it:
+                    it["_gid"] = f"ground_{i}"
+
+            fallback_per_item = [
+                {
+                    "index": i,
+                    "_gid": it.get("_gid", f"ground_{i}"),
+                    "verificado_lexico": bool(it.get("grounded", False)),
+                    "verificado_revisor": True,
+                    "origen_verificado": bool(it.get("grounded", False)),
+                    "claridad": "Alta" if is_spanish else "High",
+                    "issues": [] if it.get("grounded", False) else ["Sin confirmación léxica contra fragmentos fuente."],
+                    "es_fallback": bool(it.get("es_fallback", False)),
+                }
+                for i, it in enumerate(generated_items)
+            ]
             evaluation = QualityEvaluation(
                 source_grounding_score=fallback_score,
                 pedagogical_clarity="Alta" if is_spanish else "High",
@@ -804,7 +1032,8 @@ class PipelineStages:
                     "Evaluación heurística de respaldo completada con éxito."
                     if is_spanish
                     else "Heuristic fallback evaluation completed successfully."
-                )
+                ),
+                per_item=fallback_per_item,
             )
             return evaluation, generated_items
 
@@ -869,7 +1098,8 @@ class PipelineStages:
 
         return target_quantity, effective_target, warning
 
-    def _get_item_text(self, item: Dict[str, Any]) -> str:
+    def _get_item_primary_text(self, item: Dict[str, Any]) -> str:
+        """Extracts the primary question, front, or title of an educational item."""
         return (
             item.get("frente")
             or item.get("pregunta")
@@ -878,6 +1108,130 @@ class PipelineStages:
             or item.get("narracion")
             or ""
         )
+
+    def _get_item_text(self, item: Dict[str, Any]) -> str:
+        """
+        Concatenates all text fields of an educational item across supported formats.
+        Ensures grounding and critique audit inspect the complete claim (front, back,
+        options, correct answer, justification, instruction, example, business impact).
+        """
+        parts = []
+        for key in (
+            "frente",
+            "dorso",
+            "pregunta",
+            "respuesta_correcta",
+            "justificacion",
+            "justificacion_didactica",
+            "pista_didactica",
+            "titulo",
+            "instruccion",
+            "ejemplo",
+            "narracion",
+            "punto_clave",
+            "impacto_negocio",
+        ):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+
+        options = item.get("opciones")
+        if isinstance(options, list):
+            for opt in options:
+                if isinstance(opt, str) and opt.strip():
+                    parts.append(opt.strip())
+
+        if not parts:
+            primary = self._get_item_primary_text(item)
+            return primary if primary else ""
+
+        return " ".join(parts)
+
+    def _get_grounding_text(self, item: Dict[str, Any]) -> str:
+        """
+        Returns only the factual-claim fields of an educational item for use in
+        grounding verification gates (anti-negation and strict numeric entity checks).
+
+        Deliberately excludes:
+          - opciones: distractors are intentionally false by design;
+            their negations/numbers must not drive source-chunk requirements.
+          - pista_didactica, justificacion_didactica, ejemplo: pedagogical aids
+            and illustrative pseudo-code, not factual claims about the source.
+          - fuentes / sources: citation metadata, not content.
+
+        Format-specific fields included:
+          - quiz:      pregunta + respuesta_correcta + justificacion
+          - flashcard: frente + dorso
+          - tutorial:  titulo + instruccion  (not ejemplo)
+          - summary/script: punto_clave + impacto_negocio + narracion
+        """
+        parts = []
+        for key in (
+            "frente",
+            "dorso",
+            "pregunta",
+            "respuesta_correcta",
+            "justificacion",
+            "titulo",
+            "instruccion",
+            "narracion",
+            "punto_clave",
+            "impacto_negocio",
+        ):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+
+        if not parts:
+            return self._get_item_text(item)
+
+        return " ".join(parts)
+
+    def _is_garbage_item(self, item: Dict[str, Any], per_item_rec: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Detects unusable or garbage items based on clarity, length, and content.
+        Criteria:
+          1. Empty primary fields (no front, question, title, etc.).
+          2. Fewer than 5 useful words in grounding text when the item has a
+             recognized format key (frente, pregunta, titulo, etc.).
+          3. Explicitly ungrounded combined with Low clarity (Baja/Low).
+        Note: items without any recognized format key (e.g., raw test fixtures
+        containing only 'fuentes') are exempt from all content-based rules.
+        """
+        _format_keys = {"frente", "pregunta", "titulo", "paso", "punto_clave", "narracion", "escena"}
+        has_format_key = bool(_format_keys.intersection(item.keys()))
+
+        # Only apply content rules to items that carry recognized format fields.
+        if not has_format_key:
+            return False
+
+        primary = self._get_item_primary_text(item).strip()
+        if not primary:
+            return True
+
+        # Check for mixed or empty secondary fields when applicable
+        if "frente" in item and not str(item.get("dorso", "")).strip():
+            return True
+        if "pregunta" in item and not str(item.get("respuesta_correcta", "")).strip() and not item.get("opciones"):
+            return True
+
+        grounding_text = self._get_grounding_text(item).strip()
+        word_count = len(grounding_text.split())
+
+        # Low clarity combined with ungrounded verdict
+        if per_item_rec:
+            clarity = str(per_item_rec.get("claridad", ""))
+            revisor_ok = per_item_rec.get("verificado_revisor", True)
+            lexical_ok = per_item_rec.get("verificado_lexico", False)
+            if clarity in ("Baja", "Low") and (not revisor_ok or not lexical_ok):
+                return True
+
+        # Discard items where the grounding text is trivially short (< 5 words),
+        # indicating empty or meaningless content (e.g. frente="Hola", dorso="Mundo").
+        if word_count < 5:
+            return True
+
+        return False
 
     def _parse_json_batch(self, raw: Optional[str]) -> Optional[List[Dict[str, Any]]]:
         if not raw:
@@ -991,23 +1345,25 @@ class PipelineStages:
         if isinstance(page_val, int) and page_val > 0:
             fuente["pagina"] = page_val
 
+        res_item: Dict[str, Any]
         if "flashcard" in fmt:
             if is_spanish:
-                return {
+                res_item = {
                     "frente": f"¿Cuál es el propósito y la aplicación de '{main_concept}'{topic_context_es}?",
                     "dorso": f"{target_sentence} Optimiza el rendimiento, la mantenibilidad y la robustez técnica en el entorno de {request.niche}.",
                     "pista_didactica": f"Pista: Evalúa el impacto operativo directo de {main_concept}.",
                     "fuentes": [fuente],
                 }
-            return {
-                "frente": f"What is the purpose and application of '{main_concept}'{topic_context_en}?",
-                "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
-                "pista_didactica": f"Hint: Assess the operational impact of {main_concept}.",
-                "fuentes": [fuente],
-            }
+            else:
+                res_item = {
+                    "frente": f"What is the purpose and application of '{main_concept}'{topic_context_en}?",
+                    "dorso": f"{target_sentence} Optimizes performance and robustness in {request.niche}.",
+                    "pista_didactica": f"Hint: Assess the operational impact of {main_concept}.",
+                    "fuentes": [fuente],
+                }
         elif "quiz" in fmt:
             if is_spanish:
-                return {
+                res_item = {
                     "pregunta": f"Respecto a {main_concept}{topic_context_es}, ¿cuál de las siguientes afirmaciones es correcta según la documentación?",
                     "opciones": [
                         f"{target_sentence}",
@@ -1020,47 +1376,53 @@ class PipelineStages:
                     "justificacion_didactica": f"Concepto medular para el desarrollo de competencias en {request.recipient_profile}.",
                     "fuentes": [fuente],
                 }
-            return {
-                "pregunta": f"Regarding {main_concept}{topic_context_en}, which of the following statements is correct?",
-                "opciones": [
-                    f"{target_sentence}",
-                    f"Overrides {request.niche} policies.",
-                    f"Applies only to legacy {topic_name} environments.",
-                    f"Is unrelated to the requirements of {request.recipient_profile}.",
-                ],
-                "respuesta_correcta": f"{target_sentence}",
-                "justificacion": f"Directly supported by the source text: '{target_sentence[:120]}'",
-                "justificacion_didactica": f"Core technical foundation for {request.recipient_profile}.",
-                "fuentes": [fuente],
-            }
+            else:
+                res_item = {
+                    "pregunta": f"Regarding {main_concept}{topic_context_en}, which of the following statements is correct?",
+                    "opciones": [
+                        f"{target_sentence}",
+                        f"Overrides {request.niche} policies.",
+                        f"Applies only to legacy {topic_name} environments.",
+                        f"Is unrelated to the requirements of {request.recipient_profile}.",
+                    ],
+                    "respuesta_correcta": f"{target_sentence}",
+                    "justificacion": f"Directly supported by the source text: '{target_sentence[:120]}'",
+                    "justificacion_didactica": f"Core technical foundation for {request.recipient_profile}.",
+                    "fuentes": [fuente],
+                }
         elif "tutorial" in fmt:
             if is_spanish:
-                return {
+                res_item = {
                     "paso": item_idx,
                     "titulo": f"Configuración y aplicación de {main_concept}",
                     "instruccion": f"Implementar {main_concept} siguiendo las directrices técnicas: {target_sentence}",
                     "ejemplo": f"// Ejemplo de configuración práctica para {main_concept}\nejecutar_accion('{main_concept}')",
                     "fuentes": [fuente],
                 }
-            return {
-                "paso": item_idx,
-                "titulo": f"Configuring {main_concept}",
-                "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
-                "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
-                "fuentes": [fuente],
-            }
+            else:
+                res_item = {
+                    "paso": item_idx,
+                    "titulo": f"Configuring {main_concept}",
+                    "instruccion": f"Implement {main_concept} following guidelines: {target_sentence}",
+                    "ejemplo": f"// Configuration example for {main_concept}\napply_rule('{main_concept}')",
+                    "fuentes": [fuente],
+                }
         else:
             if is_spanish:
-                return {
+                res_item = {
                     "punto_clave": f"{main_concept}: {target_sentence}",
                     "impacto_negocio": f"Garantiza la continuidad operativa y eficiencia técnica en el sector {request.niche}.",
                     "fuentes": [fuente],
                 }
-            return {
-                "punto_clave": f"{main_concept}: {target_sentence}",
-                "impacto_negocio": f"Ensures operational efficiency and strategic value in {request.niche}.",
-                "fuentes": [fuente],
-            }
+            else:
+                res_item = {
+                    "punto_clave": f"{main_concept}: {target_sentence}",
+                    "impacto_negocio": f"Ensures operational efficiency and strategic value in {request.niche}.",
+                    "fuentes": [fuente],
+                }
+
+        res_item["es_fallback"] = True
+        return res_item
 
     def _shuffle_quiz_options(self, items: List[Dict[str, Any]]) -> None:
         """Randomizes where the correct option sits in every quiz item.

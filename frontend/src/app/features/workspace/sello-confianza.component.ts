@@ -14,7 +14,7 @@ export interface TrustThreshold {
   imports: [CommonModule],
   changeDetection: ChangeDetectionStrategy.OnPush,
   template: `
-    <div class="sello-card glass-card" [class.is-fallback]="!evaluacion">
+    <div class="sello-card glass-card" [class.is-fallback]="!hasValidScore()">
       <!-- HEADER -->
       <div class="sello-header">
         <div class="header-left">
@@ -27,7 +27,7 @@ export interface TrustThreshold {
           </div>
         </div>
 
-        <div class="header-right" *ngIf="evaluacion">
+        <div class="header-right" *ngIf="hasValidScore()">
           <span 
             class="status-pill" 
             [class.pill-green]="threshold().colorClass === 'green'"
@@ -41,13 +41,13 @@ export interface TrustThreshold {
       </div>
 
       <!-- FALLBACK VIEW WHEN SCORE IS MISSING -->
-      <div class="fallback-view" *ngIf="!evaluacion">
+      <div class="fallback-view" *ngIf="!hasValidScore()">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#F59E0B" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-        <span>Verificación no disponible temporalmente</span>
+        <span>Sin verificar (verificación de fidelidad no disponible)</span>
       </div>
 
       <!-- MAIN BODY -->
-      <div class="sello-body" *ngIf="evaluacion">
+      <div class="sello-body" *ngIf="hasValidScore()">
         <!-- Circular Animated SVG Gauge -->
         <div class="gauge-box">
           <svg class="gauge-svg" viewBox="0 0 100 100">
@@ -77,6 +77,7 @@ export interface TrustThreshold {
             <div class="ind-text">
               <span class="ind-label">Fidelidad a tu documento</span>
               <strong>{{ scorePercent() }}% coincidencia exacta</strong>
+              <small class="ind-count" *ngIf="itemCounts()">({{ itemCounts()!.verified }} de {{ itemCounts()!.total }} elementos verificados)</small>
             </div>
           </div>
 
@@ -85,8 +86,8 @@ export interface TrustThreshold {
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#EC4899" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
             </div>
             <div class="ind-text">
-              <span class="ind-label">Claridad pedagógica del perfil</span>
-              <strong>Nivel {{ evaluacion.claridad_pedagogica || 'Alta' }}</strong>
+              <span class="ind-label">Claridad pedagógica</span>
+              <strong>Nivel {{ evaluacion?.claridad_pedagogica || 'Alta' }}</strong>
             </div>
           </div>
 
@@ -342,6 +343,14 @@ export interface TrustThreshold {
       margin-bottom: 0.25rem;
     }
 
+    .ind-count {
+      font-size: 0.76rem;
+      color: var(--text-secondary);
+      font-weight: 500;
+      margin-top: 0.15rem;
+      display: block;
+    }
+
     @media (max-width: 768px) {
       .sello-body {
         flex-direction: column;
@@ -359,14 +368,29 @@ export class SelloConfianzaComponent {
 
   isExpanded = signal<boolean>(false);
 
+  hasValidScore = computed(() => {
+    return this.evaluacion?.anclaje_fuente_score !== undefined && this.evaluacion?.anclaje_fuente_score !== null;
+  });
+
   scoreRatio = computed(() => {
-    if (!this.evaluacion || this.evaluacion.anclaje_fuente_score === undefined) {
-      return 0.95;
+    if (!this.hasValidScore()) {
+      return 0;
     }
-    return Math.max(0, Math.min(1, this.evaluacion.anclaje_fuente_score));
+    const raw = this.evaluacion!.anclaje_fuente_score!;
+    const val = raw > 1 ? raw / 100 : raw;
+    return Math.max(0, Math.min(1, val));
   });
 
   scorePercent = computed(() => Math.round(this.scoreRatio() * 100));
+
+  itemCounts = computed<{ verified: number; total: number } | null>(() => {
+    const list = this.evaluacion?.per_item || this.evaluacion?.por_item;
+    if (Array.isArray(list) && list.length > 0) {
+      const verified = list.filter(item => item.origen_verificado).length;
+      return { verified, total: list.length };
+    }
+    return null;
+  });
 
   threshold = computed<TrustThreshold>(() => {
     const pct = this.scorePercent();

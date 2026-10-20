@@ -25,15 +25,20 @@ import { RagFuente } from '../../core/models/adaptation.model';
           </div>
 
           <div class="excerpt-box">
-            <span class="box-label">EXTRACTO TEXTUAL VERIFICADO DE LA FUENTE ORIGINAL:</span>
+            <span class="box-label">{{ fuente.verificado !== false ? 'EXTRACTO TEXTUAL DE LA FUENTE ORIGINAL:' : 'EXTRACTO DE REFERENCIA (PENDIENTE DE CONFIRMACIÓN):' }}</span>
             <blockquote class="excerpt-text">
               "{{ fuente.extracto }}"
             </blockquote>
           </div>
 
-          <div class="verification-note">
+          <div class="verification-note" *ngIf="fuente.verificado !== false">
             <span class="shield-icon">🛡️</span>
-            <span>Este extracto garantiza que la respuesta generada no presenta alucinaciones y proviene estrictamente de la documentación técnica ingresada.</span>
+            <span>Cita confirmada contra el documento: este extracto respalda fielmente la afirmación generada según las fuentes procesadas.</span>
+          </div>
+
+          <div class="verification-warning" *ngIf="fuente.verificado === false">
+            <span class="warn-icon">⚠️</span>
+            <span>Cita no confirmada contra el documento: los términos o la relación con el fragmento no superaron el umbral de verificación automática. Se recomienda contrastar manualmente.</span>
           </div>
         </div>
       </div>
@@ -149,6 +154,23 @@ import { RagFuente } from '../../core/models/adaptation.model';
       border: 1px solid rgba(16, 185, 129, 0.25);
       font-size: 0.85rem;
       color: #047857;
+    }
+
+    .verification-warning {
+      display: flex;
+      gap: 0.75rem;
+      padding: 1rem;
+      border-radius: 10px;
+      background: rgba(245, 158, 11, 0.08);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      font-size: 0.85rem;
+      color: #b45309;
+      line-height: 1.5;
+    }
+
+    .warn-icon {
+      font-size: 1.1rem;
+      flex-shrink: 0;
     }
 
     @media (max-width: 640px) {

@@ -27,45 +27,68 @@ export interface RagFuente {
   breadcrumb?: string;
   pagina?: number;
   similitud_score?: number;
+  verificado?: boolean;
+  es_fallback?: boolean;
+}
+
+export interface ItemEvaluationInfo {
+  index: number;
+  _gid?: string;
+  verificado_lexico?: boolean;
+  verificado_revisor?: boolean;
+  origen_verificado: boolean;
+  claridad: string;
+  issues: string[];
+  es_fallback?: boolean;
 }
 
 export interface FlashcardItem {
+  _gid?: string;
   frente: string;
   dorso: string;
   pista_didactica?: string;
   fuentes?: RagFuente[];
+  es_fallback?: boolean;
 }
 
 export interface QuizItem {
+  _gid?: string;
   pregunta: string;
   opciones: string[];
   respuesta_correcta: string;
   justificacion?: string;
   justificacion_didactica?: string;
   fuentes?: RagFuente[];
+  es_fallback?: boolean;
 }
 
 export interface TutorialItem {
+  _gid?: string;
   paso: number;
   titulo: string;
   instruccion: string;
   ejemplo?: string;
   advertencia?: string;
   fuentes?: RagFuente[];
+  es_fallback?: boolean;
 }
 
 export interface ResumenEjecutivoItem {
+  _gid?: string;
   punto_clave: string;
   impacto_negocio: string;
   fuentes?: RagFuente[];
+  es_fallback?: boolean;
 }
 
 export interface GuionClaseItem {
+  _gid?: string;
   escena: number;
   duracion_seg: number;
   narracion: string;
   apoyo_visual: string;
   fuentes?: RagFuente[];
+  es_fallback?: boolean;
 }
 
 export type ItemAdaptado = FlashcardItem | QuizItem | TutorialItem | ResumenEjecutivoItem | GuionClaseItem | any;
@@ -93,12 +116,18 @@ export interface Metadatos {
   prerrequisitos?: string[];
   modelos_usados?: string;
   modelos_usados_detalle?: string[];
+  proveedor_critico?: string;
+  modelo_critico?: string;
+  critic_provider?: string;
+  critic_model?: string;
 }
 
 export interface EvaluacionCalidad {
-  anclaje_fuente_score: number;
-  claridad_pedagogica: 'Alta' | 'Media' | 'Baja' | string;
-  observaciones: string;
+  anclaje_fuente_score?: number;
+  claridad_pedagogica?: 'Alta' | 'Media' | 'Baja' | string;
+  observaciones?: string;
+  per_item?: ItemEvaluationInfo[];
+  por_item?: ItemEvaluationInfo[];
 }
 
 export interface AlmacenamientoOCI {

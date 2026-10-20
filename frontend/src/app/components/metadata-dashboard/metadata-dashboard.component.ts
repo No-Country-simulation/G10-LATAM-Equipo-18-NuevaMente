@@ -51,8 +51,11 @@ import { Metadatos, EvaluacionCalidad, AlmacenamientoOCI } from '../../core/mode
           <h4>⚖️ Evaluación & Anclaje de Fuentes</h4>
           <div class="meta-row">
             <span class="label">Score Anclaje Fuente:</span>
-            <span class="value text-success font-bold">
-              {{ (evaluacion?.anclaje_fuente_score || 0.98) * 100 }}%
+            <span class="value text-success font-bold" *ngIf="evaluacion?.anclaje_fuente_score !== undefined">
+              {{ evaluacion!.anclaje_fuente_score! * 100 | number:'1.0-0' }}%
+            </span>
+            <span class="value text-warning font-bold" *ngIf="evaluacion?.anclaje_fuente_score === undefined">
+              Sin verificar
             </span>
           </div>
           <div class="meta-row">

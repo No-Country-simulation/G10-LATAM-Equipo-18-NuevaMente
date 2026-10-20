@@ -64,25 +64,57 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
           <div class="card-3d" [class.flipped]="isFlipped()">
             <!-- Front Face -->
             <div class="card-face card-front">
-              <div class="face-badge">PREGUNTA / CONCEPTO #{{ currentIndex() + 1 }}</div>
+              <div class="face-top-row">
+                <div class="face-badge">PREGUNTA / CONCEPTO #{{ currentIndex() + 1 }}</div>
+                <!-- ITEM VERIFICATION BADGES -->
+                <div class="item-badges-cluster" (click)="$event.stopPropagation()">
+                  <span 
+                    class="badge-origin"
+                    [class.is-verified]="getItemEvaluation(currentIndex()).statusKey === 'verified'"
+                    [class.is-observed]="getItemEvaluation(currentIndex()).statusKey === 'observed'"
+                    [class.is-unverified]="getItemEvaluation(currentIndex()).statusKey === 'unverified'"
+                    [class.is-fallback]="getItemEvaluation(currentIndex()).statusKey === 'fallback'"
+                    [title]="getItemEvaluation(currentIndex()).issues.length > 0 ? getItemEvaluation(currentIndex()).issues[0] : (getItemEvaluation(currentIndex()).origen_verificado ? 'Cita verificada con el documento original' : 'Cita con observaciones o no confirmada')"
+                  >
+                    {{ getItemEvaluation(currentIndex()).statusLabel }}
+                  </span>
+                  <span class="badge-clarity-sm" [title]="'Claridad pedagógica: ' + getItemEvaluation(currentIndex()).claridad">
+                    Claridad pedagógica: {{ getItemEvaluation(currentIndex()).claridad }}
+                  </span>
+                </div>
+              </div>
               <div class="face-content">
                 <h3>{{ currentCard.frente }}</h3>
               </div>
               <div class="face-footer" *ngIf="currentCard.pista_didactica">
-                <span class="hint-tag">💡 Pista: {{ currentCard.pista_didactica }}</span>
+                <span class="hint-tag">Pista didáctica: {{ currentCard.pista_didactica }}</span>
               </div>
             </div>
 
             <!-- Back Face -->
             <div class="card-face card-back">
-              <div class="face-badge back-badge">RESPUESTA / EXPLICACIÓN</div>
+              <div class="face-top-row">
+                <div class="face-badge back-badge">RESPUESTA / EXPLICACIÓN</div>
+                <div class="item-badges-cluster" (click)="$event.stopPropagation()">
+                  <span 
+                    class="badge-origin"
+                    [class.is-verified]="getItemEvaluation(currentIndex()).statusKey === 'verified'"
+                    [class.is-observed]="getItemEvaluation(currentIndex()).statusKey === 'observed'"
+                    [class.is-unverified]="getItemEvaluation(currentIndex()).statusKey === 'unverified'"
+                    [class.is-fallback]="getItemEvaluation(currentIndex()).statusKey === 'fallback'"
+                    [title]="getItemEvaluation(currentIndex()).issues.length > 0 ? getItemEvaluation(currentIndex()).issues[0] : ''"
+                  >
+                    {{ getItemEvaluation(currentIndex()).statusLabel }}
+                  </span>
+                </div>
+              </div>
               <div class="face-content">
                 <p>{{ currentCard.dorso }}</p>
               </div>
               
               <div class="face-sources" *ngIf="currentCard.fuentes && currentCard.fuentes.length > 0">
                 <span class="source-chip" [title]="formatSourceTooltip(currentCard.fuentes[0])">
-                  📄 {{ formatSourceLabel(currentCard.fuentes[0]) }}
+                  Fuente: {{ formatSourceLabel(currentCard.fuentes[0]) }}
                 </span>
               </div>
             </div>
@@ -96,8 +128,8 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
           </button>
 
           <div class="review-buttons" *ngIf="isFlipped()">
-            <button class="btn-review" (click)="markReview()">🔄 Necesito Repasar</button>
-            <button class="btn-known" (click)="markKnown()">✅ Lo Sabía</button>
+            <button class="btn-review" (click)="markReview()">Necesito Repasar</button>
+            <button class="btn-known" (click)="markKnown()">Lo Sabía</button>
           </div>
 
           <button class="btn-nav" (click)="nextCard()" [disabled]="currentIndex() === activeItems().length - 1">
@@ -111,12 +143,27 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
         <div class="grid-card glass-card" *ngFor="let card of activeItems(); let idx = index">
           <div class="grid-card-header">
             <span class="card-idx">#{{ idx + 1 }}</span>
-            <span class="hint-inline" *ngIf="card.pista_didactica">💡 {{ card.pista_didactica }}</span>
+            <div class="item-badges-cluster">
+              <span 
+                class="badge-origin"
+                [class.is-verified]="getItemEvaluation(idx).statusKey === 'verified'"
+                [class.is-observed]="getItemEvaluation(idx).statusKey === 'observed'"
+                [class.is-unverified]="getItemEvaluation(idx).statusKey === 'unverified'"
+                [class.is-fallback]="getItemEvaluation(idx).statusKey === 'fallback'"
+                [title]="getItemEvaluation(idx).issues.length > 0 ? getItemEvaluation(idx).issues[0] : ''"
+              >
+                {{ getItemEvaluation(idx).statusLabel }}
+              </span>
+              <span class="badge-clarity-sm">
+                Claridad pedagógica: {{ getItemEvaluation(idx).claridad }}
+              </span>
+            </div>
+            <span class="hint-inline" *ngIf="card.pista_didactica">Pista: {{ card.pista_didactica }}</span>
           </div>
           <h4 class="card-q">{{ card.frente }}</h4>
           <p class="card-a">{{ card.dorso }}</p>
           <div class="card-source" *ngIf="card.fuentes && card.fuentes.length > 0">
-            <span [title]="formatSourceTooltip(card.fuentes[0])">📄 {{ formatSourceLabel(card.fuentes[0]) }}</span>
+            <span [title]="formatSourceTooltip(card.fuentes[0])">Fuente: {{ formatSourceLabel(card.fuentes[0]) }}</span>
           </div>
         </div>
       </div>
@@ -306,6 +353,66 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
       visibility: hidden;
     }
 
+    .face-top-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .item-badges-cluster {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .badge-origin {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.25rem;
+      cursor: help;
+    }
+
+    .badge-origin.is-verified {
+      background: rgba(16, 185, 129, 0.12);
+      color: #047857;
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+
+    .badge-origin.is-observed {
+      background: rgba(245, 158, 11, 0.15);
+      color: #b45309;
+      border: 1px solid rgba(245, 158, 11, 0.4);
+    }
+
+    .badge-origin.is-unverified {
+      background: rgba(239, 68, 68, 0.12);
+      color: #dc2626;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+
+    .badge-origin.is-fallback {
+      background: rgba(107, 114, 128, 0.15);
+      color: #4b5563;
+      border: 1px solid rgba(107, 114, 128, 0.3);
+    }
+
+    .badge-clarity-sm {
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 0.2rem 0.55rem;
+      border-radius: 6px;
+      background: var(--bg-app);
+      color: var(--text-secondary);
+      border: 1px solid var(--border-subtle);
+      cursor: help;
+    }
+
     .face-badge {
       font-size: 0.72rem;
       font-weight: 800;
@@ -473,6 +580,7 @@ import { FlashcardItem, RagFuente } from '../../../core/models/adaptation.model'
 })
 export class FlashcardsRendererComponent {
   @Input({ required: true }) items: FlashcardItem[] = [];
+  @Input() evaluacion?: any;
 
   viewMode = signal<'deck' | 'grid'>('deck');
   currentIndex = signal<number>(0);
@@ -484,6 +592,72 @@ export class FlashcardsRendererComponent {
   activeItems = computed(() => {
     return this.shuffledItems() || this.items || [];
   });
+
+  getItemEvaluation(idx: number): {
+    statusKey: 'verified' | 'observed' | 'unverified' | 'fallback';
+    statusLabel: string;
+    origen_verificado: boolean;
+    claridad: string;
+    issues: string[];
+  } {
+    const item = (this.activeItems() || [])[idx];
+    const perItem = this.evaluacion?.per_item || this.evaluacion?.por_item;
+
+    let entry: any = null;
+    if (Array.isArray(perItem)) {
+      if (item?._gid) {
+        entry = perItem.find((p: any) => p._gid === item._gid);
+      }
+      if (!entry && perItem[idx]) {
+        entry = perItem[idx];
+      }
+    }
+
+    const isFallback = Boolean(item?.es_fallback || entry?.es_fallback);
+    const verificadoLexico = Boolean(
+      entry?.verificado_lexico !== undefined
+        ? entry.verificado_lexico
+        : (item?.fuentes?.some((f: any) => f.verificado !== false) ?? false)
+    );
+    const verificadoRevisor = Boolean(
+      entry?.verificado_revisor !== undefined
+        ? entry.verificado_revisor
+        : (entry ? (entry.origen_verificado ?? true) : true)
+    );
+    const origenVerificado = Boolean(
+      entry?.origen_verificado !== undefined
+        ? entry.origen_verificado
+        : (verificadoLexico && verificadoRevisor)
+    );
+
+    let statusKey: 'verified' | 'observed' | 'unverified' | 'fallback' = 'unverified';
+    let statusLabel = 'Sin verificar';
+
+    if (isFallback) {
+      statusKey = 'fallback';
+      statusLabel = 'Fallback';
+    } else if (origenVerificado) {
+      statusKey = 'verified';
+      statusLabel = 'Verificado';
+    } else if (verificadoLexico && !verificadoRevisor) {
+      statusKey = 'observed';
+      statusLabel = 'Revisado con observaciones';
+    } else {
+      statusKey = 'unverified';
+      statusLabel = 'Sin verificar';
+    }
+
+    const claridad = entry?.claridad || this.evaluacion?.claridad_pedagogica || 'Alta';
+    const issues = entry?.issues || (origenVerificado ? [] : ['Cita con observaciones o no confirmada contra el documento']);
+
+    return {
+      statusKey,
+      statusLabel,
+      origen_verificado: origenVerificado,
+      claridad,
+      issues
+    };
+  }
 
   progressPercent = computed(() => {
     const total = this.activeItems().length;

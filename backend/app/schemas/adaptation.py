@@ -125,6 +125,7 @@ class ResponseMetadata(BaseModel):
     graph_orchestration: Optional[bool] = Field(False, alias="orquestacion_grafo")
     graph_nodes_executed: Optional[List[str]] = Field(default_factory=list, alias="nodos_grafo_ejecutados")
     graph_revision_count: Optional[int] = Field(0, alias="revisiones_grafo")
+    repaired_items: Optional[List[int]] = Field(default_factory=list, alias="items_reparados")
 
 
 class QualityEvaluation(BaseModel):
@@ -134,6 +135,7 @@ class QualityEvaluation(BaseModel):
     source_grounding_score: float = Field(..., alias="anclaje_fuente_score", description="Fidelity score from 0.0 to 1.0")
     pedagogical_clarity: str = Field(..., alias="claridad_pedagogica")
     observations: str = Field(..., alias="observaciones")
+    per_item: Optional[List[Dict[str, Any]]] = Field(default_factory=list, alias="por_item")
 
 
 class OCIStorageResult(BaseModel):

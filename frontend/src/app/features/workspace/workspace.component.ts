@@ -416,8 +416,8 @@ import { AppDocument } from '../../core/models/document.model';
                   class="menu-item" 
                   (click)="exportAnki(); closeExportMenu()"
                 >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 3k-4 4-4-4"/></svg>
-                  <span>Anki (CSV)</span>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                  <span>CSV</span>
                 </button>
               </div>
             </div>
@@ -488,8 +488,8 @@ import { AppDocument } from '../../core/models/document.model';
         <!-- RENDERERS SWITCH BY FORMAT -->
         <div class="renderer-wrapper">
           <ng-container [ngSwitch]="currentResponse()?.metadatos?.formato_generado">
-            <app-flashcards-renderer *ngSwitchCase="'Flashcards'" [items]="getTypedItems()"></app-flashcards-renderer>
-            <app-quiz-renderer *ngSwitchCase="'Quiz'" [items]="getTypedItems()"></app-quiz-renderer>
+            <app-flashcards-renderer *ngSwitchCase="'Flashcards'" [items]="getTypedItems()" [evaluacion]="currentResponse()?.evaluacion_calidad"></app-flashcards-renderer>
+            <app-quiz-renderer *ngSwitchCase="'Quiz'" [items]="getTypedItems()" [evaluacion]="currentResponse()?.evaluacion_calidad"></app-quiz-renderer>
             <app-tutorial-renderer *ngSwitchCase="'Tutorial'" [items]="getTypedItems()"></app-tutorial-renderer>
             <app-summary-renderer *ngSwitchCase="'Resumen Ejecutivo'" [items]="getTypedItems()"></app-summary-renderer>
             <app-script-renderer *ngSwitchCase="'Guion de Clase'" [items]="getTypedItems()"></app-script-renderer>

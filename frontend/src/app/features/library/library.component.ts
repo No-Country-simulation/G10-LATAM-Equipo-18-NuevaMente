@@ -1,4 +1,4 @@
-import { Component, signal, computed, inject, OnInit } from '@angular/core';
+import { Component, signal, computed, inject, OnInit, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
 import { forkJoin } from 'rxjs';
@@ -144,8 +144,11 @@ interface ToastState {
               <td><span class="badge-profile">{{ proj.perfil }}</span></td>
               <td><span class="badge-format">{{ proj.formato }}</span></td>
               <td>
-                <span class="rag-score">
-                  🛡️ {{ ((proj.response?.evaluacion_calidad?.anclaje_fuente_score || 0.98) * 100) | number:'1.0-0' }}%
+                <span class="rag-score" *ngIf="proj.response?.evaluacion_calidad?.anclaje_fuente_score !== undefined">
+                  🛡️ {{ (proj.response!.evaluacion_calidad!.anclaje_fuente_score! * 100) | number:'1.0-0' }}%
+                </span>
+                <span class="rag-score unverified" *ngIf="proj.response?.evaluacion_calidad?.anclaje_fuente_score === undefined">
+                  ⚠️ Sin verificar
                 </span>
               </td>
               <td>
@@ -167,26 +170,6 @@ interface ToastState {
 
                 <button 
                   class="btn-action-secondary" 
-                  (click)="viewPdf(proj)" 
-                  title="Visualizar PDF Didáctico"
-                  [attr.aria-label]="'Visualizar PDF de ' + proj.nombre"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
-                  PDF
-                </button>
-
-                <button 
-                  class="btn-action-secondary" 
-                  (click)="downloadMd(proj)" 
-                  title="Descargar Markdown"
-                  [attr.aria-label]="'Descargar Markdown de ' + proj.nombre"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-                  MD
-                </button>
-
-                <button 
-                  class="btn-action-secondary" 
                   (click)="openJson(proj)" 
                   title="Ver JSON"
                   [attr.aria-label]="'Ver JSON de ' + proj.nombre"
@@ -194,6 +177,58 @@ interface ToastState {
                   <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
                   JSON
                 </button>
+
+                <button 
+                  class="btn-action-secondary" 
+                  (click)="viewDoc(proj)" 
+                  title="Ver documento interactivo"
+                  [attr.aria-label]="'Ver documento de ' + proj.nombre"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+                  Doc
+                </button>
+
+                <div class="download-dropdown-wrapper">
+                  <button 
+                    type="button" 
+                    class="btn-action-secondary btn-action-download" 
+                    (click)="toggleDownloadMenu(proj.id, $event)" 
+                    title="Opciones de descarga"
+                    [attr.aria-label]="'Opciones de descarga para ' + proj.nombre"
+                    [attr.aria-expanded]="activeDownloadId() === proj.id"
+                  >
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                    <span>▼</span>
+                  </button>
+
+                  <div class="download-popover" *ngIf="activeDownloadId() === proj.id">
+                    <button 
+                      type="button" 
+                      class="popover-item" 
+                      (click)="downloadPdf(proj); closeDownloadMenu()"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4F46E5" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span>PDF</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      class="popover-item" 
+                      (click)="downloadMd(proj); closeDownloadMenu()"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#7C3AED" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M12 18v-6"/><path d="m9 15 3 3 3-3"/></svg>
+                      <span>Markdown (.md)</span>
+                    </button>
+                    <button 
+                      type="button" 
+                      class="popover-item" 
+                      *ngIf="hasFlashcards(proj)"
+                      (click)="downloadCsv(proj); closeDownloadMenu()"
+                    >
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <span>CSV</span>
+                    </button>
+                  </div>
+                </div>
 
                 <button 
                   class="btn-action-danger" 
@@ -552,6 +587,60 @@ interface ToastState {
       border-color: #EF4444;
     }
 
+    .download-dropdown-wrapper {
+      position: relative;
+      display: inline-flex;
+    }
+
+    .btn-action-download {
+      gap: 0.25rem;
+      padding: 0.45rem 0.6rem;
+      font-size: 0.72rem;
+    }
+
+    .btn-action-download span {
+      font-size: 0.65rem;
+      opacity: 0.7;
+    }
+
+    .download-popover {
+      position: absolute;
+      top: calc(100% + 0.35rem);
+      right: 0;
+      width: 160px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 0.4rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.2rem;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.25);
+      z-index: 100;
+    }
+
+    .popover-item {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      width: 100%;
+      padding: 0.45rem 0.6rem;
+      border-radius: 6px;
+      border: none;
+      background: transparent;
+      color: var(--text-primary);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s;
+    }
+
+    .popover-item:hover {
+      background: var(--bg-app);
+      color: #4F46E5;
+    }
+
     .empty-state {
       padding: 4rem 2rem;
       text-align: center;
@@ -585,6 +674,28 @@ export class LibraryComponent implements OnInit {
   toast = signal<ToastState | null>(null);
   isJsonDrawerOpen = signal(false);
   jsonProject = signal<RecentProject | null>(null);
+  activeDownloadId = signal<string | null>(null);
+
+  @HostListener('document:click', ['$event'])
+  onDocumentClick(event: MouseEvent): void {
+    const target = event.target as HTMLElement;
+    if (!target.closest('.download-dropdown-wrapper')) {
+      this.closeDownloadMenu();
+    }
+  }
+
+  toggleDownloadMenu(id: string, event: MouseEvent): void {
+    event.stopPropagation();
+    if (this.activeDownloadId() === id) {
+      this.activeDownloadId.set(null);
+    } else {
+      this.activeDownloadId.set(id);
+    }
+  }
+
+  closeDownloadMenu(): void {
+    this.activeDownloadId.set(null);
+  }
 
   ngOnInit(): void {
     this.refreshProjects();
@@ -673,9 +784,15 @@ export class LibraryComponent implements OnInit {
     this.router.navigate(['/workspace']);
   }
 
-  viewPdf(proj: RecentProject): void {
+  viewDoc(proj: RecentProject): void {
     if (proj.response) {
-      this.exportService.exportPdfDidactico(proj.response);
+      this.exportService.viewPdfPreview(proj.response);
+    }
+  }
+
+  downloadPdf(proj: RecentProject): void {
+    if (proj.response) {
+      this.exportService.exportPdfDirect(proj.response);
     }
   }
 
@@ -683,6 +800,17 @@ export class LibraryComponent implements OnInit {
     if (proj.response) {
       this.exportService.exportMarkdown(proj.response);
     }
+  }
+
+  downloadCsv(proj: RecentProject): void {
+    if (proj.response) {
+      this.exportService.exportAnkiCsv(proj.response);
+    }
+  }
+
+  hasFlashcards(proj: RecentProject): boolean {
+    const items = proj.response?.contenido_adaptado?.items || [];
+    return items.some((item: any) => 'frente' in item);
   }
 
   moveToTrash(proj: RecentProject): void {

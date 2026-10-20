@@ -250,6 +250,7 @@ export class PipelineStateService {
       case 'deduplicator': return 7;
       case 'grounding_verifier': return 8;
       case 'critic': return 9;
+      case 'repair': return 10;   // maps to the auto-correction slot (shared with refiner)
       case 'refiner': return 10;
       case 'formatter': return 11;
       default: return -1;
@@ -298,6 +299,7 @@ export class PipelineStateService {
       case 'deduplicator': return this.i18n.t('stage_deduplicator_desc');
       case 'grounding_verifier': return this.i18n.t('stage_grounding_desc');
       case 'critic': return this.i18n.t('stage_critic_desc');
+      case 'repair': return 'Reparando quirúrgicamente citas no ancladas con el auditor…';
       case 'refiner': return this.i18n.t('stage_refiner_desc');
       case 'formatter': return this.i18n.t('stage_formatter_desc');
       default: return '';
