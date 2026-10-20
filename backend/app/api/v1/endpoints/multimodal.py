@@ -36,7 +36,7 @@ def _analyze_diagram_sync(content_bytes: bytes, extension: str, prompt: str, sys
 async def extract_diagram(file: UploadFile = File(...)):
     """
     Recibe una imagen (ej. Diagrama de AWS/OCI, Arquitectura),
-    usa la capacidad multimodal de Gemini 1.5 Flash/Pro para analizarla,
+    usa la capacidad multimodal de Gemini 3.5 Flash/Pro para analizarla,
     y devuelve Flashcards de Anki estructuradas en JSON.
     """
     filename = file.filename or "diagrama.jpg"

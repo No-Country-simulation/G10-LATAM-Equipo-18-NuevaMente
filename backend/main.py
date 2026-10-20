@@ -11,7 +11,9 @@ logger = logging.getLogger("uvicorn")
 app = FastAPI(
     title=settings.PROJECT_NAME,
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
     description="API REST del proyecto NuevaMente para el Hackathon ONE G10 (Oracle Next Education & Alura). Módulo de Adaptación de Contenido Técnico con Graph RAG, RAG Híbrido, Gemini y OCI Object Storage Always Free."
 )
 
@@ -53,10 +55,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Official API prefix documented in Swagger
 app.include_router(api_router, prefix=settings.API_V1_STR)
-app.include_router(api_router, prefix="/api")
-app.include_router(api_router, prefix="/api/api/v1")
-app.include_router(api_router, prefix="/api/api")
+
+# Backward-compatibility routes excluded from OpenAPI documentation
+app.include_router(api_router, prefix="/api", include_in_schema=False)
+app.include_router(api_router, prefix="/api/api/v1", include_in_schema=False)
+app.include_router(api_router, prefix="/api/api", include_in_schema=False)
 
 
 @app.get("/")
