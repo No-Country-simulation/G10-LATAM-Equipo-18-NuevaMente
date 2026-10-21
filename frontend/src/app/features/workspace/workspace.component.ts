@@ -502,7 +502,7 @@ import { AppDocument } from '../../core/models/document.model';
             <app-flashcards-renderer *ngSwitchCase="'Flashcards'" [items]="getTypedItems()" [evaluacion]="currentResponse()?.evaluacion_calidad"></app-flashcards-renderer>
             <app-quiz-renderer *ngSwitchCase="'Quiz'" [items]="getTypedItems()" [evaluacion]="currentResponse()?.evaluacion_calidad"></app-quiz-renderer>
             <app-tutorial-renderer *ngSwitchCase="'Tutorial'" [items]="getTypedItems()"></app-tutorial-renderer>
-            <app-summary-renderer *ngSwitchCase="'Resumen Ejecutivo'" [items]="getTypedItems()" [text]="currentResponse()?.contenido_adaptado?.resumen_ejecutivo"></app-summary-renderer>
+            <app-summary-renderer *ngSwitchCase="'Resumen Ejecutivo'" [items]="getTypedItems()" [text]="currentResponse()?.contenido_adaptado?.resumen_ejecutivo" [empty]="hasGeneralNotice()"></app-summary-renderer>
             <app-script-renderer *ngSwitchCase="'Guion de Clase'" [items]="getTypedItems()"></app-script-renderer>
             <app-tutorial-renderer *ngSwitchDefault [items]="getTypedItems()"></app-tutorial-renderer>
           </ng-container>

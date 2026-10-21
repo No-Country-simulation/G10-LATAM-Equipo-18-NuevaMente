@@ -174,6 +174,11 @@ export class SummaryRendererComponent implements OnChanges {
   @Input({ required: true }) items: ResumenEjecutivoItem[] = [];
   /** Stored `resumen_ejecutivo` text; canonical output when present. */
   @Input() text?: string;
+  /**
+   * True when the backend could not generate a summary. The stored text is
+   * then the explanation of the failure, not a summary to display.
+   */
+  @Input() empty = false;
 
   paragraphs: string[] = [];
   sourceLabels: string[] = [];
@@ -204,6 +209,14 @@ export class SummaryRendererComponent implements OnChanges {
     this.noticeText = '';
 
     const stored = (this.text || '').trim();
+
+    if (this.empty) {
+      // Nothing could be generated: the stored text explains the failure.
+      this.paragraphs = [];
+      this.noticeText = stored;
+      this.sourceLabels = [];
+      return;
+    }
 
     if (stored) {
       const parsed = this.parseStoredText(stored);
