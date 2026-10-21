@@ -19,9 +19,21 @@ export class ExportService {
     md += `## Introducción\n${response.contenido_adaptado.introduccion_contextualizada}\n\n`;
 
     const items = response.contenido_adaptado.items || [];
-    md += `## Contenido Didáctico\n\n`;
+    const storedSummary = response.contenido_adaptado.resumen_ejecutivo;
+    const renderAsParagraphs = this.isSummaryItems(items, storedSummary);
+
+    if (renderAsParagraphs) {
+      // Executive summary downloads as one continuous text of paragraphs.
+      md += `## Resumen Ejecutivo\n\n`;
+      md += this.composeSummaryParagraphs(items, storedSummary).join('\n\n') + '\n\n';
+    } else {
+      md += `## Contenido Didáctico\n\n`;
+    }
 
     items.forEach((item: any, idx: number) => {
+      if (renderAsParagraphs) {
+        return; // Already rendered above as one continuous text.
+      }
       if ('frente' in item) {
         md += `### Flashcard ${idx + 1}\n- **Q:** ${item.frente}\n- **A:** ${item.dorso}\n`;
         if (item.pista_didactica) md += `- *Pista:* ${item.pista_didactica}\n`;
@@ -115,7 +127,20 @@ export class ExportService {
 
     let itemsHtml = '';
 
+    const storedSummary = response.contenido_adaptado.resumen_ejecutivo;
+    const renderAsParagraphs = this.isSummaryItems(items, storedSummary);
+    if (renderAsParagraphs) {
+      // Single flowing document instead of one card per block.
+      const summaryHtml = this.composeSummaryParagraphs(items, storedSummary)
+        .map((paragraph) => `<p>${paragraph}</p>`)
+        .join('');
+      itemsHtml = `<div class="summary-flow">${summaryHtml}</div>`;
+    }
+
     items.forEach((item: any, idx: number) => {
+      if (renderAsParagraphs) {
+        return; // Summary already rendered as continuous paragraphs.
+      }
       if ('paso' in item || 'instruccion' in item) {
         itemsHtml += `
           <div class="pdf-card">
@@ -223,6 +248,8 @@ export class ExportService {
           .chip-format { background: #f3e8ff; color: #7c3aed; }
           .doc-title { font-size: 24px; font-weight: 800; color: #0f172a; margin: 0 0 12px 0; }
           .intro-text { font-size: 14px; color: #475569; margin-bottom: 24px; line-height: 1.6; }
+          .summary-flow { font-size: 14px; color: #334155; line-height: 1.75; }
+          .summary-flow p { margin: 0 0 14px 0; }
           .pdf-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 20px; page-break-inside: avoid; background: #ffffff; }
           .card-step-badge { font-size: 11px; font-weight: 800; color: #4f46e5; letter-spacing: 0.05em; margin-bottom: 6px; }
           .card-step-title { font-size: 16px; font-weight: 700; margin: 0 0 10px 0; color: #0f172a; }
@@ -293,6 +320,51 @@ export class ExportService {
 
     printWindow.document.write(htmlContent);
     printWindow.document.close();
+  }
+
+  /**
+   * True when the response must render as one continuous summary text:
+   * either structured `punto_clave` blocks or a legacy stored summary string.
+   */
+  private isSummaryItems(items: any[], storedText?: string): boolean {
+    if (items.length > 0) {
+      return items.every((item: any) => !!item && 'punto_clave' in item);
+    }
+    return !!storedText;
+  }
+
+  /** Summary blocks (or legacy stored text) joined into flowing paragraphs. */
+  private composeSummaryParagraphs(items: any[], storedText?: string): string[] {
+    if (items.length > 0) {
+      const sentences = items
+        .filter((item: any) => item && (item.punto_clave || item.impacto_negocio))
+        .map((item: any) => {
+          const point = String(item.punto_clave || '').trim().replace(/\.$/, '');
+          const impact = String(item.impacto_negocio || '').trim();
+          const parts: string[] = [];
+          if (point) parts.push(point.charAt(0).toUpperCase() + point.slice(1) + '.');
+          if (impact) parts.push(/\.$/.test(impact) ? impact : impact + '.');
+          return parts.join(' ');
+        })
+        .filter((sentence: string) => sentence.length > 0);
+      return this.groupIntoParagraphs(sentences);
+    }
+
+    const lines = String(storedText || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0 && !/^(resumen ejecutivo|executive summary)/i.test(line))
+      .map((line) => line.replace(/^\d+\.\s*/, ''));
+    return this.groupIntoParagraphs(lines);
+  }
+
+  /** Groups consecutive sentences into paragraphs of two (mirrors the backend). */
+  private groupIntoParagraphs(sentences: string[]): string[] {
+    const paragraphs: string[] = [];
+    for (let i = 0; i < sentences.length; i += 2) {
+      paragraphs.push(sentences.slice(i, i + 2).join(' '));
+    }
+    return paragraphs;
   }
 
   triggerPrint(): void {

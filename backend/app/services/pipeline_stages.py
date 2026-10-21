@@ -37,6 +37,7 @@ from app.core.labels import (
 )
 from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
 from app.prompts.prompt_loader import load_prompt
+from app.services.summary_composer import compose_summary_paragraphs
 from app.schemas.adaptation import (
     AdaptationRequest,
     AdaptationResponse,
@@ -1516,15 +1517,14 @@ class PipelineStages:
                 tutorial_sections=sections,
             )
         elif "resumen" in fmt:
-            summary_bullets = [
-                f"{i+1}. {it.get('punto_clave', 'Punto ' + str(i+1) if is_spanish else 'Point ' + str(i+1))}: {it.get('impacto_negocio', '')}"
-                for i, it in enumerate(items)
-            ]
-            header = f"RESUMEN EJECUTIVO ({effective_count} PUNTOS):" if is_spanish else f"EXECUTIVE SUMMARY ({effective_count} POINTS):"
+            # Single continuous output: every block (takeaway + impact) is merged
+            # into plain paragraphs so the summary reads as one document instead
+            # of a numbered list of separate parts. Sources stay in `items`.
+            paragraphs = compose_summary_paragraphs(items)
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
-                executive_summary=f"{header}\n\n" + "\n".join(summary_bullets),
+                executive_summary="\n\n".join(paragraphs),
                 items=items,
             )
         elif "guion" in fmt or "clase" in fmt or "script" in fmt:

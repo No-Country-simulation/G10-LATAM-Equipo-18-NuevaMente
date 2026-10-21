@@ -4,6 +4,11 @@ from fpdf import FPDF
 from pathlib import Path
 import logging
 from app.schemas.adaptation import AdaptedContent
+from app.services.summary_composer import (
+    compose_summary_paragraphs,
+    is_summary_content,
+    paragraphs_from_legacy_text,
+)
 
 logger = logging.getLogger("pdf_export_service")
 
@@ -76,8 +81,13 @@ class PDFExportService:
             pdf.add_page()
             
             self._create_cover(pdf, self._safe_text(content.title))
-            self._create_index(pdf, content)
-            self._create_content_pages(pdf, content)
+            if self._is_summary(content):
+                # Executive summaries are exported as one continuous flow of
+                # paragraphs: no index, no numbered sections, no item cards.
+                self._create_summary_flow(pdf, content)
+            else:
+                self._create_index(pdf, content)
+                self._create_content_pages(pdf, content)
             
             pdf.output(output_path)
             logger.info("PDF generated successfully at: %s", output_path)
@@ -92,14 +102,42 @@ class PDFExportService:
             pdf.add_page()
             
             self._create_cover(pdf, self._safe_text(content.title))
-            self._create_index(pdf, content)
-            self._create_content_pages(pdf, content)
+            if self._is_summary(content):
+                self._create_summary_flow(pdf, content)
+            else:
+                self._create_index(pdf, content)
+                self._create_content_pages(pdf, content)
             
             out = pdf.output()
             return bytes(out)
         except Exception as e:
             logger.error("Error generating PDF bytes: %s", e)
             raise
+
+    @staticmethod
+    def _is_summary(content: AdaptedContent) -> bool:
+        """True when the content is an executive summary (punto_clave blocks)."""
+        return is_summary_content(content.items or [])
+
+    @staticmethod
+    def _summary_paragraphs(content: AdaptedContent) -> list:
+        """Summary body as paragraphs, built from items or from legacy stored text."""
+        paragraphs = compose_summary_paragraphs(content.items or [])
+        if paragraphs:
+            return paragraphs
+        return paragraphs_from_legacy_text(content.executive_summary or "")
+
+    def _create_summary_flow(self, pdf: EducationalPDF, content: AdaptedContent):
+        """Render the executive summary as a single document of flowing paragraphs."""
+        pdf.add_page()
+
+        paragraphs = self._summary_paragraphs(content)
+        if content.contextualized_introduction:
+            self._add_body_text(pdf, self._safe_text(content.contextualized_introduction))
+            pdf.ln(4)
+        for paragraph in paragraphs:
+            self._add_body_text(pdf, self._safe_text(paragraph))
+            pdf.ln(4)
 
     def _create_cover(self, pdf: EducationalPDF, title: str):
         # Fondo de carátula
