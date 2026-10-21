@@ -1,225 +1,182 @@
-# 🎓 NuevaMente — Sistema Inteligente de Adaptación y Generación de Contenido Educativo
-
-> **Programa ONE (Oracle Next Education) & Alura — Hackathon ONE G10**  
-> *Grupo 10 | Proyecto 1: Adaptación de Contenido Técnico con IA Generativa, Graph RAG y OCI Always Free*
+# NuevaMente — Sistema Inteligente de Adaptación y Generación de Contenido Educativo
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.11+-green.svg)
+![Python](https://img.shields.io/badge/Python-3.12+-green.svg)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)
 ![Angular](https://img.shields.io/badge/Frontend-Angular%2017+-DD0031.svg)
-![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini%201.5%2F2.0-8E44AD.svg)
+![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini%203.5%2F3.8-8E44AD.svg)
+![Groq](https://img.shields.io/badge/AI-Groq-red)
+![OpenRouter](https://img.shields.io/badge/AI-OpenRouter-gray.svg)
 ![Oracle Cloud](https://img.shields.io/badge/Cloud-OCI%20Always%20Free-F80000.svg)
 
----
+**NuevaMente** transforma documentación técnica en materiales educativos claros y didácticos, permitiendo que los equipos aceleren el aprendizaje a partir del conocimiento técnico ya existente.
 
-## 📄 Descripción Ejecutiva
+## Rutas de lectura rápida
 
-**NuevaMente** es un sistema inteligente desarrollado para automatizar la transformación de documentaciones técnicas complejas, manuales de software, guías de arquitectura en la nube y artículos científicos en **materiales educativos hiper-personalizados** y libres de alucinaciones.
+- **Para estudiantes y primeros pasos:** Dirígete a la sección [4. Acceso al proyecto / Instalación](#4-acceso-al-proyecto--instalación) o consulta directamente el tutorial guiado en [docs/02-Instalacion/Uso_Local.md](docs/02-Instalacion/Uso_Local.md) para levantar el entorno en tu máquina paso a paso.
+- **Para desarrolladores senior y evaluadores técnicos:** Revisa la [3. Arquitectura y tecnologías](#3-arquitectura-y-tecnologías) y la sección [7. Documentación detallada (Marco Diátaxis)](#7-documentación-detallada-marco-diátaxis) para examinar contratos de API, diseño RAG, cascada con fallback y almacenamiento.
 
-La plataforma ingiere materiales en PDF, Markdown o Texto Plano y los adapta dinámicamente según:
-1. **Perfil del Destinatario:** Principiante / Transición, Desarrollador Junior/Mid, Líder Técnico / Arquitecto, Gestor / Ejecutivo.
-2. **Formato Pedagógico:** Guía Paso a Paso (Tutorial), Flashcards de Memorización, Quiz Interactivo con Justificaciones, Resumen Ejecutivo (TL;DR).
-3. **Nicho / Industria de Aplicación:** Fintech, Salud, E-commerce, Infraestructura en la Nube, General.
+## Índice
 
----
+- [1. Descripción del proyecto](#1-descripción-del-proyecto)
+- [2. Características principales](#2-características-principales)
+- [3. Arquitectura y tecnologías](#3-arquitectura-y-tecnologías)
+- [4. Acceso al proyecto / Instalación](#4-acceso-al-proyecto--instalación)
+- [5. Uso](#5-uso)
+- [6. Estructura del proyecto](#6-estructura-del-proyecto)
+- [7. Documentación detallada (Marco Diátaxis)](#7-documentación-detallada-marco-diátaxis)
+- [8. Próximos pasos o futuras implementaciones](#8-próximos-pasos-o-futuras-implementaciones)
+- [9. Contribución](#9-contribución)
+- [10. Licencia](#10-licencia)
 
-## 🏗️ Arquitectura de Software
+## 1. Descripción del proyecto
 
-La arquitectura de **NuevaMente** combina 4 tecnologías de vanguardia:
+**Problema:** Las organizaciones acumulan manuales, guías, especificaciones y otra documentación técnica extensa, pero este conocimiento suele ser difícil de asimilar para quienes están en proceso de formación u onboarding. Ese material, por su densidad y formato, queda infrautilizado.
+
+**Solución:** NuevaMente toma esa documentación existente y la adapta a contenido educativo estructurado, ajustado al perfil y nivel de detalle, sin perder precisión ni fidelidad a la fuente.
+
+**Valor:** Reduce el tiempo de aprendizaje, facilita la transferencia de conocimiento dentro del equipo y reutiliza activos técnicos ya existentes para generar material formativo útil y listo para aplicar.
+
+**Público objetivo:** Equipos de formación, producto, desarrollo y documentación que necesitan convertir activos técnicos en materiales de aprendizaje para acelerar la adopción de tecnologías, herramientas o procesos.
+
+**Enfoque actual:** El flujo se basa en **recuperación vectorial + adaptación con LLM**. Se obtiene contexto relevante mediante búsqueda por similitud semántica (vectorial) y se adapta ese contexto al formato educativo mediante un LLM. El sistema está diseñado para priorizar la fidelidad a las fuentes y cuenta con **cascada de proveedores con fallback** para mejorar su robustez.
+
+**Más información:** [docs/01-Arquitectura/Arquitectura.md](docs/01-Arquitectura/Arquitectura.md)
+
+## 2. Características principales
+
+- **Adaptación educativa flexible:** Soporta múltiples formatos (Flashcards, Quiz, Tutorial, Resumen Ejecutivo, Guión de Clase) según el objetivo de aprendizaje.
+- **Recuperación vectorial:** Búsqueda semántica por similitud sobre **FAISS** (local) con control total sobre los datos.
+- **Adaptación guiada por prompts:** Prompts externos para ajustar tono, formato y nivel de detalle sin modificar el código.
+- **Robustez con fallback:** Implementación preparada para **cascada de modelos con fallback** entre proveedores, lo que permite mantener la disponibilidad ante errores o límites.
+- **API REST organizada (FastAPI):** Endpoints claros para ingesta, recuperación y adaptación.
+- **Interfaz web (Angular 17):** UI principal para probar y visualizar el flujo completo.
+- **Alternativa básica para pruebas rápidas (Gradio):** Incluye una interfaz ligera basada en **Gradio** para validar ingesta y generación sin levantar el frontend completo.
+
+**Más información:** [docs/01-Arquitectura/Componentes.md](docs/01-Arquitectura/Componentes.md)
+
+## 3. Arquitectura y tecnologías
 
 ```mermaid
-flowchart TD
-    Doc[📄 Documento Técnico original] --> Ingest[1. Ingestión & AST Splitter]
-    Ingest --> MapReduce[2. Condensación Map-Reduce]
-    MapReduce --> DualIndex[3. Indexación Dual: Graph RAG + RAG Híbrido]
-    
-    subgraph Engine de IA Generativa & Agentes
-        DualIndex --> AgentGraph[4. Orquestación de Agentes con Gemini & LangGraph]
-        AgentGraph --> FactNode[Nodo 1: Facts Extractor]
-        FactNode --> PlanNode[Nodo 2: Structural Planner]
-        PlanNode --> WriteNode[Nodo 3: Adaptive Redactor]
-        WriteNode --> ExNode[Nodo 4: Example Generator]
-        ExNode --> AuditNode[Nodo 5: Fact-checking Auditor]
-    end
-    
-    AuditNode --> JSONOut[5. JSON Estructurado Validado]
-    JSONOut --> OCIBucket[(6. Oracle Cloud OCI Object Storage Always Free)]
-    JSONOut --> AngularUI[7. Frontend Angular - Visor Didáctico, Quiz & Flashcards]
+flowchart LR
+  A["Documentación técnica"] --> B["Ingesta"]
+  B --> C["Segmentación en chunks"]
+  C --> D["Generación de embeddings"]
+  D --> E["(Vector Store\nFAISS)"]
+  E --> F["Recuperación vectorial\n(Búsqueda por similitud semántica)"]
+  F --> G["Adaptación con LLM\n(Cascada + Fallback)"]
+  G --> H["Contenido educativo estructurado"]
+  H --> I["Frontend Angular 17"]
+  K["API REST - FastAPI"] <---> I
+  K <---> G
+  G --> L["(Persistencia\nOCI / SQLite)"]
 ```
 
-### Componentes Principales:
-- **Graph RAG (Generación Aumentada por Grafos):** Mapea entidades y relaciones semánticas en un Grafo Acíclico Dirigido (DAG NetworkX) para determinar prerrequisitos y centralidad de conceptos.
-- **RAG Híbrido con Re-ranking Especializado:** Búsqueda combinada Sparse (BM25) + Dense (`text-embedding-004`) reordenada por Cross-Encoder Re-ranker.
-- **Procesamiento Jerárquico Map-Reduce:** Extracción paralela por secciones y síntesis libre de redundancias para documentos de más de 50 páginas.
-- **Orquestación de Agentes con Google Gemini:** Grafo de 5 Nodos en LangGraph impulsado por Gemini 1.5/2.0 Pro & Flash.
-- **Persistencia en OCI Object Storage Always Free:** Guardado del documento original y artefactos JSON en buckets sin generar costos.
+- **Backend:** FastAPI (Python >= 3.12), gestionado con [uv](https://github.com/astral-sh/uv).
+- **Frontend:** Angular 17 (standalone), servido con nginx.
+- **Vector Store:** FAISS (local).
+- **Embeddings:** Gemini, Jina y modelo local (`intfloat/multilingual-e5-base`).
+- **LLM:** Google Gemini (modelo principal), con soporte para **cascada y fallback** entre proveedores.
+- **Orquestación:** LangGraph con Multi-Agent.
+- **Almacenamiento:** OCI Object Storage (Always Free) + SQLite local para metadatos, alternativa Supabase, o local.
 
----
+**Más información:** [docs/01-Arquitectura/Tecnologias.md](docs/01-Arquitectura/Tecnologias.md)
 
-## 📁 Estructura del Repositorio
+## 4. Acceso al proyecto / Instalación
 
-```
-appNuevamente/
-├── backend/                       # API REST FastAPI en Python
-│   ├── app/
-│   │   ├── api/v1/endpoints/      # Controladores HTTP (adaptation, ingestion, storage, health)
-│   │   ├── core/                  # Configuración global y credenciales
-│   │   ├── schemas/               # Modelos Pydantic v2 (JSON Schema estricto)
-│   │   ├── services/              # Ingestion, Hybrid RAG, Graph RAG, Agents, OCI Storage
-│   │   └── infrastructure/        # Clientes de Gemini, Vector Store y OCI SDK
-│   ├── tests/                     # Pruebas unitarias y de integración (pytest)
-│   ├── main.py                    # Punto de entrada FastAPI
-│   └── requirements.txt
-├── frontend/                      # Aplicación Web Angular
-│   ├── src/
-│   │   ├── app/
-│   │   │   ├── components/        # Sub-componentes (Uploader, ParameterConfig, ContentViewer, Flashcards, Quiz, MetadataDashboard)
-│   │   │   └── core/              # Servicios REST y Modelos TypeScript
-│   │   └── index.html
-│   └── package.json
-├── docs/                          # Documentación Técnica Detallada
-│   ├── ARQUITECTURA_SOFTWARE.md   # Especificación general y diagramas C4
-│   ├── PIPELINE_RAG_Y_AGENTES.md  # Teoría de Graph RAG, RAG Híbrido y LangGraph
-│   └── DESPLIEGUE_OCI.md          # Guía de configuración OCI Always Free
-└── README.md                      # Documentación principal
-```
+### Pasos rápidos:
 
----
+1. Clonar el repositorio.
+2. Configurar el backend con `uv`.
+3. Configurar el frontend con `npm`.
+4. Crear `backend/.env` a partir de `backend/.env.example`.
+5. Ejecutar backend y frontend.
 
-## ⚡ Instalación y Ejecución Rápida
+> **Tutorial paso a paso para estudiantes:** Consulta [docs/02-Instalacion/Uso_Local.md](docs/02-Instalacion/Uso_Local.md) para la guía detallada con verificación de servicios, solución de problemas y comandos exactos.
 
-### 1. Clonar Repositorio y Ubicar Rama
-```bash
-git clone https://github.com/No-Country-simulation/G10-LATAM-equipo-18-NuevaMente-Sistema-Inteligente-de-Adaptaci-n-y-Generaci-n-de-Contenido-Educativo.git
-cd G10-LATAM-equipo-18-NuevaMente-Sistema-Inteligente-de-Adaptaci-n-y-Generaci-n-de-Contenido-Educativo
-git checkout devbackend
-```
+## 5. Uso
 
-### 2. Configuración Inicial y Diagnóstico de Entorno
+- **Backend (desarrollo):** Desde `backend/`
+  ```bash
+  uv run --with email-validator --with genanki python main.py
+  ```
+- **Frontend (desarrollo):** Desde `frontend/`
+  ```bash
+  npm install && npm start  # http://localhost:4200
+  ```
+- **Alternativa básica para pruebas rápidas (Gradio):** Desde `backend/`
+  ```bash
+  uv run python ../frontend_gradio/app_gradio.py
+  ```
+  > `frontend_gradio/` es una **alternativa básica** (UI con Gradio) pensada para validaciones puntuales del flujo de ingesta/adaptación, sin necesidad de levantar la aplicación Angular completa.
 
-1. **Obtener Clave API:** Obtén una clave API de Google Gemini en [Google AI Studio](https://aistudio.google.com/). Opcionalmente, puedes configurar claves de Groq y Jina.
-2. **Crear Variables de Entorno:** Copia el archivo de ejemplo `backend/.env.example` como `backend/.env` y define tu clave:
-   ```env
-   GEMINI_API_KEY=AIza... (o AQ...)
-   GEMINI_LLM_MODEL=gemini-2.5-flash
-   GEMINI_EMBEDDING_MODEL=gemini-embedding-001
-   EMBEDDING_PROVIDER_ORDER=gemini,jina,local
-   ALLOW_DEMO_CONTENT=false
-   OCI_ENABLED=false
-   ```
-3. **Ejecutar Script de Diagnóstico de Salud de Servicios:**
-   ```bash
-   cd backend
-   python scripts/check_services.py
-   ```
-4. **Interpretar Resultados:**
-   - Si el **LLM de Gemini** devuelve `SUCCESS` y los **Embeddings principales** devuelven `SUCCESS` (`models/gemini-embedding-001@768`), el entorno está 100% operativo sin degradaciones.
-   - Si los embeddings principales fallan, el sistema entrará en degradación léxica usando BM25 o embeddings locales sentence-transformers.
-   - Si el LLM de Gemini falla (401/403/429/conectividad), el diagnóstico marcará `FAIL` y devolverá código de salida 1 indicando qué acción tomar.
+**Más información:** [docs/02-Instalacion/Uso_Local.md](docs/02-Instalacion/Uso_Local.md) | [docs/04-Documentacion/backend/ingestion/API_de_Ingesta.md](docs/04-Documentacion/backend/ingestion/API_de_Ingesta.md)
 
-### 3. Levantar Backend FastAPI (Python)
-```bash
-cd backend
-python -m venv venv
-# En Windows:
-.\venv\Scripts\activate
-# En Linux/Mac:
-source venv/bin/activate
+## 6. Estructura del proyecto
 
-pip install -r requirements.txt
-
-# Iniciar servidor FastAPI
-python main.py
-```
-*El backend estará disponible en `http://localhost:8000` con documentación interactiva Swagger en `http://localhost:8000/docs`.*
-
-### 3. Levantar Frontend Angular
-```bash
-cd ../frontend
-npm install
-npm start
-```
-*La aplicación web estará disponible en `http://localhost:4200`.*
-
-### 4. Purga Automática y Manual de Papelera (15 Días)
-El sistema incluye aislamiento por usuario y borrado lógico con retención configurable (`TRASH_RETENTION_DAYS=15`).
-
-Para ejecutar manualmente la purga de retención de papelera:
-```bash
-cd backend
-python purge_trash.py --batch-size 50
+```text
+nueva-mente/
+├── backend/            # API FastAPI (Python >= 3.12)
+│   ├── app/             # Núcleo: api/, core/, services/, prompts/, schemas/, infrastructure...
+│   ├── migrations/      # Migraciones SQL (aplicadas manualmente en Supabase)
+│   ├── scripts/         # Scripts de apoyo y diagnóstico
+│   └── tests/           # Pruebas del backend (pytest) y scripts en tests/manual/
+├── frontend/           # Aplicación Angular 17 (standalone). UI principal
+├── frontend_gradio/    # UI alternativa básica (Gradio) para pruebas rápidas
+├── docs/               # Documentación detallada del proyecto
+├── .gitignore          # Archivo de configuración de gitignore
+└── .gitleaks.toml      # Configuración de detección de secretos
 ```
 
-**Programación con Crontab (Linux/Mac):**
-```cron
-0 * * * * cd /ruta/al/proyecto/backend && ./venv/bin/python purge_trash.py >> /var/log/purge_trash.log 2>&1
-```
+**Más información:** [docs/03-Estructura/Estructura_de_Archivos.md](docs/03-Estructura/Estructura_de_Archivos.md)
 
-**Programación en Windows (Task Scheduler):**
-Configurar una tarea programada para ejecutar `venv\Scripts\python.exe purge_trash.py` cada 60 minutos.
+## 7. Documentación detallada (Marco Diátaxis)
 
----
+La documentación técnica del proyecto se organiza bajo el sistema de 4 cuadrantes de documentación, adaptado para facilitar el recorrido tanto a perfiles que se inician como a perfiles senior:
 
-### 🔑 Autenticación & Credenciales Demo
+### 1. Tutoriales (Orientados al aprendizaje práctico)
+Paso a paso guiado para poner en marcha el proyecto desde cero:
+- [Tutorial de Uso Local](docs/02-Instalacion/Uso_Local.md): Instalación de dependencias, configuración mínima y primera ejecución integral del sistema.
 
-Para probar la plataforma en modo desarrollo local:
-- **Correo Electrónico:** `ana.martinez@empresa.com`
-- **Contraseña:** `Password123!`
+### 2. Guías Prácticas / How-To (Orientadas a tareas específicas)
+Instrucciones paso a paso para resolver configuraciones puntuales y despliegue:
+- [Despliegue con Docker y Docker Compose en OCI](docs/02-Instalacion/Despliegue_Docker_OCI.md): Despliegue contenerizado del frontend y backend en Compute VM.
+- [Creación de Instancia en Oracle Cloud (OCI Always Free)](docs/02-Instalacion/Creacion_de_Instancia_OCI.md): Configuración de máquina virtual, VCN, seguridad e IP pública.
+- [Configuración de LLMs y Proveedores](docs/02-Instalacion/Configuracion_de_LLMs.md): Credenciales de Gemini, Groq, OpenRouter y configuración de cascada.
+- [Configuración de Almacenamiento](docs/02-Instalacion/Configuracion_de_Storages.md): Selección de OCI Object Storage, Supabase o almacenamiento local.
 
-*(Nota: En modo desarrollo `environment.enableDemoLogin = true`, puedes hacer clic en el banner **DEMO QUICK-LOGIN** en la pantalla de inicio de sesión para autocompletar estas credenciales).*
+### 3. Referencia (Orientada a la información técnica precisa)
+Especificaciones formales, contratos de datos y catálogos de componentes:
+- [API REST de Ingesta](docs/04-Documentacion/backend/ingestion/API_de_Ingesta.md): Endpoints, payloads JSON, parámetros de consulta y códigos de respuesta.
+- [Estructura de Archivos del Repositorio](docs/03-Estructura/Estructura_de_Archivos.md): Árbol detallado de módulos, directorios y responsabilidades.
+- [Almacenamiento en OCI Object Storage](docs/04-Documentacion/backend/storage/Almacenamiento_OCI.md): Métodos y cliente de integración con OCI.
+- [Almacenamiento en Supabase](docs/04-Documentacion/backend/storage/Almacenamiento_Supabase.md): Esquemas de tablas relacionales y persistencia de metadatos.
+- [Frontend Angular](docs/04-Documentacion/frontend/Angular.md): Arquitectura de componentes, servicios y consumo de la API.
+- [Frontend de Pruebas Gradio](docs/04-Documentacion/frontend/Gradio.md): Interfaz rápida para pruebas manuales.
 
----
+### 4. Explicación (Orientada a la comprensión conceptual y arquitectura)
+Análisis de diseño, fundamentos de las decisiones tomadas y flujo del sistema:
+- [Arquitectura General del Sistema](docs/01-Arquitectura/Arquitectura.md): Filosofía de diseño, flujo RAG y modelo de fallback.
+- [Componentes del Sistema](docs/01-Arquitectura/Componentes.md): Desglose funcional de subsistemas de ingesta, adaptación y entrega.
+- [Tecnologías y Decisiones de Stack](docs/01-Arquitectura/Tecnologias.md): Justificación técnica de herramientas seleccionadas.
+- [Arquitectura del Backend](docs/04-Documentacion/backend/architecture/Arquitectura_del_Backend.md): Capas del backend, inyección de dependencias y patrones aplicados.
+- [Flujo de Servicios Backend](docs/04-Documentacion/backend/architecture/Flujo_de_Servicios.md): Secuencia completa desde la solicitud HTTP hasta la respuesta generada.
+- [Ingesta y Segmentación (Chunking)](docs/04-Documentacion/backend/ingestion/Ingesta_y_Chunking.md): Criterios de fragmentación y preparación de documentos.
+- [Generación de Embeddings](docs/04-Documentacion/backend/embeddings/Embeddings.md): Modelos de vectorización y consideraciones multilingües.
+- [Almacén Vectorial FAISS](docs/04-Documentacion/backend/embeddings/Almacen_Vectorial.md): Indexación, métricas de distancia y persistencia vectorial.
+- [Estrategia de Recuperación](docs/04-Documentacion/backend/retrieval/Recuperacion.md): Búsqueda semántica por similitud y umbrales de relevancia.
+- [Reranking y Filtrado](docs/04-Documentacion/backend/retrieval/Reranking.md): Mecanismos de reordenamiento para optimizar el contexto entregado al LLM.
 
-## 📬 Ejemplo de Invocación API REST (`POST /api/v1/adapt-content`)
+## 8. Próximos pasos o futuras implementaciones
 
-### Solicitud (Payload JSON):
-```json
-{
-  "documento_titulo": "Introduccion a la Arquitectura de Redes VCN en OCI",
-  "documento_contenido": "La Virtual Cloud Network (VCN) es una red privada y personalizable configurada en Oracle Cloud Infrastructure...",
-  "perfil_destinatario": "Principiante",
-  "formato_salida": "Flashcards",
-  "nicho_sector": "General",
-  "nivel_detalle": "Didactico"
-}
-```
+- **Solicitud de Temas o Secciones Específicas**: Adaptar el contenido de un tema o sección específico. 
 
-### Respuesta Estructurada:
-```json
-{
-  "status": "exito",
-  "metadatos": {
-    "perfil_aplicado": "Principiante",
-    "formato_generado": "Flashcards",
-    "tiempo_estimado_estudio_minutos": 5,
-    "conceptos_clave": ["VCN", "Subredes", "Internet Gateway", "Security Lists"]
-  },
-  "contenido_adaptado": {
-    "titulo": "Dominando Redes en la Nube (VCN) desde Cero",
-    "introduccion_contextualizada": "Imagina la VCN como tu propio barrio privado dentro de Oracle Cloud...",
-    "items": [
-      {
-        "frente": "¿Qué es una VCN en Oracle Cloud?",
-        "dorso": "Es tu red virtual privada y personalizada dentro de la nube de Oracle.",
-        "pista_didactica": "Piensa en ella como el terreno cercado donde residen tus servidores."
-      }
-    ]
-  },
-  "evaluacion_calidad": {
-    "anclaje_fuente_score": 0.98,
-    "claridad_pedagogica": "Alta",
-    "observaciones": "Lenguaje ajustado con analogías para público principiante."
-  },
-  "almacenamiento_oci": {
-    "bucket": "nuevamente-contenidos-educativos",
-    "objeto_id": "contenido-vcn-principiante-flashcards-001.json",
-    "status_upload": "completado"
-  }
-}
-```
+## 9. Contribución
 
----
+Este proyecto se desarrolla de forma **interna por el Equipo 18 del G10**. Para mantener coherencia, calidad y trazabilidad, se recomienda seguir estas directrices:
 
-## 👥 Equipo y Créditos
-- **Programa:** ONE (Oracle Next Education) & Alura — Hackathon G10.
-- **Grupo:** Equipo 18 / Grupo 10.
+- Nombres
+
+## 10. Licencia
+
+Proyecto educativo. Ver detalles en [LICENSE](LICENSE).
