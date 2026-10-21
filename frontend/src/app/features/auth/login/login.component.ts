@@ -116,6 +116,7 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
       <!-- RIGHT FORM PANEL (50%) -->
       <div class="form-panel">
         <div class="top-controls">
+          <span class="badge-coming-soon">Próximamente</span>
           <div class="lang-selector">
             <button [class.active]="i18n.currentLang() === 'es'" (click)="setLang('es')">ES</button>
             <button [class.active]="i18n.currentLang() === 'en'" (click)="setLang('en')">EN</button>
@@ -439,8 +440,9 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     /* RIGHT FORM PANEL */
     .form-panel { flex: 1; position: relative; padding: 3rem; display: flex; flex-direction: column; justify-content: center; align-items: center; background: #090D16; }
     .top-controls { position: absolute; top: 2rem; right: 3rem; }
+    .top-controls .badge-coming-soon { position: absolute; bottom: calc(100% + 0.4rem); right: 0; }
     .lang-selector { display: flex; gap: 0.25rem; background: rgba(255, 255, 255, 0.05); padding: 0.25rem; border-radius: 8px; border: 1px solid rgba(255, 255, 255, 0.1); }
-    .lang-selector button { background: transparent; border: none; color: #94A3B8; font-size: 0.78rem; font-weight: 700; padding: 0.35rem 0.65rem; border-radius: 6px; cursor: pointer; }
+    .lang-selector button { background: transparent; border: none; color: #94A3B8; font-size: 0.78rem; font-weight: 700; padding: 0.35rem 0.65rem; border-radius: 6px; cursor: pointer; font-family: inherit; }
     .lang-selector button.active { background: #4F46E5; color: #FFF; }
 
     .auth-card { width: 100%; max-width: 440px; background: rgba(15, 23, 42, 0.7); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 20px; padding: 2.25rem; }
@@ -466,10 +468,10 @@ export function passwordComplexityValidator(control: AbstractControl): Validatio
     .success-banner { background: rgba(16, 185, 129, 0.15); border: 1px solid rgba(16, 185, 129, 0.4); color: #6EE7B7; padding: 0.85rem 1rem; border-radius: 10px; font-size: 0.85rem; margin-top: 1rem; }
 
     .sso-buttons { display: flex; gap: 0.75rem; margin-bottom: 1.25rem; }
-    .sso-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #FFF; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s; position: relative; }
+    .sso-btn { flex: 1; display: flex; align-items: center; justify-content: center; gap: 0.5rem; padding: 0.7rem; border-radius: 10px; background: rgba(255, 255, 255, 0.06); border: 1px solid rgba(255, 255, 255, 0.12); color: #FFF; font-size: 0.88rem; font-weight: 600; cursor: pointer; transition: all 0.2s; position: relative; font-family: inherit; }
     .sso-btn:hover:not(:disabled) { background: rgba(255, 255, 255, 0.12); }
     .sso-btn:disabled { opacity: 0.55; cursor: not-allowed; border-color: rgba(255, 255, 255, 0.06); }
-    .badge-coming-soon { font-size: 0.62rem; font-weight: 800; background: rgba(245, 158, 11, 0.2); color: #FBBF24; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.4); }
+    .badge-coming-soon { font-size: 0.62rem; font-weight: 800; line-height: 1.15; background: rgba(245, 158, 11, 0.2); color: #FBBF24; padding: 0.15rem 0.4rem; border-radius: 4px; border: 1px solid rgba(245, 158, 11, 0.4); }
 
     .divider { display: flex; align-items: center; margin: 1.25rem 0; color: #64748B; font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em; }
     .divider::before, .divider::after { content: ''; flex: 1; height: 1px; background: rgba(255, 255, 255, 0.1); }
