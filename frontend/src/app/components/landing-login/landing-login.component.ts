@@ -1077,7 +1077,7 @@ export class LandingLoginComponent {
           this.successMessage = res.message || 'Registro exitoso';
           const token = res.access_token;
           if (token) {
-            localStorage.setItem('nuevamente_jwt_token', token);
+            sessionStorage.setItem('nuevamente_jwt_token', token);
           }
           setTimeout(() => {
             this.loginSuccess.emit({
@@ -1100,7 +1100,7 @@ export class LandingLoginComponent {
           this.successMessage = res.message || 'Inicio de sesión exitoso';
           const token = res.access_token;
           if (token) {
-            localStorage.setItem('nuevamente_jwt_token', token);
+            sessionStorage.setItem('nuevamente_jwt_token', token);
           }
           setTimeout(() => {
             this.loginSuccess.emit({
@@ -1133,7 +1133,7 @@ export class LandingLoginComponent {
         this.successMessage = 'Autenticado con Google exitosamente';
         const token = res.access_token;
         if (token) {
-          localStorage.setItem('nuevamente_jwt_token', token);
+          sessionStorage.setItem('nuevamente_jwt_token', token);
         }
         setTimeout(() => {
           this.loginSuccess.emit({

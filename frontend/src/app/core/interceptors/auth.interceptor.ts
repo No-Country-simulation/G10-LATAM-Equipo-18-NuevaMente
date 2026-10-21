@@ -37,18 +37,13 @@ export class AuthInterceptor implements HttpInterceptor {
       this.isRefreshing = true;
       this.refreshTokenSubject.next(null);
 
-      return this.authStore.getAuthApi().refreshToken().pipe(
-        switchMap((res) => {
+      return this.authStore.refreshSession().pipe(
+        switchMap((token) => {
           this.isRefreshing = false;
-          if (res.access_token && res.user) {
-            this.authStore.setSession(res.access_token, res.user);
-            this.refreshTokenSubject.next(res.access_token);
-            return next.handle(request.clone({
-              setHeaders: { Authorization: `Bearer ${res.access_token}` }
-            }));
-          }
-          this.authStore.triggerSessionExpired();
-          return throwError(() => new Error('Refresh failed'));
+          this.refreshTokenSubject.next(token);
+          return next.handle(request.clone({
+            setHeaders: { Authorization: `Bearer ${token}` }
+          }));
         }),
         catchError((err) => {
           this.isRefreshing = false;

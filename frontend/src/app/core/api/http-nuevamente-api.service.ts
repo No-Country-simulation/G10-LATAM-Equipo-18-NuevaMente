@@ -1,11 +1,12 @@
 import { Injectable } from '@angular/core';
 import { HttpClient, HttpHeaders } from '@angular/common/http';
-import { Observable, catchError, map, of, throwError } from 'rxjs';
+import { Observable, catchError, firstValueFrom, map, of, throwError } from 'rxjs';
 import { environment } from '../../../environments/environment';
 import { DocumentGenerationEvent, DocumentIngestEvent, DocumentIngestInput, DocumentRecord, NuevaMenteApi } from './nuevamente-api';
 import { MockNuevaMenteApiService } from './mock-nuevamente-api.service';
 import { AdaptationRequest, AdaptationResponse, ContenidoAdaptado } from '../models/adaptation.model';
 import { RecentProject } from '../services/state.service';
+import { AuthStore } from '../store/auth.store';
 
 @Injectable({
   providedIn: 'root'
@@ -20,7 +21,8 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
 
   constructor(
     private http: HttpClient,
-    private mockApi: MockNuevaMenteApiService
+    private mockApi: MockNuevaMenteApiService,
+    private authStore: AuthStore
   ) {}
 
   private getHeaders(): HttpHeaders {
@@ -30,6 +32,50 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       headers = headers.set('Authorization', `Bearer ${token}`);
     }
     return headers;
+  }
+
+  /**
+   * Performs an authenticated request with `fetch`.
+   *
+   * The streaming endpoints cannot go through `HttpClient`, so they never
+   * reach `AuthInterceptor`. This helper reproduces its renewal behaviour: it
+   * renews an expired token before sending and retries once when the backend
+   * answers 401. Retrying is safe because the backend rejects the request in
+   * the authentication dependency, before any generation work starts.
+   */
+  private async authorizedFetch(
+    url: string,
+    init: RequestInit & { headers?: Record<string, string> }
+  ): Promise<Response> {
+    const headers: Record<string, string> = { ...(init.headers || {}) };
+
+    let token: string | null = null;
+    try {
+      token = await firstValueFrom(this.authStore.getValidAccessToken());
+    } catch (error) {
+      this.authStore.triggerSessionExpired();
+      throw error;
+    }
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+
+    let response = await fetch(url, { ...init, headers });
+    if (response.status !== 401) return response;
+
+    let renewed: string;
+    try {
+      renewed = await firstValueFrom(this.authStore.refreshSession());
+    } catch (error) {
+      this.authStore.triggerSessionExpired();
+      throw error;
+    }
+
+    headers['Authorization'] = `Bearer ${renewed}`;
+    response = await fetch(url, { ...init, headers });
+    if (response.status === 401) {
+      this.authStore.triggerSessionExpired();
+      throw new Error(AuthStore.SESSION_EXPIRED_MESSAGE);
+    }
+    return response;
   }
 
   /**
@@ -74,16 +120,9 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
         formData.append('user_id', input.userId);
       }
 
-      const headers: Record<string, string> = {};
-      const token = sessionStorage.getItem('nuevamente_jwt_token');
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
-
-      fetch(`${this.baseUrl}/documents?stream=true`, {
+      this.authorizedFetch(`${this.baseUrl}/documents?stream=true`, {
         method: 'POST',
         body: formData,
-        headers,
         signal: controller.signal
       })
         .then(async (response) => {
@@ -185,10 +224,8 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
       if (userId) params.set('user_id', userId);
 
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-      const token = sessionStorage.getItem('nuevamente_jwt_token');
-      if (token) headers['Authorization'] = `Bearer ${token}`;
 
-      fetch(`${this.baseUrl}/documents/${encodeURIComponent(documentId)}/adapt?${params.toString()}`, {
+      this.authorizedFetch(`${this.baseUrl}/documents/${encodeURIComponent(documentId)}/adapt?${params.toString()}`, {
         method: 'POST',
         headers,
         body: JSON.stringify(body),

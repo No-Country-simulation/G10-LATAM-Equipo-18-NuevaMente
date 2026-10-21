@@ -12,6 +12,8 @@
  */
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
+import { Observable, of, throwError } from 'rxjs';
+import { catchError, finalize, map, shareReplay, tap } from 'rxjs/operators';
 import { AuthApi, User } from '../api/auth-api';
 import { HttpAuthApiService } from '../api/http-auth-api.service';
 import { MockAuthApiService } from '../api/mock-auth-api.service';
@@ -24,6 +26,15 @@ export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated
   providedIn: 'root'
 })
 export class AuthStore {
+  /** Message shown when the session can no longer be renewed. */
+  static readonly SESSION_EXPIRED_MESSAGE = 'Tu sesión expiró. Vuelve a iniciar sesión para continuar.';
+
+  /** Renews the access token this long before it actually expires. */
+  private static readonly RENEWAL_LEAD_MS = 90_000;
+
+  /** A token that expires within this window is treated as already stale. */
+  private static readonly STALE_WINDOW_MS = 30_000;
+
   private router = inject(Router);
   private stateService = inject(StateService);
   private authApi: AuthApi = environment.useMock ? inject(MockAuthApiService) : inject(HttpAuthApiService);
@@ -38,6 +49,9 @@ export class AuthStore {
   readonly mfaPendingToken = signal<string | null>(null);
   readonly showSessionExpiredModal = signal<boolean>(false);
 
+  /** Expiry (epoch ms) of the current access token; null when it cannot be read. */
+  readonly tokenExpiresAt = signal<number | null>(null);
+
   // Derived Computed Signals
   readonly isAuthenticated = computed(() => !!this.user() && !!this.accessToken());
   readonly isLoading = computed(() => this.status() === 'loading');
@@ -45,6 +59,18 @@ export class AuthStore {
   readonly userRole = computed(() => this.user()?.role || 'Instructor');
 
   private broadcastChannel: BroadcastChannel | null = null;
+
+  /** Timer that renews the access token before it expires. */
+  private renewalTimer: ReturnType<typeof setTimeout> | null = null;
+
+  /** In-flight renewal shared by concurrent callers. */
+  private pendingRefresh$: Observable<string> | null = null;
+
+  /** Identifies the newest renewal so a late answer cannot revive a closed session. */
+  private refreshGeneration = 0;
+
+  /** Incremented on every logout to invalidate pending renewals. */
+  private sessionEpoch = 0;
 
   constructor() {
     this.restoreLocalSession();
@@ -66,6 +92,8 @@ export class AuthStore {
           this.accessToken.set(token);
           this.user.set(user);
           this.status.set('authenticated');
+          this.tokenExpiresAt.set(this.decodeTokenExpiry(token));
+          this.scheduleTokenRenewal();
         }
       } catch (e) {
         console.warn('[AuthStore] Error restaurando sesión:', e);
@@ -188,12 +216,14 @@ export class AuthStore {
     this.status.set('authenticated');
     this.error.set(null);
     this.showSessionExpiredModal.set(false);
+    this.tokenExpiresAt.set(this.decodeTokenExpiry(token));
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
         sessionStorage.setItem('nuevamente_jwt_token', token);
         sessionStorage.setItem('nuevamente_user', JSON.stringify(user));
       } catch (e) {}
     }
+    this.scheduleTokenRenewal();
   }
 
   logout() {
@@ -223,6 +253,9 @@ export class AuthStore {
     this.accessToken.set(null);
     this.status.set('unauthenticated');
     this.error.set(null);
+    this.tokenExpiresAt.set(null);
+    this.sessionEpoch++;
+    this.clearTokenRenewal();
     this.stateService.clearSessionData();
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
@@ -244,5 +277,102 @@ export class AuthStore {
 
   getAuthApi(): AuthApi {
     return this.authApi;
+  }
+
+  /**
+   * Returns an access token that is safe to send, renewing it first when the
+   * current one already expired or is about to expire.
+   */
+  getValidAccessToken(): Observable<string | null> {
+    const token = this.accessToken();
+    if (!token) return of(null);
+    if (!this.needsRefresh(token)) return of(token);
+    return this.refreshSession().pipe(map(() => this.accessToken()));
+  }
+
+  /** True when the token is missing or expires within the stale window. */
+  needsRefresh(token: string | null = this.accessToken()): boolean {
+    if (!token) return true;
+    const expiresAt = this.decodeTokenExpiry(token);
+    if (expiresAt === null) return false; // Unknown expiry: keep using the token.
+    return expiresAt - Date.now() <= AuthStore.STALE_WINDOW_MS;
+  }
+
+  /**
+   * Renews the access token with the HttpOnly refresh cookie.
+   *
+   * Concurrent callers share a single request. A failure is reported to the
+   * caller, which decides whether the session-expired notice is shown.
+   */
+  refreshSession(): Observable<string> {
+    if (this.pendingRefresh$) return this.pendingRefresh$;
+
+    const generation = ++this.refreshGeneration;
+    const epoch = this.sessionEpoch;
+
+    this.pendingRefresh$ = this.authApi.refreshToken().pipe(
+      tap(res => {
+        // A logout happened while the renewal was in flight: the closed
+        // session must not be revived.
+        if (epoch !== this.sessionEpoch) return;
+        if (res.access_token && res.user) {
+          this.setSession(res.access_token, res.user);
+        }
+      }),
+      map(res => {
+        const token = res.access_token || this.accessToken();
+        if (!token) throw new Error(AuthStore.SESSION_EXPIRED_MESSAGE);
+        return token;
+      }),
+      catchError(() => throwError(() => new Error(AuthStore.SESSION_EXPIRED_MESSAGE))),
+      finalize(() => {
+        if (generation === this.refreshGeneration) {
+          this.pendingRefresh$ = null;
+        }
+      }),
+      shareReplay({ bufferSize: 1, refCount: false })
+    );
+
+    return this.pendingRefresh$;
+  }
+
+  /** Reads the `exp` claim (epoch ms) from a JWT; null when it cannot be read. */
+  private decodeTokenExpiry(token: string): number | null {
+    const segments = token.split('.');
+    if (segments.length < 2 || typeof atob === 'undefined') return null;
+    try {
+      const base64 = segments[1].replace(/-/g, '+').replace(/_/g, '/');
+      const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+      const payload = JSON.parse(atob(padded));
+      return typeof payload?.exp === 'number' ? payload.exp * 1000 : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Renews the access token shortly before it expires, so an idle session
+   * never breaks the next request.
+   */
+  private scheduleTokenRenewal(): void {
+    this.clearTokenRenewal();
+    const expiresAt = this.tokenExpiresAt();
+    if (!expiresAt) return;
+    const delay = expiresAt - Date.now() - AuthStore.RENEWAL_LEAD_MS;
+    // Already stale: the next request renews the token on demand instead.
+    if (delay <= 0) return;
+    this.renewalTimer = setTimeout(() => {
+      this.renewalTimer = null;
+      this.refreshSession().subscribe({
+        error: () => console.warn('[AuthStore] No se pudo renovar el token de acceso.')
+      });
+    }, delay);
+  }
+
+  private clearTokenRenewal(): void {
+    if (this.renewalTimer !== null) {
+      clearTimeout(this.renewalTimer);
+      this.renewalTimer = null;
+    }
   }
 }
