@@ -1,3 +1,16 @@
+/**
+ * StateService
+ *
+ * Purpose:
+ *     Central state management for user session, active adaptations,
+ *     metrics, and local project persistence (library and trash).
+ *
+ * Inputs:
+ *     Adaptation requests, responses, project status updates, and session events.
+ *
+ * Outputs:
+ *     Reactive signals and getters for active projects, trash items, metrics, and session state.
+ */
 import { Injectable, signal, computed } from '@angular/core';
 import { AdaptationRequest, AdaptationResponse } from '../models/adaptation.model';
 import { environment } from '../../../environments/environment';
@@ -51,6 +64,15 @@ export class StateService {
   };
 
   private projects: RecentProject[] = [];
+  readonly projectsSignal = signal<RecentProject[]>([]);
+
+  readonly libraryCount = computed(() =>
+    this.projectsSignal().filter(p => !p.deletedAt).length
+  );
+
+  readonly trashCount = computed(() =>
+    this.projectsSignal().filter(p => !!p.deletedAt).length
+  );
 
   readonly activeAdaptationResponse = signal<AdaptationResponse | null>(null);
   readonly activeAdaptationRequest = signal<AdaptationRequest | null>(null);
@@ -86,11 +108,47 @@ export class StateService {
           this.projects = parsed;
           this.purgeExpiredProjects();
           this.updateMetrics();
+          this.projectsSignal.set([...this.projects]);
+          return;
         }
       }
+      this.projects = [];
+      this.projectsSignal.set([]);
     } catch (e) {
       console.log('Error al cargar proyectos de localStorage', e);
+      this.projects = [];
+      this.projectsSignal.set([]);
     }
+  }
+
+  setProjects(projects: RecentProject[]): void {
+    this.projects = [...projects];
+    this.purgeExpiredProjects();
+    this.updateMetrics();
+    this.saveProjectsToStorage();
+  }
+
+  clearSessionData(): void {
+    this.projects = [];
+    this.projectsSignal.set([]);
+    this.metrics = {
+      documentos: 0,
+      contenidos: 0,
+      ejecucionesRag: 0,
+      fuentes: 0
+    };
+    this.user = {
+      name: '',
+      email: '',
+      avatarLetter: '',
+      isLoggedIn: false
+    };
+    this.clearActiveAdaptation();
+    try {
+      sessionStorage.removeItem('nuevamente_projects');
+      sessionStorage.removeItem('nuevamente_user');
+      sessionStorage.removeItem('nuevamente_active_adaptation');
+    } catch (e) {}
   }
 
   private updateMetrics(): void {
@@ -99,6 +157,7 @@ export class StateService {
     this.metrics.contenidos = active.length;
     this.metrics.ejecucionesRag = active.length;
     this.metrics.fuentes = active.length;
+    this.projectsSignal.set([...this.projects]);
   }
 
   private saveProjectsToStorage(): void {
@@ -107,6 +166,7 @@ export class StateService {
     } catch (e) {
       console.log('Error al guardar proyectos en localStorage', e);
     }
+    this.projectsSignal.set([...this.projects]);
   }
 
   purgeExpiredProjects(nowDate: Date = new Date()): void {

@@ -1,8 +1,21 @@
+/**
+ * AuthStore
+ *
+ * Purpose:
+ *     Central authentication store handling user session, tokens, login, MFA, and logout states.
+ *
+ * Inputs:
+ *     Credentials, MFA verification codes, session restoration triggers, and logout commands.
+ *
+ * Outputs:
+ *     Signals representing user profile, authentication status, error messages, and tokens.
+ */
 import { Injectable, signal, computed, inject } from '@angular/core';
 import { Router } from '@angular/router';
 import { AuthApi, User } from '../api/auth-api';
 import { HttpAuthApiService } from '../api/http-auth-api.service';
 import { MockAuthApiService } from '../api/mock-auth-api.service';
+import { StateService } from '../services/state.service';
 import { environment } from '../../../environments/environment';
 
 export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated' | 'mfa_required' | 'error';
@@ -12,6 +25,7 @@ export type AuthStatus = 'idle' | 'loading' | 'authenticated' | 'unauthenticated
 })
 export class AuthStore {
   private router = inject(Router);
+  private stateService = inject(StateService);
   private authApi: AuthApi = environment.useMock ? inject(MockAuthApiService) : inject(HttpAuthApiService);
 
   // Core Signals - Access Token is stored in memory and mirrored to
@@ -209,6 +223,7 @@ export class AuthStore {
     this.accessToken.set(null);
     this.status.set('unauthenticated');
     this.error.set(null);
+    this.stateService.clearSessionData();
     if (typeof window !== 'undefined' && window.sessionStorage) {
       try {
         sessionStorage.removeItem('nuevamente_jwt_token');

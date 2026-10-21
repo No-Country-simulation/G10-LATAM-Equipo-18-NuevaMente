@@ -1,3 +1,16 @@
+/**
+ * AppComponent
+ *
+ * Purpose:
+ *     Main application shell providing global layout, sidebar navigation with badge counts,
+ *     pipeline status banner, session expiry modal, and routing outlet.
+ *
+ * Inputs:
+ *     Global stores and services (AuthStore, StateService, DocumentService, PipelineStateService, ThemeService).
+ *
+ * Outputs:
+ *     Application root layout and shell interactions.
+ */
 import { Component, OnInit, signal, inject, computed } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { RouterOutlet, RouterLink, RouterLinkActive, Router } from '@angular/router';
@@ -69,6 +82,7 @@ import { PipelineStateService } from './core/services/pipeline-state.service';
           >
             <svg class="nav-icon-svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
             <span class="nav-text" *ngIf="!isSidebarCollapsed()">Biblioteca</span>
+            <span class="nav-library-badge" *ngIf="getLibraryCount() > 0">{{ getLibraryCount() }}</span>
           </a>
 
           <a 
@@ -193,6 +207,16 @@ import { PipelineStateService } from './core/services/pipeline-state.service';
       border-radius: 10px;
     }
 
+    .nav-library-badge {
+      margin-left: auto;
+      background: #0284C7;
+      color: #FFFFFF;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 0.15rem 0.5rem;
+      border-radius: 10px;
+    }
+
     .nav-trash-badge {
       margin-left: auto;
       background: #EF4444;
@@ -299,8 +323,12 @@ export class AppComponent implements OnInit {
     return this.documentService.totalActiveCount();
   }
 
+  getLibraryCount(): number {
+    return this.stateService.libraryCount();
+  }
+
   getTrashCount(): number {
-    return this.stateService.getTrashProjects().length;
+    return this.stateService.trashCount();
   }
 
   isAuthRoute(): boolean {
@@ -347,7 +375,7 @@ export class AppComponent implements OnInit {
   }
 
   logout(): void {
-    this.stateService.clearActiveAdaptation();
+    this.stateService.clearSessionData();
     this.documentService.clearWorkspaceSelection();
     this.authStore.logout();
   }

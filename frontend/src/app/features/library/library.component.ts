@@ -1,3 +1,16 @@
+/**
+ * LibraryComponent
+ *
+ * Purpose:
+ *     Displays the user's generated educational adaptation packages (Library),
+ *     allowing filtering, searching, export/download, and soft-deletion (trash).
+ *
+ * Inputs:
+ *     Adapted content packages from NuevaMenteApi / StateService.
+ *
+ * Outputs:
+ *     Interactive project actions (preview, JSON drawer, export, moveToTrash).
+ */
 import { Component, signal, computed, inject, OnInit, HostListener } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { Router } from '@angular/router';
@@ -714,6 +727,8 @@ export class LibraryComponent implements OnInit {
     // generated in this browser session (never to seeded demo data).
     if (list.length > 0) {
       this.projectsList.set([...list]);
+      const currentTrash = this.stateService.getTrashProjects();
+      this.stateService.setProjects([...list, ...currentTrash]);
       return;
     }
 

@@ -1,3 +1,16 @@
+/**
+ * TrashComponent
+ *
+ * Purpose:
+ *     Displays and manages the user's soft-deleted educational projects (Trash),
+ *     allowing restore actions, single and batch permanent deletion, and empty trash.
+ *
+ * Inputs:
+ *     Trashed project records from NuevaMenteApi / StateService.
+ *
+ * Outputs:
+ *     User trash operations (restore, delete permanently, purge all).
+ */
 import { Component, signal, computed, inject, OnInit, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { forkJoin } from 'rxjs';
@@ -879,6 +892,8 @@ export class TrashComponent implements OnInit {
     this.api.listTrash().subscribe({
       next: (list) => {
         this.projectsList.set([...list]);
+        const currentLibrary = this.stateService.getLibraryProjects();
+        this.stateService.setProjects([...currentLibrary, ...list]);
         this.isLoading.set(false);
       },
       error: () => {
