@@ -70,6 +70,12 @@ export interface NuevaMenteApi {
   ): Observable<AdaptationResponse>;
   /** Lists indexed documents, optionally scoped to one owner. */
   listDocuments(userId?: string | null): Observable<DocumentRecord[]>;
+  /**
+   * Permanently deletes one indexed document: its stored file, its vector
+   * index and its metadata row. The call fails when the backend refuses the
+   * deletion (not found, still processing, storage error).
+   */
+  deleteDocument(documentId: string): Observable<void>;
 
   adaptContent(request: AdaptationRequest): Observable<AdaptationResponse>;
   parsePdf(file: File, useLlm?: boolean): Observable<{ status: string; engine?: string; texto_extraido: string; total_paginas?: number }>;

@@ -87,6 +87,12 @@ class BaseDocumentRepository(ABC):
         every document is returned — there's no owner to filter by yet."""
         pass
 
+    @abstractmethod
+    def delete_document(self, document_id: str) -> bool:
+        """Removes the document's metadata row. Returns True when a row was
+        actually deleted, False when the document was already gone."""
+        pass
+
 
 class SupabaseDocumentRepository(BaseDocumentRepository):
     """Stores document metadata in a Supabase Postgres table."""
@@ -167,6 +173,12 @@ class SupabaseDocumentRepository(BaseDocumentRepository):
             for row in response.data
             if isinstance(row, dict)
         ]
+
+    def delete_document(self, document_id: str) -> bool:
+        _require_valid_uuid(document_id, "document_id")
+        client = get_supabase_client()
+        response = client.table(_TABLE_NAME).delete().eq("document_id", document_id).execute()
+        return bool(response.data)
 
     @staticmethod
     def _now_iso() -> str:
@@ -262,6 +274,17 @@ class SQLiteDocumentRepository(BaseDocumentRepository):
         finally:
             conn.close()
         return [DocumentRecord(**dict(r)) for r in rows]
+
+    def delete_document(self, document_id) -> bool:
+        conn = get_db()
+        try:
+            cursor = conn.execute(
+                "DELETE FROM documents WHERE document_id = ?", (document_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
 
     def _update(self, document_id, **fields):
         fields["updated_at"] = self._now_iso()

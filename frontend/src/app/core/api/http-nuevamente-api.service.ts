@@ -272,16 +272,28 @@ export class HttpNuevaMenteApiService implements NuevaMenteApi {
     });
   }
 
-  /** Lists indexed documents read from the backend `documents` table. */
+  /**
+   * Lists indexed documents read from the backend `documents` table.
+   *
+   * Errors are propagated instead of being turned into an empty list, so the
+   * UI can tell "there are no documents" apart from "the list could not be
+   * loaded".
+   */
   listDocuments(userId?: string | null): Observable<DocumentRecord[]> {
     const query = userId ? `?user_id=${encodeURIComponent(userId)}` : '';
-    return this.http.get<DocumentRecord[]>(`${this.baseUrl}/documents${query}`, { headers: this.getHeaders() })
-      .pipe(
-        catchError((err) => {
-          console.warn('[HttpNuevaMenteApi] No se pudo listar documentos:', err);
-          return of([] as DocumentRecord[]);
-        })
-      );
+    return this.http.get<DocumentRecord[]>(`${this.baseUrl}/documents${query}`, { headers: this.getHeaders() });
+  }
+
+  /**
+   * Permanently deletes one indexed document.
+   *
+   * The error is propagated on purpose: a failed deletion must never look
+   * successful, and it must not fall back to a mock that pretends the
+   * document is gone.
+   */
+  deleteDocument(documentId: string): Observable<void> {
+    return this.http.delete(`${this.baseUrl}/documents/${encodeURIComponent(documentId)}`, { headers: this.getHeaders() })
+      .pipe(map(() => void 0));
   }
 
   adaptContent(request: AdaptationRequest): Observable<AdaptationResponse> {

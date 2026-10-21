@@ -28,6 +28,7 @@ Output:
 from abc import ABC, abstractmethod
 import json
 import logging
+import shutil
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -376,3 +377,21 @@ def clear_store_cache(document_id: Optional[str] = None) -> None:
         _store_cache.clear()
     else:
         _store_cache.pop(document_id, None)
+
+
+def delete_store(document_id: str) -> bool:
+    """Removes a document's FAISS index directory and drops its cache entry.
+
+    The cache is cleared before and after the removal because get_store()
+    consults the cache before the disk: without this, the deleted document
+    would keep answering searches from memory until the backend restarts.
+    Returns True when an index directory was actually removed.
+    """
+    clear_store_cache(document_id)
+    store_dir = _document_store_dir(document_id)
+    removed = False
+    if store_dir.exists():
+        shutil.rmtree(store_dir)
+        removed = True
+    clear_store_cache(document_id)
+    return removed

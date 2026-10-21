@@ -16,6 +16,8 @@ Input:
     - POST /documents/{document_id}/adapt: JSON generation parameters
       (profile, format, niche, language, quantity) with Spanish aliases.
     - GET /documents and GET /documents/{document_id}.
+    - DELETE /documents/{document_id}: permanently removes one document from
+      object storage, from the vector index and from the documents table.
 
 Output:
     - SSE stream of progress events while ingesting, ending with a "done"
@@ -23,6 +25,7 @@ Output:
     - AdaptationResponse for content generation (same contract the frontend
       already renders for every output format).
     - DocumentRecord list/single record for the documents pages.
+    - A deletion summary for DELETE /documents/{document_id}.
 """
 
 import json
@@ -47,6 +50,7 @@ from app.services.document_pipeline_service import (
     process_registered_document,
     register_document,
 )
+from app.services.document_deletion_service import get_document_deletion_service
 from app.services.document_repository import get_document_repository
 from app.services.langgraph_orchestrator import LangGraphOrchestrator
 from app.services.retrieval_service import retrieve_context
@@ -282,6 +286,31 @@ async def get_document(
             detail="No tiene permiso para acceder a este documento.",
         )
     return record
+
+
+@router.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    current_user: Optional[Dict[str, Any]] = Depends(get_current_user),
+):
+    """
+    Permanently deletes one document and everything derived from it.
+
+    Removes the original file from object storage, the FAISS index from disk
+    and the metadata row from the documents table. The deletion is refused
+    with 409 while the document is still being processed, and a storage or
+    index failure leaves the document untouched so the user can retry.
+    """
+    if current_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Debe iniciar sesión para eliminar un documento.",
+        )
+
+    return get_document_deletion_service().delete_document(
+        document_id=document_id,
+        requester_id=current_user["id"],
+    )
 
 
 def _build_adaptation_request(

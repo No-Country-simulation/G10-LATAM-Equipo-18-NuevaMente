@@ -1,4 +1,4 @@
-import { Component, signal, computed, inject, OnInit } from '@angular/core';
+import { Component, signal, computed, inject, OnInit, HostListener, ElementRef, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { FormsModule, ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
@@ -14,6 +14,17 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
   imports: [CommonModule, FormsModule, ReactiveFormsModule, SharedDropzoneComponent],
   template: `
     <div class="documents-container">
+      <!-- TOAST NOTIFICATION -->
+      <div
+        class="toast-notification"
+        *ngIf="toastMsg()"
+        [class.toast-error]="toastIsError()"
+        role="status"
+        aria-live="polite"
+      >
+        <span>{{ toastMsg() }}</span>
+      </div>
+
       <!-- Page Header & Stats -->
       <div class="page-header">
         <div>
@@ -31,6 +42,16 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
             <span class="stat-label">Fragmentos Indexados</span>
           </div>
         </div>
+      </div>
+
+      <!-- LOAD ERROR STATE (the list could not be read from the backend) -->
+      <div class="load-error glass-card" *ngIf="documentService.loadError()" role="alert">
+        <span class="error-icon">⚠️</span>
+        <div class="load-error-text">
+          <strong>No se pudieron cargar los documentos</strong>
+          <p>{{ documentService.loadError() }}</p>
+        </div>
+        <button type="button" class="btn-retry" (click)="reloadDocuments()">🔄 Reintentar</button>
       </div>
 
       <!-- Dropzone Upload Section (shared component, same as Workspace) -->
@@ -152,6 +173,16 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
             <button type="button" class="btn-use-workspace" [disabled]="!doc.indexed" (click)="useInWorkspace(doc)">
               🚀 Usar en Workspace
             </button>
+            <button
+              type="button"
+              class="btn-delete-document"
+              (click)="openDeleteConfirm(doc)"
+              [disabled]="pipeline.running() || isDeleting()"
+              title="Eliminar definitivamente"
+              [attr.aria-label]="'Eliminar definitivamente ' + doc.name"
+            >
+              🗑️
+            </button>
           </div>
         </div>
       </div>
@@ -187,6 +218,16 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
               <td class="table-actions">
                 <button type="button" class="btn-table-action" (click)="openPreviewModal(doc)" title="Ver">👁️ Ver</button>
                 <button type="button" class="btn-table-action primary" [disabled]="!doc.indexed" (click)="useInWorkspace(doc)" title="Usar en Workspace">🚀 Usar</button>
+                <button
+                  type="button"
+                  class="btn-table-action danger"
+                  (click)="openDeleteConfirm(doc)"
+                  [disabled]="pipeline.running() || isDeleting()"
+                  title="Eliminar definitivamente"
+                  [attr.aria-label]="'Eliminar definitivamente ' + doc.name"
+                >
+                  🗑️ Eliminar
+                </button>
               </td>
             </tr>
           </tbody>
@@ -194,10 +235,57 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
       </div>
 
       <!-- EMPTY STATE -->
-      <div class="empty-state glass-card" *ngIf="filteredDocuments().length === 0">
+      <div class="empty-state glass-card" *ngIf="filteredDocuments().length === 0 && !documentService.loadError()">
         <div class="empty-icon-box">📁</div>
         <h3>No se encontraron documentos</h3>
         <p>Sube archivos PDF, Markdown o Texto plano para comenzar a utilizarlos en el Workspace.</p>
+      </div>
+
+      <!-- DELETE CONFIRMATION MODAL (role="alertdialog") -->
+      <div class="modal-overlay" *ngIf="deleteTarget()" (click)="closeDeleteConfirm()">
+        <div
+          class="modal-container confirm-modal"
+          role="alertdialog"
+          aria-modal="true"
+          aria-labelledby="delete-modal-title"
+          aria-describedby="delete-modal-desc"
+          (click)="$event.stopPropagation()"
+        >
+          <div class="modal-header">
+            <div class="header-info">
+              <span class="warning-badge-icon">⚠️</span>
+              <h3 id="delete-modal-title">¿Eliminar definitivamente este documento?</h3>
+            </div>
+            <button type="button" class="btn-close" (click)="closeDeleteConfirm()" aria-label="Cerrar">✕</button>
+          </div>
+
+          <div class="modal-body">
+            <p id="delete-modal-desc" class="modal-desc">
+              Se eliminará «{{ deleteTarget()!.name }}» de forma permanente: su archivo en el almacenamiento
+              de objetos, su índice vectorial y su registro en la base de datos. Esta acción no se puede deshacer.
+            </p>
+          </div>
+
+          <div class="modal-footer">
+            <button
+              #cancelDeleteBtn
+              type="button"
+              class="btn-secondary"
+              (click)="closeDeleteConfirm()"
+              [disabled]="isDeleting()"
+            >
+              Cancelar
+            </button>
+            <button
+              type="button"
+              class="btn-danger"
+              (click)="confirmDelete()"
+              [disabled]="isDeleting()"
+            >
+              {{ isDeleting() ? 'Eliminando…' : 'Eliminar definitivamente' }}
+            </button>
+          </div>
+        </div>
       </div>
 
       <!-- PREVIEW MODAL / DRAWER -->
@@ -590,6 +678,80 @@ import { SharedDropzoneComponent } from '../shared/shared-dropzone.component';
 
     .empty-state { padding: 4rem 2rem; text-align: center; border-radius: 20px; }
     .empty-icon-box { font-size: 3rem; margin-bottom: 1rem; }
+
+    /* TOAST NOTIFICATION */
+    .toast-notification {
+      position: fixed;
+      bottom: 2rem;
+      right: 2rem;
+      z-index: 1100;
+      max-width: 420px;
+      padding: 0.9rem 1.25rem;
+      border-radius: 12px;
+      background: #059669;
+      color: #FFFFFF;
+      font-size: 0.88rem;
+      font-weight: 700;
+      box-shadow: 0 12px 30px rgba(0,0,0,0.25);
+    }
+    .toast-notification.toast-error { background: #DC2626; }
+
+    /* LOAD ERROR STATE */
+    .load-error {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 1rem 1.25rem;
+      border-radius: 14px;
+      border-color: rgba(239, 68, 68, 0.35);
+      background: rgba(239, 68, 68, 0.06);
+      margin-bottom: 1.5rem;
+    }
+    .load-error-text { flex: 1; }
+    .load-error-text strong { display: block; font-size: 0.95rem; }
+    .load-error-text p { font-size: 0.85rem; color: var(--text-secondary); margin: 0.15rem 0 0; }
+    .error-icon { font-size: 1.5rem; }
+    .btn-retry {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+      color: var(--text-primary);
+      padding: 0.5rem 0.9rem;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.82rem;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+
+    /* DELETE BUTTON */
+    .btn-delete-document {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #DC2626;
+      padding: 0.5rem 0.7rem;
+      border-radius: 10px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .btn-delete-document:hover:not(:disabled) { background: rgba(239, 68, 68, 0.2); }
+    .btn-delete-document:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    /* DELETE CONFIRMATION MODAL */
+    .confirm-modal { max-width: 560px; }
+    .warning-badge-icon { font-size: 1.35rem; }
+    .modal-desc { font-size: 0.92rem; color: var(--text-secondary); margin: 0; line-height: 1.6; }
+    .btn-danger {
+      background: #DC2626;
+      color: #FFF;
+      border: none;
+      padding: 0.6rem 1.25rem;
+      border-radius: 10px;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .btn-danger:disabled { opacity: 0.6; cursor: not-allowed; }
   `]
 })
 export class DocumentsComponent implements OnInit {
@@ -597,6 +759,8 @@ export class DocumentsComponent implements OnInit {
   readonly pipeline = inject(PipelineStateService);
   private router = inject(Router);
   private sanitizer = inject(DomSanitizer);
+
+  @ViewChild('cancelDeleteBtn') cancelDeleteBtnRef?: ElementRef<HTMLButtonElement>;
 
   searchTerm = signal<string>('');
   selectedTypeFilter = signal<string>('all');
@@ -609,6 +773,12 @@ export class DocumentsComponent implements OnInit {
 
   previewDoc = signal<AppDocument | null>(null);
   sanitizedPreviewUrl = signal<SafeResourceUrl | null>(null);
+
+  /** Document whose permanent deletion is waiting for confirmation. */
+  deleteTarget = signal<AppDocument | null>(null);
+  isDeleting = signal<boolean>(false);
+  toastMsg = signal<string | null>(null);
+  toastIsError = signal<boolean>(false);
 
   ngOnInit(): void {
     void this.documentService.refresh();
@@ -700,6 +870,88 @@ export class DocumentsComponent implements OnInit {
       return d.toLocaleDateString('es-ES', { day: '2-digit', month: 'short', year: 'numeric' });
     } catch {
       return dateStr;
+    }
+  }
+
+  /** Reloads the list from the backend after a failed load. */
+  reloadDocuments(): void {
+    void this.documentService.refresh();
+  }
+
+  /** Opens the confirmation dialog for the permanent deletion of one document. */
+  openDeleteConfirm(doc: AppDocument): void {
+    if (this.pipeline.running() || this.isDeleting()) {
+      return;
+    }
+    this.deleteTarget.set(doc);
+    setTimeout(() => this.cancelDeleteBtnRef?.nativeElement?.focus(), 50);
+  }
+
+  closeDeleteConfirm(): void {
+    if (this.isDeleting()) {
+      return;
+    }
+    this.deleteTarget.set(null);
+  }
+
+  /**
+   * Deletes the confirmed document.
+   *
+   * A failed deletion keeps the document in the list and reports the reason,
+   * so the user never sees a document disappear because of a silent failure.
+   */
+  async confirmDelete(): Promise<void> {
+    const doc = this.deleteTarget();
+    if (!doc || this.isDeleting()) {
+      return;
+    }
+    this.isDeleting.set(true);
+    try {
+      await this.documentService.deleteDocument(doc.id);
+      this.deleteTarget.set(null);
+      this.showToast(`"${doc.name}" eliminado definitivamente.`);
+    } catch (e) {
+      console.error('[DocumentsComponent] No se pudo eliminar el documento:', e);
+      this.showToast(this.describeDeleteError(e), true);
+    } finally {
+      this.isDeleting.set(false);
+    }
+  }
+
+  /** Builds the message shown when the backend refuses the deletion. */
+  private describeDeleteError(error: any): string {
+    switch (error?.status) {
+      case 401:
+        return 'Tu sesión expiró. Inicia sesión de nuevo para eliminar documentos.';
+      case 404:
+        return 'El documento ya no existe en el backend.';
+      case 409:
+        return 'El documento todavía se está procesando. Espera a que termine para eliminarlo.';
+      case 500:
+        return 'No se pudo eliminar el índice vectorial. El documento no fue eliminado; inténtalo de nuevo.';
+      case 502:
+        return 'No se pudo eliminar el archivo del almacenamiento. El documento no fue eliminado; inténtalo de nuevo.';
+      default:
+        return 'No se pudo eliminar el documento. No fue eliminado; inténtalo de nuevo.';
+    }
+  }
+
+  private showToast(message: string, isError = false): void {
+    this.toastMsg.set(message);
+    this.toastIsError.set(isError);
+    setTimeout(() => {
+      if (this.toastMsg() === message) {
+        this.toastMsg.set(null);
+      }
+    }, 5000);
+  }
+
+  @HostListener('window:keydown.escape')
+  handleEscape(): void {
+    if (this.deleteTarget()) {
+      this.closeDeleteConfirm();
+    } else if (this.previewDoc()) {
+      this.closePreviewModal();
     }
   }
 }

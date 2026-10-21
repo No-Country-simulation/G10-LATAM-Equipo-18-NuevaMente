@@ -56,6 +56,16 @@ class BaseDocumentStorage(ABC):
         """Uploads an educational JSON artifact and returns storage metadata."""
         pass
 
+    @abstractmethod
+    def delete_document(self, object_key: str) -> None:
+        """Deletes the stored original file identified by object_key.
+
+        An object that is already gone counts as deleted. Raises when the
+        file could not be removed, so the caller never reports a deletion
+        that did not happen.
+        """
+        pass
+
 
 class SupabaseStorageService(BaseDocumentStorage):
     """Stores original documents and generated artifacts in Supabase Storage buckets."""
@@ -129,6 +139,11 @@ class SupabaseStorageService(BaseDocumentStorage):
                 "status_upload": "completado",
             }
 
+    def delete_document(self, object_key: str) -> None:
+        from app.infrastructure.supabase_client import get_supabase_client
+        client = get_supabase_client()
+        client.storage.from_(self.docs_bucket).remove([object_key])
+
 
 class OCIStorageAdapter(BaseDocumentStorage):
     """Adapter bridging OCIStorageService to the BaseDocumentStorage interface."""
@@ -168,6 +183,18 @@ class OCIStorageAdapter(BaseDocumentStorage):
             object_name=object_name,
             json_data=json_data,
         )
+
+    def delete_document(self, object_key: str) -> None:
+        if settings.resolve_storage_backend() == "oci" and not self.service.is_connected:
+            # delete_file() would silently fall back to the local disk and
+            # report success while the object stays in OCI.
+            raise RuntimeError(
+                "OCI Object Storage is not connected; the document file cannot be deleted."
+            )
+        # delete_file() swallows 404 (already gone) and re-raises every other
+        # OCI error, so an absent object counts as deleted. In local mode it
+        # removes the file from the local storage directory instead.
+        self.service.delete_file(object_key, settings.OCI_BUCKET_DOCS)
 
 
 def get_document_storage() -> BaseDocumentStorage:

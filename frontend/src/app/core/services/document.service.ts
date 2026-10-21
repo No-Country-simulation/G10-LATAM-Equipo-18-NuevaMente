@@ -31,6 +31,12 @@ export class DocumentService {
   private documentsSignal = signal<AppDocument[]>([]);
   readonly selectedWorkspaceDocument = signal<AppDocument | null>(null);
   readonly isLoading = signal<boolean>(false);
+  /**
+   * Message of the last failed list load. It stays null while the list is
+   * loaded, so the UI can tell an empty library apart from a backend that
+   * could not be reached.
+   */
+  readonly loadError = signal<string | null>(null);
 
   // Computed signals
   readonly activeDocuments = computed(() => this.documentsSignal());
@@ -51,13 +57,32 @@ export class DocumentService {
   /** Reloads the document list from the backend `documents` table. */
   async refresh(userId: string | null = this.currentUserId()): Promise<void> {
     this.isLoading.set(true);
+    this.loadError.set(null);
     try {
       const records = await firstValueFrom(this.api.listDocuments(userId));
       this.documentsSignal.set(records.map(record => this.toAppDocument(record)));
     } catch (e) {
       console.warn('[DocumentService] No se pudieron cargar los documentos del backend:', e);
+      this.loadError.set(this.describeLoadError(e));
     } finally {
       this.isLoading.set(false);
+    }
+  }
+
+  /**
+   * Permanently deletes one indexed document.
+   *
+   * The backend removes the stored file, the vector index and the metadata
+   * row. The error is rethrown when the backend refuses the deletion, so a
+   * failed deletion is never presented as a successful one. On success the
+   * document is dropped from the local list and the workspace selection is
+   * cleared when it pointed at that document.
+   */
+  async deleteDocument(documentId: string): Promise<void> {
+    await firstValueFrom(this.api.deleteDocument(documentId));
+    this.documentsSignal.update(list => list.filter(doc => doc.id !== documentId));
+    if (this.selectedWorkspaceDocument()?.id === documentId) {
+      this.selectedWorkspaceDocument.set(null);
     }
   }
 
@@ -98,6 +123,17 @@ export class DocumentService {
     } catch {
       return null;
     }
+  }
+
+  /** Builds the message shown when the document list could not be loaded. */
+  private describeLoadError(error: any): string {
+    if (error?.status === 401) {
+      return 'Tu sesión expiró o no tienes permisos. Inicia sesión de nuevo para ver tus documentos.';
+    }
+    if (error?.status === 0) {
+      return 'No se pudo conectar con el servidor. Revisa que el backend esté ejecutándose.';
+    }
+    return 'No se pudieron cargar los documentos del backend.';
   }
 
   /** Maps a backend document record to the view model used by the UI. */

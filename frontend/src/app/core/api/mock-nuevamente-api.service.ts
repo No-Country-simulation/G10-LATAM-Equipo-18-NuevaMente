@@ -65,6 +65,10 @@ export class MockNuevaMenteApiService implements NuevaMenteApi {
     return of([] as DocumentRecord[]);
   }
 
+  deleteDocument(_documentId: string): Observable<void> {
+    return of(void 0);
+  }
+
   listLibrary(): Observable<RecentProject[]> {
     return of(this.stateService.getLibraryProjects());
   }
