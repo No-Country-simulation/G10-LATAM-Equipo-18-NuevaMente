@@ -405,10 +405,14 @@ class LangGraphOrchestrator(PipelineStages):
         repaired_indices = list(state.get("repaired_indices", []))
         repaired_set = set(repaired_indices)
         revision_count = state.get("revision_count", 0)
+        max_revisions = state.get("max_revisions", settings.LANGGRAPH_MAX_REVISIONS)
         top_passages = state.get("top_passages", [])
         all_parent_chunks = state.get("all_parent_chunks")
         target_language = state.get("target_language", "Spanish")
         request = state["request"]
+        doc_title = state["doc_title"]
+        topics = state.get("topics", [])
+        effective_target = state.get("effective_target", 20)
 
         # Rebuild the per-item critic map by _gid for clarity information
         evaluation = state.get("evaluation")
