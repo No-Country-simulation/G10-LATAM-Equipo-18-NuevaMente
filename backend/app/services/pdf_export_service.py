@@ -8,6 +8,7 @@ from app.services.summary_composer import (
     compose_summary_paragraphs,
     is_summary_content,
     paragraphs_from_legacy_text,
+    split_summary_text,
 )
 
 logger = logging.getLogger("pdf_export_service")
@@ -122,6 +123,12 @@ class PDFExportService:
     @staticmethod
     def _summary_paragraphs(content: AdaptedContent) -> list:
         """Summary body as paragraphs, built from items or from legacy stored text."""
+        stored = (content.executive_summary or "").strip()
+        if stored:
+            # The stored summary is the canonical text: it already carries the
+            # reference numbers and ends with the reference list.
+            body, references = split_summary_text(stored)
+            return body + references
         paragraphs = compose_summary_paragraphs(content.items or [])
         if paragraphs:
             return paragraphs

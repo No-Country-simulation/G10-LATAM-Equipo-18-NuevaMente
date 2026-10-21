@@ -18,6 +18,7 @@ Outputs:
 
 from typing import Dict, List, Optional
 from app.core.config import settings
+from app.core.labels import canonical_format_key
 
 class AgentProfile:
     """Represents a supported LLM provider and its pedagogical specialization."""
@@ -113,5 +114,12 @@ class MultiAgentRouter:
         fmt = (output_format or "").lower().strip()
         for key, cascade in settings.LLM_CASCADES.items():
             if key in fmt:
+                return [dict(entry) for entry in cascade]
+        # Fall back to the canonical format key ("executive_summary", ...) so a
+        # configured cascade is applied even when the request uses a label such
+        # as "Resumen Ejecutivo".
+        canonical = canonical_format_key(fmt)
+        for key, cascade in settings.LLM_CASCADES.items():
+            if key.lower() == canonical:
                 return [dict(entry) for entry in cascade]
         return []

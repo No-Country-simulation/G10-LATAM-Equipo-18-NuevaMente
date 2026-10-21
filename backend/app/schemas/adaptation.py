@@ -102,6 +102,7 @@ class ResponseMetadata(BaseModel):
     requested_items: Optional[int] = Field(None, alias="items_solicitados")
     generated_items: Optional[int] = Field(None, alias="items_generados")
     quantity_warning: Optional[str] = Field(None, alias="aviso_cantidad")
+    general_notice: Optional[str] = Field(None, alias="aviso_general")
     estimated_study_time_minutes: int = Field(..., alias="tiempo_estimado_estudio_minutos")
     key_concepts: List[str] = Field(..., alias="conceptos_clave")
     prerequisites: Optional[List[str]] = Field(None, alias="prerrequisitos")

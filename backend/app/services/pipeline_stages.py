@@ -32,12 +32,18 @@ from app.services.rate_guard import get_llm_guard
 from app.core.config import settings
 from app.core.labels import (
     TITLE_TEMPLATES_ES,
+    canonical_format_key,
     get_capacity_warning,
     get_contextualized_intro,
+    language_display_name,
+    summary_message,
 )
 from app.infrastructure.llm import GeminiClient, GroqClient, OpenRouterClient
 from app.prompts.prompt_loader import load_prompt
-from app.services.summary_composer import compose_summary_paragraphs
+from app.services.summary_composer import (
+    compose_summary_paragraphs,
+    compose_summary_with_citations,
+)
 from app.schemas.adaptation import (
     AdaptationRequest,
     AdaptationResponse,
@@ -58,6 +64,42 @@ def _is_spanish(target_language: Optional[str]) -> bool:
         return True
     lang = target_language.strip().lower()
     return lang.startswith("es") or "span" in lang
+
+
+def _is_language_pure(text: str, target_language: Optional[str] = "Spanish") -> bool:
+    """Checks whether text adheres to target_language based on stopword heuristic.
+    When target language is Spanish, detects contaminated English phrases or snippets.
+    Returns True if pure, False if significant foreign language tokens dominate.
+    """
+    if not text or not text.strip():
+        return True
+    if not _is_spanish(target_language):
+        return True
+
+    tokens = re.findall(r"\b[a-zA-ZáéíóúñÁÉÍÓÚÑ]{2,}\b", text.lower())
+    if len(tokens) < 4:
+        return True
+
+    english_stopwords = {
+        "the", "and", "of", "in", "is", "to", "with", "for", "that", "this",
+        "from", "by", "are", "as", "at", "be", "an", "have", "has", "which",
+        "allows", "ensures", "provides", "system", "management", "interface",
+        "their", "they", "will", "would", "about", "there", "into", "can",
+    }
+    spanish_stopwords = {
+        "el", "la", "los", "las", "un", "una", "unos", "unas", "de", "del",
+        "en", "es", "son", "y", "o", "con", "para", "por", "que", "este",
+        "esta", "estos", "estas", "su", "sus", "como", "al", "se", "lo",
+        "permite", "garantiza", "proporciona", "sistema", "gestion", "gestión",
+    }
+
+    en_count = sum(1 for t in tokens if t in english_stopwords)
+    es_count = sum(1 for t in tokens if t in spanish_stopwords)
+
+    if en_count >= 3 and en_count > es_count:
+        return False
+    return True
+
 
 
 def _clean_concept_text(raw_concept: str, context: str = "", doc_title: str = "") -> str:
@@ -209,6 +251,7 @@ class PipelineStages:
                 "section": sp.section_title,
                 "breadcrumb": sp.parent_chunks[0].get("breadcrumb") if sp.parent_chunks else "",
                 "context": sp.context_snippet[:settings.RAG_CONTEXT_SNIPPET_SIZE],
+                "excerpts": list(getattr(sp, "excerpts", []) or []),
             })
 
         if not topics:
@@ -277,11 +320,22 @@ class PipelineStages:
             cascade = [{"provider": k, "model": None} for k in self.router.get_cascade_order(fmt_key)]
         guard = get_llm_guard()
 
-        # Optimization: for compact requests (target <= 10) with multiple topics,
-        # consolidate all topics into a single LLM prompt call instead of multiple sequential round-trips.
-        # Executive summary always consolidates regardless of target count to ensure a holistic output.
-        is_summary_format = "resumen" in fmt_key or "executive_summary" in fmt_key
-        if (target <= 10 or is_summary_format) and len(topics) > 1:
+        is_summary_format = canonical_format_key(fmt_key) == "executive_summary"
+        if is_summary_format:
+            # The executive summary is produced in one pass over the whole
+            # document: a single prompt that carries every excerpt (each one
+            # with its own chunk id) plus as many extra rounds as needed to
+            # reach the requested number of points.
+            return self._generate_summary_items(
+                request=request,
+                doc_title=doc_title,
+                topics=topics,
+                target=target,
+                target_language=target_language,
+                tracer=tracer,
+            )
+
+        if (target <= 10) and len(topics) > 1:
             consolidated_chunks = []
             topic_names = []
             for t in topics:
@@ -302,6 +356,9 @@ class PipelineStages:
             first_topic = topics[0]
             first_page_val = first_topic.get("page")
 
+            # Escape literal braces in document content to prevent str.format() from
+            # interpreting them as format placeholders (technical docs often contain {}).
+            safe_chunk_info = combined_chunk_info.replace("{", "{{").replace("}", "}}")
             prompt = template.format(
                 niche=request.niche,
                 recipient_profile=request.recipient_profile,
@@ -310,9 +367,7 @@ class PipelineStages:
                 topic=combined_topic,
                 item_count=target,
                 target_language=target_language,
-                chunk_info=combined_chunk_info,
-                chunk_id=first_topic["chunk_id"],
-                page_number=first_page_val if first_page_val is not None else "N/A",
+                chunk_info=safe_chunk_info,
             )
 
             raw = None
@@ -361,13 +416,15 @@ class PipelineStages:
             breadcrumb_label = topic.get("breadcrumb") or ""
             page_val = topic.get("page")
             page_label = f" | p.{page_val}" if page_val is not None else ""
-            chunk_info = (
+            chunk_info_raw = (
                 f"[{topic['chunk_id']}] SECTION: {section_label}"
                 f"{(' | ' + breadcrumb_label) if breadcrumb_label else ''}"
                 f"{page_label}\n{topic['context']}"
             )
+            # Escape literal braces in document content to prevent str.format() KeyError.
+            safe_chunk_info = chunk_info_raw.replace("{", "{{").replace("}", "}}")
 
-            prompt = template.format(
+            fmt_kwargs: Dict[str, Any] = dict(
                 niche=request.niche,
                 recipient_profile=request.recipient_profile,
                 detail_level=request.detail_level,
@@ -375,10 +432,14 @@ class PipelineStages:
                 topic=topic["topic"],
                 item_count=n_items,
                 target_language=target_language,
-                chunk_info=chunk_info,
-                chunk_id=topic["chunk_id"],
-                page_number=page_val if page_val is not None else "N/A",
+                chunk_info=safe_chunk_info,
             )
+            # Older format prompts use {chunk_id} / {page_number}; pass them only when needed
+            if "{chunk_id}" in template:
+                fmt_kwargs["chunk_id"] = topic["chunk_id"]
+            if "{page_number}" in template:
+                fmt_kwargs["page_number"] = page_val if page_val is not None else "N/A"
+            prompt = template.format(**fmt_kwargs)
 
             raw = None
             if tracer:
@@ -423,6 +484,332 @@ class PipelineStages:
         return items
 
     # ---------------------------------------------------------------------------
+    # EXECUTIVE SUMMARY: single pass over the whole document
+    # ---------------------------------------------------------------------------
+
+    # Maximum number of generation rounds used to reach the requested count.
+    SUMMARY_MAX_ROUNDS = 3
+
+    def _summary_excerpt_blocks(
+        self,
+        topics: List[Dict[str, Any]],
+        only_sections: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Builds the "DOCUMENT EXCERPTS" block of the summary prompt. Every
+        excerpt carries the header with its own chunk id, section and page, so
+        the model can cite identifiers the grounding verifier can resolve.
+        When ``only_sections`` is given, only the excerpts of those sections
+        are shown, which is used to ask for the still uncovered sections.
+        """
+        blocks: List[str] = []
+        seen: set = set()
+        wanted = {str(name) for name in only_sections} if only_sections else None
+
+        for topic in topics or []:
+            excerpts = topic.get("excerpts") or []
+            if not excerpts:
+                # Topic without excerpts (legacy plan): fall back to its context.
+                chunk_id = topic.get("chunk_id", "")
+                section = topic.get("section") or "Document"
+                if wanted is not None and section not in wanted:
+                    continue
+                page = topic.get("page")
+                page_label = f" | p.{page}" if isinstance(page, int) and page > 0 else ""
+                blocks.append(
+                    f"[{chunk_id}] SECTION: {section}{page_label}\n{topic.get('context', '')}"
+                )
+                continue
+
+            for excerpt in excerpts:
+                chunk_id = excerpt.get("chunk_id") or ""
+                if not chunk_id or chunk_id in seen:
+                    continue
+                section = excerpt.get("section") or "Document"
+                if wanted is not None and section not in wanted:
+                    continue
+                seen.add(chunk_id)
+                breadcrumb = excerpt.get("breadcrumb") or ""
+                page = excerpt.get("page")
+                header = f"[{chunk_id}] SECTION: {section}"
+                if breadcrumb:
+                    header += f" | {breadcrumb}"
+                if isinstance(page, int) and page > 0:
+                    header += f" | p.{page}"
+                blocks.append(f"{header}\n{excerpt.get('text', '')}")
+
+        return "\n\n---\n\n".join(blocks)
+
+    def _generate_summary_items(
+        self,
+        request: AdaptationRequest,
+        doc_title: str,
+        topics: List[Dict[str, Any]],
+        target: int,
+        target_language: str,
+        tracer: Optional[Any] = None,
+    ) -> List[Dict[str, Any]]:
+        """
+        Generates the executive summary from the whole document.
+
+        The prompt carries every excerpt with its real chunk id, and the model
+        is asked for the missing points until the requested count is reached.
+        No placeholder content is produced: when the model cannot deliver
+        verifiable points, the summary stays empty and the caller reports it.
+        """
+        template = load_prompt("formats/executive_summary.md")
+        system_tmpl = load_prompt("writer_system_summary.md")
+        language_name = language_display_name(target_language)
+        system_instruction = system_tmpl.format(
+            recipient_profile=request.recipient_profile,
+            target_language=language_name,
+            detail_level=request.detail_level,
+        )
+
+        chunk_info = self._summary_excerpt_blocks(topics)
+        # Escape literal braces in document content to prevent str.format() from
+        # interpreting them as format placeholders (technical docs often contain {}).
+        safe_chunk_info = chunk_info.replace("{", "{{").replace("}", "}}")
+
+        cascade = self.router.get_model_cascade(request.output_format or "")
+        if not cascade:
+            cascade = [
+                {"provider": key, "model": None}
+                for key in self.router.get_cascade_order(request.output_format or "")
+            ]
+        guard = get_llm_guard()
+
+        items: List[Dict[str, Any]] = []
+        seen_points: set = set()
+        rounds = 0
+
+        while rounds < self.SUMMARY_MAX_ROUNDS:
+            rounds += 1
+            missing = target - len(items)
+
+            # Sections of the document that no point covers yet: the next round
+            # asks for them explicitly so the summary spans the whole document.
+            pending_sections = self._pending_summary_sections(items, topics)
+            if missing <= 0 and not pending_sections:
+                break
+
+            round_prompt_info = safe_chunk_info
+            extra_note = ""
+            if pending_sections and rounds > 1:
+                pending_info = self._summary_excerpt_blocks(topics, only_sections=pending_sections)
+                pending_info = pending_info.replace("{", "{{").replace("}", "}}")
+                if pending_info:
+                    round_prompt_info = pending_info
+                    extra_note = (
+                        "\n\nSECTIONS NOT COVERED YET (write the points only about these): "
+                        + ", ".join(pending_sections)
+                    )
+
+            item_count = missing if missing > 0 else len(pending_sections)
+            prompt = template.format(
+                niche="",
+                recipient_profile=request.recipient_profile,
+                detail_level=request.detail_level,
+                output_format=request.output_format,
+                topic=doc_title,
+                item_count=item_count,
+                target_language=language_name,
+                chunk_info=round_prompt_info,
+            )
+            prompt += extra_note
+
+            raw = None
+            if tracer:
+                tracer.record_llm_call("generar")
+
+            for entry in cascade:
+                llm = self._provider_map.get(entry["provider"])
+                if not llm or not llm.is_available or not guard.should_attempt(entry["provider"], entry.get("model")):
+                    continue
+                guard.wait_for_slot(entry["provider"], entry.get("model"))
+                try:
+                    raw = llm.generate(
+                        prompt=prompt,
+                        system_instruction=system_instruction,
+                        json_output=True,
+                        model_name=entry.get("model"),
+                    )
+                    if raw:
+                        self.last_provider = entry["provider"]
+                        self.last_model = entry.get("model")
+                        self._track_model(entry["provider"], entry.get("model"))
+                        guard.record_success(entry["provider"], entry.get("model"))
+                        logger.info(
+                            "Resumen generado con %s/%s (%d/%d puntos)",
+                            entry["provider"], entry.get("model"), len(items), target,
+                        )
+                        break
+                except Exception as exc:
+                    guard.record_failure(entry["provider"], entry.get("model"))
+                    logger.warning("%s/%s generation failed: %s", entry["provider"], entry.get("model"), exc)
+
+            parsed_batch = self._parse_json_batch(raw)
+            if not parsed_batch:
+                logger.warning("El resumen no pudo generarse en la ronda %d.", rounds)
+                break
+
+            for candidate in parsed_batch:
+                if not isinstance(candidate, dict):
+                    continue
+                point = str(candidate.get("punto_clave") or "").strip()
+                if not point:
+                    continue
+                fingerprint = point.lower()[:160]
+                if fingerprint in seen_points:
+                    continue
+                seen_points.add(fingerprint)
+                items.append(candidate)
+
+        self._enrich_summary_sources(items, topics)
+        items = self._prune_summary_items(items, target, topics)
+        logger.info("Resumen generado: %d de %d puntos solicitados.", len(items), target)
+        return items[:target]
+
+    def _prune_summary_items(
+        self,
+        items: List[Dict[str, Any]],
+        target: int,
+        topics: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """
+        Keeps the requested count while favouring coverage: the first point of
+        every section is preserved and the remaining slots are filled with the
+        points that repeat a section already covered.
+        """
+        if len(items) <= target:
+            return items
+
+        selected: List[int] = []
+        covered: set = set()
+        for index, item in enumerate(items):
+            key = self._summary_item_key(item, topics)
+            if key in covered:
+                continue
+            covered.add(key)
+            selected.append(index)
+
+        for index in range(len(items)):
+            if len(selected) >= target:
+                break
+            if index not in selected:
+                selected.append(index)
+
+        selected = sorted(selected[:target])
+        return [items[index] for index in selected]
+
+    def _summary_item_key(
+        self,
+        item: Dict[str, Any],
+        topics: List[Dict[str, Any]],
+    ) -> tuple:
+        """Identifies the sections a point comes from, used to spot repetitions."""
+        locations: Dict[str, str] = {}
+        for topic in topics or []:
+            for excerpt in topic.get("excerpts") or []:
+                chunk_id = str(excerpt.get("chunk_id") or "").strip()
+                section = str(excerpt.get("section") or "").strip()
+                if chunk_id and section:
+                    locations[chunk_id] = section
+
+        sections: List[str] = []
+        for source in item.get("fuentes") or []:
+            if not isinstance(source, dict):
+                continue
+            chunk_id = str(source.get("chunk_id") or "").strip()
+            section = locations.get(chunk_id) or str(source.get("seccion") or "").strip()
+            if section and section not in sections:
+                sections.append(section)
+
+        if not sections:
+            return ("__sin_fuente__",)
+        return tuple(sorted(sections))
+
+    def _pending_summary_sections(
+        self,
+        items: List[Dict[str, Any]],
+        topics: List[Dict[str, Any]],
+    ) -> List[str]:
+        """
+        Returns the sections of the document that no generated point cites yet.
+        It drives the follow-up round that asks the model for the missing parts
+        of the document.
+        """
+        locations: Dict[str, str] = {}
+        all_sections: List[str] = []
+        for topic in topics or []:
+            for excerpt in topic.get("excerpts") or []:
+                chunk_id = str(excerpt.get("chunk_id") or "").strip()
+                section = str(excerpt.get("section") or "").strip()
+                if not chunk_id or not section:
+                    continue
+                locations[chunk_id] = section
+                if section not in all_sections:
+                    all_sections.append(section)
+
+        if not all_sections:
+            return []
+
+        cited: set = set()
+        for item in items or []:
+            for source in item.get("fuentes") or []:
+                if not isinstance(source, dict):
+                    continue
+                chunk_id = str(source.get("chunk_id") or "").strip()
+                section = locations.get(chunk_id)
+                if section:
+                    cited.add(section)
+                elif source.get("seccion"):
+                    cited.add(str(source["seccion"]).strip())
+
+        return [section for section in all_sections if section not in cited]
+
+    def _enrich_summary_sources(
+        self,
+        items: List[Dict[str, Any]],
+        topics: List[Dict[str, Any]],
+    ) -> None:
+        """
+        Completes the citation metadata of the generated points with the
+        section and page of the excerpt they come from, so the reference list
+        always points to a concrete location even when the model omits it.
+        """
+        locations: Dict[str, Dict[str, Any]] = {}
+        for topic in topics or []:
+            for excerpt in topic.get("excerpts") or []:
+                chunk_id = str(excerpt.get("chunk_id") or "").strip()
+                if chunk_id and chunk_id not in locations:
+                    locations[chunk_id] = excerpt
+
+        if not locations:
+            return
+
+        for item in items:
+            sources = item.get("fuentes")
+            if not isinstance(sources, list):
+                continue
+            for source in sources:
+                if not isinstance(source, dict):
+                    continue
+                chunk_id = str(source.get("chunk_id") or "").strip()
+                excerpt = locations.get(chunk_id)
+                if not excerpt:
+                    continue
+                page = excerpt.get("page")
+                if not isinstance(page, int) or page <= 0:
+                    page = None
+                if not source.get("pagina") and page:
+                    source["pagina"] = page
+                if not source.get("seccion") and excerpt.get("section"):
+                    source["seccion"] = excerpt["section"]
+                if not source.get("breadcrumb") and excerpt.get("breadcrumb"):
+                    source["breadcrumb"] = excerpt["breadcrumb"]
+
+    # ---------------------------------------------------------------------------
     # STAGE C: DEDUPLICATION
     # ---------------------------------------------------------------------------
     def _stage_deduplicate(self, items: List[Dict[str, Any]], threshold: float = 0.88) -> List[Dict[str, Any]]:
@@ -448,6 +835,7 @@ class PipelineStages:
         items: List[Dict[str, Any]],
         passages: List[Dict[str, Any]],
         all_chunks: Optional[List[Dict[str, Any]]] = None,
+        target_language: str = "Spanish",
     ) -> List[Dict[str, Any]]:
         """
         Verifies that each item's citations genuinely correspond to the injected passages.
@@ -630,18 +1018,23 @@ class PipelineStages:
                         chunk_id,
                     )
 
-                logger.debug(
-                    "[GROUNDING] src chunk_id=%r is_supported=%s extract_len=%d",
-                    chunk_id, is_supported, len(extract),
-                )
-
                 clean_src = dict(src)
                 pg = clean_src.get("pagina")
                 if not isinstance(pg, int) or pg <= 0:
                     clean_src.pop("pagina", None)
-
                 clean_src["verificado"] = is_supported
                 valid_sources.append(clean_src)
+
+            # Invalidate grounding if the item body fails target language purity
+            grounding_text = self._get_grounding_text(item)
+            if not _is_language_pure(grounding_text, target_language=target_language):
+                logger.info(
+                    "[GROUNDING] Item fails language purity for %s; revoking verified status",
+                    target_language,
+                )
+                for s in valid_sources:
+                    s["verificado"] = False
+                item["language_impure"] = True
 
             item["grounded"] = any(s.get("verificado", False) for s in valid_sources)
             logger.debug(
@@ -1416,8 +1809,22 @@ class PipelineStages:
                 }
         else:
             if is_spanish:
+                concept_is_pure = _is_language_pure(main_concept, "Spanish")
+                sentence_is_pure = _is_language_pure(target_sentence, "Spanish")
+                if concept_is_pure and sentence_is_pure:
+                    # Both safe: normal format
+                    punto = f"{main_concept}: {target_sentence}"
+                elif sentence_is_pure:
+                    # Concept (doc title) is English; only use the sentence
+                    punto = target_sentence
+                elif concept_is_pure:
+                    # Sentence is English; describe the concept in Spanish
+                    punto = f"Aspectos estratégicos y operativos de {main_concept}."
+                else:
+                    # Both are English; use fully generic Spanish placeholder
+                    punto = f"Elemento clave de análisis en el sector {request.niche}."
                 res_item = {
-                    "punto_clave": f"{main_concept}: {target_sentence}",
+                    "punto_clave": punto,
                     "impacto_negocio": f"Garantiza la continuidad operativa y eficiencia técnica en el sector {request.niche}.",
                     "fuentes": [fuente],
                 }
@@ -1524,14 +1931,23 @@ class PipelineStages:
             )
         elif "resumen" in fmt:
             # Single continuous output: every block (takeaway + impact) is merged
-            # into plain paragraphs so the summary reads as one document instead
-            # of a numbered list of separate parts. Sources stay in `items`.
-            paragraphs = compose_summary_paragraphs(items)
+            # into plain paragraphs, each one ending with the reference numbers
+            # of the sections it is based on. Placeholder blocks are dropped, so
+            # an unusable summary is reported instead of publishing filler text.
+            summary_items = [
+                it for it in items
+                if isinstance(it, dict) and not it.get("es_fallback")
+            ]
+            summary_text = compose_summary_with_citations(
+                summary_items, doc_title, target_language
+            )
+            if not summary_text.strip():
+                summary_text = summary_message("empty_detail", target_language)
             return AdaptedContent(
                 title=final_title,
                 contextualized_introduction=intro,
-                executive_summary="\n\n".join(paragraphs),
-                items=items,
+                executive_summary=summary_text,
+                items=summary_items,
             )
         elif "guion" in fmt or "clase" in fmt or "script" in fmt:
             for i, it in enumerate(items):

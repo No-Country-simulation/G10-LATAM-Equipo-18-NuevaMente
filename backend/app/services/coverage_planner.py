@@ -99,6 +99,8 @@ class SectionPlan:
     primary_chunk_id: str
     # Page number (if available from paged source)
     page_number: Optional[int] = None
+    # Excerpts carrying their own chunk id, used to build prompts that cite real chunks
+    excerpts: List[Dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -180,8 +182,15 @@ class CoveragePlanner:
 
         if fmt in _HOLISTIC_FORMATS:
             strategy = "holistic"
+            # The executive summary has to cover the whole document, so
+            # sections whose title looks navigational ("Introduction",
+            # "Conclusion", ...) are kept when they hold real prose. Indexes
+            # and reference lists stay excluded.
+            holistic_sections = self._group_by_section(
+                self._filter_substantive(parent_chunks, keep_substantial_noise=True)
+            )
             section_plans = self._build_holistic_plan(
-                sections, viable_target, context_snippet_chars
+                holistic_sections or sections, viable_target, context_snippet_chars
             )
         elif fmt in _SEQUENTIAL_FORMATS:
             strategy = "sequential"
@@ -213,7 +222,9 @@ class CoveragePlanner:
     # ---------------------------------------------------------------------------
 
     def _filter_substantive(
-        self, parent_chunks: List[Dict[str, Any]]
+        self,
+        parent_chunks: List[Dict[str, Any]],
+        keep_substantial_noise: bool = False,
     ) -> List[Dict[str, Any]]:
         """Drops chunks that are too short or whose title is pure metadata noise."""
         result = []
@@ -226,7 +237,10 @@ class CoveragePlanner:
 
             # Skip noise section titles
             if raw_title in _NOISE_TITLES or clean_title in _NOISE_TITLES:
-                continue
+                # An executive summary needs the whole document: a section named
+                # "Introduction" or "Conclusion" is content when it is prose.
+                if not (keep_substantial_noise and self._looks_like_prose(content)):
+                    continue
             if any(sub in raw_title for sub in _NOISE_SUBSTRINGS) or any(sub in clean_title for sub in _NOISE_SUBSTRINGS):
                 continue
 
@@ -251,6 +265,23 @@ class CoveragePlanner:
 
             result.append(chunk)
         return result
+
+    @staticmethod
+    def _looks_like_prose(text: str) -> bool:
+        """
+        True when a fragment reads as a paragraph instead of an index or a
+        list of references: long lines and enough words to carry content.
+        """
+        content = (text or "").strip()
+        if not content:
+            return False
+        lines = [line.strip() for line in content.splitlines() if line.strip()]
+        if not lines:
+            return False
+        long_lines = [line for line in lines if len(line) >= 60]
+        if len(long_lines) < max(1, len(lines) // 2):
+            return False
+        return len(content.split()) >= 40
 
     def _group_by_section(
         self, chunks: List[Dict[str, Any]]
@@ -346,6 +377,10 @@ class CoveragePlanner:
         Aggregates all sections into a single synthetic section for formats
         that require a global view (executive summary). The LLM receives a
         representative sample from the entire document rather than one chunk.
+
+        Excerpts keep the chunk id, section and page of the fragment they come
+        from, so the model can cite identifiers that the grounding verifier
+        is able to resolve later.
         """
         all_chunks: List[Dict[str, Any]] = []
         for chunks in sections.values():
@@ -354,23 +389,42 @@ class CoveragePlanner:
         if not all_chunks:
             return []
 
-        # Build a global context by sampling from every section
-        sampled_parts = []
+        # Build a global context by sampling from every section. The sampling
+        # is round-robin so a long document is represented by its later
+        # sections too, instead of only by its first chunks.
+        excerpts: List[Dict[str, Any]] = []
         chars_used = 0
         max_total = context_snippet_chars * 4  # allow more context for holistic
         section_names = list(sections.keys())
-        for sec_name, chunks in sections.items():
-            for chunk in chunks:
-                fragment = chunk.get("content", "")[:300].strip()
-                if fragment:
-                    sampled_parts.append(f"[{sec_name}] {fragment}")
-                    chars_used += len(fragment)
-                    if chars_used >= max_total:
-                        break
+        section_items = [(name, sections[name]) for name in section_names]
+        max_rounds = max((len(chunks) for _, chunks in section_items), default=0)
+
+        for round_index in range(max_rounds):
+            for sec_name, chunks in section_items:
+                if round_index >= len(chunks):
+                    continue
+                chunk = chunks[round_index]
+                fragment = (chunk.get("content") or "").strip()
+                if not fragment:
+                    continue
+                fragment = fragment[:300]
+                page = chunk.get("metadata", {}).get("page_number")
+                excerpts.append({
+                    "chunk_id": chunk.get("id", ""),
+                    "section": sec_name,
+                    "breadcrumb": chunk.get("breadcrumb", "") or "",
+                    "page": page if isinstance(page, int) and page > 0 else None,
+                    "text": fragment,
+                })
+                chars_used += len(fragment)
+                if chars_used >= max_total:
+                    break
             if chars_used >= max_total:
                 break
 
-        global_context = "\n\n".join(sampled_parts)
+        global_context = "\n\n".join(
+            f"[{ex['section']}] {ex['text']}" for ex in excerpts
+        )
         chunk_ids = [c.get("id", "") for c in all_chunks if c.get("id")]
         primary_id = chunk_ids[0] if chunk_ids else "chunk-001"
 
@@ -391,6 +445,7 @@ class CoveragePlanner:
                 chunk_ids=chunk_ids,
                 primary_chunk_id=primary_id,
                 page_number=page,
+                excerpts=excerpts,
             )
         ]
 

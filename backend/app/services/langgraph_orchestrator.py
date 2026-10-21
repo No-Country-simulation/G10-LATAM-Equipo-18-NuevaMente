@@ -25,6 +25,10 @@ from typing import Any, AsyncIterator, Dict, List, Optional, TypedDict
 from langgraph.graph import StateGraph, END
 
 from app.core.config import settings
+from app.core.labels import (
+    canonical_format_key,
+    summary_message,
+)
 from app.schemas.adaptation import (
     AdaptationRequest,
     AdaptationResponse,
@@ -256,10 +260,12 @@ class LangGraphOrchestrator(PipelineStages):
         if tracer:
             tracer.start_stage("verificacion_anclaje")
 
+        target_language = state.get("target_language", "Spanish")
         verified_items = self._stage_verify_grounding(
             dedup_items,
             top_passages,
             all_chunks=all_parent_chunks,
+            target_language=target_language,
         )
 
         if tracer:
@@ -466,6 +472,7 @@ class LangGraphOrchestrator(PipelineStages):
                 [repaired_item],
                 top_passages,
                 all_chunks=all_parent_chunks,
+                target_language=target_language,
             )
             item_to_store = verified_single[0] if verified_single else repaired_item
             item_to_store["_gid"] = orig_gid
@@ -490,18 +497,30 @@ class LangGraphOrchestrator(PipelineStages):
         deficit = effective_target - len(filtered_items)
         if deficit > 0 and revision_count < max_revisions:
             logger.info("[Repair] Reponiendo %d ítem(s) descartados vía refiner...", deficit)
-            extra_replacements = self._stage_completion(
-                request=request,
-                doc_title=doc_title,
-                topics=topics,
-                needed=deficit,
-                existing_items=filtered_items,
-                target_language=target_language,
-            )
+            if canonical_format_key(request.output_format) == "executive_summary":
+                # The executive summary never gets placeholder content: the
+                # missing points are requested again from the model.
+                extra_replacements = self._generate_summary_items(
+                    request=request,
+                    doc_title=doc_title,
+                    topics=topics,
+                    target=deficit,
+                    target_language=target_language,
+                )
+            else:
+                extra_replacements = self._stage_completion(
+                    request=request,
+                    doc_title=doc_title,
+                    topics=topics,
+                    needed=deficit,
+                    existing_items=filtered_items,
+                    target_language=target_language,
+                )
             verified_replacements = self._stage_verify_grounding(
                 extra_replacements,
                 top_passages,
                 all_chunks=all_parent_chunks,
+                target_language=target_language,
             )
             for idx_rep, rep_item in enumerate(verified_replacements):
                 # Only publish replacement if verified
@@ -537,14 +556,25 @@ class LangGraphOrchestrator(PipelineStages):
 
         needed = effective_target - len(audited_items)
         if needed > 0:
-            extra_items = self._stage_completion(
-                request=request,
-                doc_title=doc_title,
-                topics=topics,
-                needed=needed,
-                existing_items=audited_items,
-                target_language=target_language,
-            )
+            if canonical_format_key(request.output_format) == "executive_summary":
+                # The executive summary never gets placeholder content: the
+                # missing points are requested again from the model.
+                extra_items = self._generate_summary_items(
+                    request=request,
+                    doc_title=doc_title,
+                    topics=topics,
+                    target=needed,
+                    target_language=target_language,
+                )
+            else:
+                extra_items = self._stage_completion(
+                    request=request,
+                    doc_title=doc_title,
+                    topics=topics,
+                    needed=needed,
+                    existing_items=audited_items,
+                    target_language=target_language,
+                )
             # Refined items must pass through grounding verification
             top_passages = state.get("top_passages", [])
             all_parent_chunks = state.get("all_parent_chunks")
@@ -552,6 +582,7 @@ class LangGraphOrchestrator(PipelineStages):
                 extra_items,
                 top_passages,
                 all_chunks=all_parent_chunks,
+                target_language=target_language,
             )
             for idx_extra, extra in enumerate(verified_extras):
                 is_ok = any(s.get("verificado", False) for s in (extra.get("fuentes") or [])) and not self._is_garbage_item(extra)
@@ -606,6 +637,15 @@ class LangGraphOrchestrator(PipelineStages):
         ]
 
         final_items = clean_audited_items[:effective_target]
+        is_summary_format = canonical_format_key(request.output_format) == "executive_summary"
+        if is_summary_format:
+            # Points requested again during the refinement loop may repeat what
+            # is already published, so duplicates are removed one last time.
+            final_items = self._stage_deduplicate(final_items)
+            # Placeholder blocks are never published: an executive summary
+            # either carries verified content or reports that it could not be
+            # generated.
+            final_items = [it for it in final_items if not it.get("es_fallback")]
         items_generated = len(final_items)
 
         adapted_content = self._format_adapted_content(
@@ -738,6 +778,22 @@ class LangGraphOrchestrator(PipelineStages):
         # Collect which item indices were surgically repaired during this run
         repaired_items_list = state.get("repaired_indices", [])
 
+        # General notice (short message shown by the platform) and the
+        # quantity warning written in the target language.
+        general_notice: Optional[str] = None
+        quantity_warning = capacity_warning
+        if is_summary_format:
+            if items_generated == 0:
+                general_notice = summary_message("empty_short", target_language)
+                quantity_warning = None
+            elif items_generated < target_quantity:
+                quantity_warning = summary_message(
+                    "partial",
+                    target_language,
+                    generated=items_generated,
+                    requested=target_quantity,
+                )
+
         metadata = ResponseMetadata(
             profile_applied=request.recipient_profile,
             format_generated=request.output_format,
@@ -746,7 +802,8 @@ class LangGraphOrchestrator(PipelineStages):
             quantity_level=request.quantity_level,
             requested_items=target_quantity,
             generated_items=items_generated,
-            quantity_warning=capacity_warning,
+            quantity_warning=quantity_warning,
+            general_notice=general_notice,
             estimated_study_time_minutes=max(3, items_generated * 2),
             key_concepts=key_concepts[:8],
             prerequisites=prerequisites[:5],

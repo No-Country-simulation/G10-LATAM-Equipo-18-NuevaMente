@@ -111,6 +111,7 @@ export interface Metadatos {
   items_solicitados?: number;
   items_generados?: number;
   aviso_cantidad?: string;
+  aviso_general?: string;
   tiempo_estimado_estudio_minutos: number;
   conceptos_clave: string[];
   prerrequisitos?: string[];

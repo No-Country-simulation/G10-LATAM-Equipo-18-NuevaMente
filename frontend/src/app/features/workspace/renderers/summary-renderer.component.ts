@@ -3,16 +3,27 @@ import { CommonModule } from '@angular/common';
 import { ResumenEjecutivoItem, RagFuente } from '../../../core/models/adaptation.model';
 
 /** Blocks merged into one paragraph, matching the backend summary composer. */
-const ITEMS_PER_PARAGRAPH = 2;
+const ITEMS_PER_PARAGRAPH = 1;
 
+/** Header line that introduces the reference list of the executive summary. */
+const SOURCES_HEADER_PATTERN = /^(fuentes|sources|fontes)$/i;
+
+/**
+ * Renders the executive summary as one continuous text.
+ *
+ * The stored summary text is the canonical output: every paragraph already
+ * carries the reference numbers of the sections it comes from, and the text
+ * ends with a reference list. When only structured items are available (older
+ * generations), the paragraphs are composed from them instead.
+ */
 @Component({
   selector: 'app-summary-renderer',
   standalone: true,
   imports: [CommonModule],
   template: `
-    <div class="summary-container" *ngIf="paragraphs.length > 0">
+    <div class="summary-container" *ngIf="paragraphs.length > 0 || noticeText">
       <!-- Document header -->
-      <div class="tldr-banner glass-card">
+      <div class="tldr-banner glass-card" *ngIf="!noticeText">
         <div class="tldr-badge">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
           <span>SÍNTESIS RÁPIDA</span>
@@ -20,15 +31,31 @@ const ITEMS_PER_PARAGRAPH = 2;
         <h2>Resumen Ejecutivo</h2>
       </div>
 
+      <!-- Notice shown when there is no summary to display -->
+      <div class="summary-notice glass-card" *ngIf="noticeText">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        <p>{{ noticeText }}</p>
+      </div>
+
       <!-- Single continuous output: one text made of paragraphs -->
-      <div class="summary-flow glass-card">
+      <div class="summary-flow glass-card" *ngIf="paragraphs.length > 0">
         <p *ngFor="let paragraph of paragraphs">{{ paragraph }}</p>
       </div>
 
-      <!-- Verified source locations, kept as a single footer line -->
-      <div class="sources-footer" *ngIf="sourceLabels.length > 0">
+      <!-- Reference list: document title once, then one line per reference -->
+      <div class="sources-block glass-card" *ngIf="sourceLines.length > 0">
+        <div class="sources-header">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+          <span>{{ sourcesHeader }}</span>
+        </div>
+        <div class="sources-general" *ngIf="generalSource">{{ generalSource }}</div>
+        <div class="source-line" *ngFor="let line of sourceLines">{{ line }}</div>
+      </div>
+
+      <!-- Verified source locations or count, kept as a single footer line -->
+      <div class="sources-footer" *ngIf="verifiedPointsCount > 0 && !noticeText">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-        <span>Fuentes verificadas: {{ sourceLabels.join(' · ') }}</span>
+        <span>{{ verifiedPointsCount }} {{ verifiedPointsCount === 1 ? 'punto verificado' : 'puntos verificados' }} contra el documento fuente</span>
       </div>
     </div>
   `,
@@ -82,6 +109,56 @@ const ITEMS_PER_PARAGRAPH = 2;
       margin-bottom: 0;
     }
 
+    .summary-notice {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 1.25rem 1.5rem;
+      border-radius: 16px;
+      background: rgba(245, 158, 11, 0.1);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      color: var(--text-primary);
+    }
+
+    .summary-notice p {
+      margin: 0;
+      font-size: 0.95rem;
+      line-height: 1.6;
+    }
+
+    .sources-block {
+      margin-top: 1rem;
+      padding: 1.1rem 1.4rem;
+      border-radius: 14px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .sources-header {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 0.65rem;
+    }
+
+    .sources-general {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.4rem;
+    }
+
+    .source-line {
+      font-size: 0.83rem;
+      color: var(--text-secondary);
+      line-height: 1.6;
+    }
+
     .sources-footer {
       display: flex;
       align-items: center;
@@ -95,15 +172,90 @@ const ITEMS_PER_PARAGRAPH = 2;
 })
 export class SummaryRendererComponent implements OnChanges {
   @Input({ required: true }) items: ResumenEjecutivoItem[] = [];
-  /** Stored `resumen_ejecutivo` text; used when there are no structured items. */
+  /** Stored `resumen_ejecutivo` text; canonical output when present. */
   @Input() text?: string;
 
   paragraphs: string[] = [];
   sourceLabels: string[] = [];
+  /** Header of the reference list ("Fuentes", "Sources", ...). */
+  sourcesHeader = 'Fuentes';
+  /** Document title, printed once as the general source. */
+  generalSource = '';
+  /** One line per reference number. */
+  sourceLines: string[] = [];
+  /** Message shown instead of the summary when nothing could be generated. */
+  noticeText = '';
+
+  get verifiedPointsCount(): number {
+    if (this.items && this.items.length > 0) {
+      return this.items.filter(
+        (it) => it.fuentes && it.fuentes.some((s) => s.verificado)
+      ).length || this.items.length;
+    }
+    return this.paragraphs.length;
+  }
 
   ngOnChanges(_changes: SimpleChanges): void {
-    this.paragraphs = this.composeParagraphs();
+    this.paragraphs = [];
+    this.sourceLabels = [];
+    this.sourcesHeader = 'Fuentes';
+    this.generalSource = '';
+    this.sourceLines = [];
+    this.noticeText = '';
+
+    const stored = (this.text || '').trim();
+
+    if (stored) {
+      const parsed = this.parseStoredText(stored);
+      this.paragraphs = parsed.paragraphs;
+      this.sourcesHeader = parsed.sourcesHeader;
+      this.generalSource = parsed.generalSource;
+      this.sourceLines = parsed.sourceLines;
+    }
+
+    if (this.paragraphs.length === 0) {
+      // Older generations: compose the paragraphs from the structured items.
+      this.paragraphs = this.composeParagraphs();
+    }
+
+    if (this.paragraphs.length === 0 && stored) {
+      // Nothing was generated: the stored text is the explanation shown here.
+      this.noticeText = stored;
+    }
+
     this.sourceLabels = this.collectSourceLabels();
+  }
+
+  /**
+   * Splits the stored summary into its paragraphs and its reference list.
+   * The reference list starts with a header line and contains the document
+   * title followed by one line per reference number.
+   */
+  private parseStoredText(text: string): {
+    paragraphs: string[];
+    sourcesHeader: string;
+    generalSource: string;
+    sourceLines: string[];
+  } {
+    const lines = text.split(/\r?\n/);
+    const headerIndex = lines.findIndex((line) => SOURCES_HEADER_PATTERN.test(line.trim()));
+
+    const bodyLines = headerIndex >= 0 ? lines.slice(0, headerIndex) : lines;
+    const paragraphs = bodyLines
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0);
+
+    const sourcesHeader = headerIndex >= 0 ? lines[headerIndex].trim() : 'Fuentes';
+    const referenceLines = headerIndex >= 0
+      ? lines.slice(headerIndex + 1).map((line) => line.trim()).filter((line) => line.length > 0)
+      : [];
+
+    const generalSource = referenceLines.length > 0 && !referenceLines[0].startsWith('[')
+      ? referenceLines[0]
+      : '';
+    const sourceLines = referenceLines.filter((line) => line.startsWith('['));
+
+    return { paragraphs, sourcesHeader, generalSource, sourceLines };
   }
 
   /** One flowing text: blocks grouped into paragraphs, no cards or numbering. */

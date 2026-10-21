@@ -25,7 +25,7 @@ export class ExportService {
     if (renderAsParagraphs) {
       // Executive summary downloads as one continuous text of paragraphs.
       md += `## Resumen Ejecutivo\n\n`;
-      md += this.composeSummaryParagraphs(items, storedSummary).join('\n\n') + '\n\n';
+      md += this.summaryMarkdown(items, storedSummary) + '\n\n';
     } else {
       md += `## Contenido Didáctico\n\n`;
     }
@@ -134,7 +134,15 @@ export class ExportService {
       const summaryHtml = this.composeSummaryParagraphs(items, storedSummary)
         .map((paragraph) => `<p>${paragraph}</p>`)
         .join('');
-      itemsHtml = `<div class="summary-flow">${summaryHtml}</div>`;
+      const refs = this.splitStoredSummary(storedSummary);
+      const referencesHtml = refs.references.length > 0 || refs.generalSource
+        ? `<div class="summary-references">
+            <strong>${refs.header || 'Fuentes'}</strong>
+            ${refs.generalSource ? `<p>${refs.generalSource}</p>` : ''}
+            ${refs.references.map((line) => `<p>${line}</p>`).join('')}
+          </div>`
+        : '';
+      itemsHtml = `<div class="summary-flow">${summaryHtml}${referencesHtml}</div>`;
     }
 
     items.forEach((item: any, idx: number) => {
@@ -250,6 +258,9 @@ export class ExportService {
           .intro-text { font-size: 14px; color: #475569; margin-bottom: 24px; line-height: 1.6; }
           .summary-flow { font-size: 14px; color: #334155; line-height: 1.75; }
           .summary-flow p { margin: 0 0 14px 0; }
+          .summary-references { margin-top: 20px; padding-top: 12px; border-top: 1px solid #e2e8f0; font-size: 12px; color: #475569; }
+          .summary-references strong { display: block; margin-bottom: 6px; color: #0f172a; }
+          .summary-references p { margin: 0 0 4px 0; }
           .pdf-card { border: 1px solid #cbd5e1; border-radius: 10px; padding: 18px; margin-bottom: 20px; page-break-inside: avoid; background: #ffffff; }
           .card-step-badge { font-size: 11px; font-weight: 800; color: #4f46e5; letter-spacing: 0.05em; margin-bottom: 6px; }
           .card-step-title { font-size: 16px; font-weight: 700; margin: 0 0 10px 0; color: #0f172a; }
@@ -335,34 +346,78 @@ export class ExportService {
 
   /** Summary blocks (or legacy stored text) joined into flowing paragraphs. */
   private composeSummaryParagraphs(items: any[], storedText?: string): string[] {
-    if (items.length > 0) {
-      const sentences = items
-        .filter((item: any) => item && (item.punto_clave || item.impacto_negocio))
-        .map((item: any) => {
-          const point = String(item.punto_clave || '').trim().replace(/\.$/, '');
-          const impact = String(item.impacto_negocio || '').trim();
-          const parts: string[] = [];
-          if (point) parts.push(point.charAt(0).toUpperCase() + point.slice(1) + '.');
-          if (impact) parts.push(/\.$/.test(impact) ? impact : impact + '.');
-          return parts.join(' ');
-        })
-        .filter((sentence: string) => sentence.length > 0);
-      return this.groupIntoParagraphs(sentences);
+    const stored = (storedText || '').trim();
+    if (stored) {
+      // The stored summary is the canonical text: it already carries the
+      // reference numbers of every paragraph.
+      return this.splitStoredSummary(stored).body;
     }
-
-    const lines = String(storedText || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0 && !/^(resumen ejecutivo|executive summary)/i.test(line))
-      .map((line) => line.replace(/^\d+\.\s*/, ''));
-    return this.groupIntoParagraphs(lines);
+    const sentences = items
+      .filter((item: any) => item && (item.punto_clave || item.impacto_negocio))
+      .map((item: any) => {
+        const point = String(item.punto_clave || '').trim().replace(/\.$/, '');
+        const impact = String(item.impacto_negocio || '').trim();
+        const parts: string[] = [];
+        if (point) parts.push(point.charAt(0).toUpperCase() + point.slice(1) + '.');
+        if (impact) parts.push(/\.$/.test(impact) ? impact : impact + '.');
+        return parts.join(' ');
+      })
+      .filter((sentence: string) => sentence.length > 0);
+    return this.groupIntoParagraphs(sentences);
   }
 
-  /** Groups consecutive sentences into paragraphs of two (mirrors the backend). */
+  /**
+   * Splits the stored executive summary into its paragraphs and its reference
+   * list. The reference list holds the document title once (general source)
+   * and one line per reference number.
+   */
+  private splitStoredSummary(storedText?: string): {
+    body: string[];
+    header: string;
+    generalSource: string;
+    references: string[];
+  } {
+    const stored = (storedText || '').trim();
+    if (!stored) return { body: [], header: '', generalSource: '', references: [] };
+
+    const lines = stored.split(/\r?\n/);
+    const headerIndex = lines.findIndex((line) => /^(fuentes|sources|fontes)$/i.test(line.trim()));
+    const bodyLines = headerIndex >= 0 ? lines.slice(0, headerIndex) : lines;
+    const body = bodyLines.map((line) => line.trim()).filter((line) => line.length > 0);
+    const header = headerIndex >= 0 ? lines[headerIndex].trim() : '';
+    const refLines = headerIndex >= 0
+      ? lines.slice(headerIndex + 1).map((line) => line.trim()).filter((line) => line.length > 0)
+      : [];
+    const generalSource = refLines.length > 0 && !refLines[0].startsWith('[') ? refLines[0] : '';
+    const references = refLines.filter((line) => line.startsWith('['));
+    return { body, header, generalSource, references };
+  }
+
+  /** Executive summary as markdown: paragraphs followed by the reference list. */
+  private summaryMarkdown(items: any[], storedText?: string): string {
+    const stored = (storedText || '').trim();
+    if (!stored) {
+      return this.composeSummaryParagraphs(items, storedText).join('\n\n');
+    }
+    const { body, header, generalSource, references } = this.splitStoredSummary(stored);
+    const paragraphs = body.join('\n\n');
+    if (!header) {
+      return paragraphs || stored;
+    }
+    const list = [
+      ...(generalSource ? [generalSource] : []),
+      ...references
+    ]
+      .map((line) => `- ${line}`)
+      .join('\n');
+    return `${paragraphs}\n\n**${header}**\n${list}`;
+  }
+
+  /** Groups consecutive sentences into paragraphs of one takeaway each (mirrors the backend). */
   private groupIntoParagraphs(sentences: string[]): string[] {
     const paragraphs: string[] = [];
-    for (let i = 0; i < sentences.length; i += 2) {
-      paragraphs.push(sentences.slice(i, i + 2).join(' '));
+    for (let i = 0; i < sentences.length; i += 1) {
+      paragraphs.push(sentences.slice(i, i + 1).join(' '));
     }
     return paragraphs;
   }

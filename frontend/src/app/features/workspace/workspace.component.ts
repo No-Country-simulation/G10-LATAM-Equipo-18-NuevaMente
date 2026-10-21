@@ -430,6 +430,17 @@ import { AppDocument } from '../../core/models/document.model';
           </div>
         </div>
 
+        <!-- GENERAL NOTICE (short message when a piece of content could not be generated) -->
+        <div class="quantity-warning-banner glass-card" *ngIf="hasGeneralNotice()">
+          <div class="warning-icon-box">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <div class="warning-text">
+            <strong>Aviso general:</strong>
+            <p>{{ generalNoticeText() }}</p>
+          </div>
+        </div>
+
         <!-- AMICABLE QUANTITY WARNING NOTICE (If items_generados < items_solicitados) -->
         <div class="quantity-warning-banner glass-card" *ngIf="hasQuantityCapNotice()">
           <div class="warning-icon-box">
@@ -1057,9 +1068,22 @@ export class WorkspaceComponent implements OnInit {
     return `⏱ ${m} min ${s} s`;
   });
 
+  /** Short platform notice shown when a piece of content could not be generated. */
+  hasGeneralNotice = computed(() => {
+    const meta = this.currentResponse()?.metadatos;
+    return !!(meta && meta.aviso_general && meta.aviso_general.trim().length > 0);
+  });
+
+  generalNoticeText = computed(() => {
+    const meta = this.currentResponse()?.metadatos;
+    return meta?.aviso_general || '';
+  });
+
   hasQuantityCapNotice = computed(() => {
     const meta = this.currentResponse()?.metadatos;
     if (!meta) return false;
+    // The general notice already explains the situation in this case.
+    if (meta.aviso_general) return false;
     if (meta.aviso_cantidad) return true;
     if (meta.items_solicitados && meta.items_generados) {
       return meta.items_generados < meta.items_solicitados;
@@ -1068,10 +1092,13 @@ export class WorkspaceComponent implements OnInit {
   });
 
   quantityCapNoticeText = computed(() => {
-    const meta = this.currentResponse()?.metadatos;
+    const resp = this.currentResponse();
+    const meta = resp?.metadatos;
     if (meta?.aviso_cantidad) return meta.aviso_cantidad;
     if (meta?.items_solicitados && meta?.items_generados) {
-      return `Tu documento dio para ${meta.items_generados} elementos verificados. Con un documento más extenso podrás alcanzar los ${meta.items_solicitados} solicitados.`;
+      const perItem = resp?.evaluacion_calidad?.per_item;
+      const count = perItem ? perItem.filter((it: any) => it.origen_verificado).length : meta.items_generados;
+      return `Tu documento dio para ${count} elementos verificados. Con un documento más extenso podrás alcanzar los ${meta.items_solicitados} solicitados.`;
     }
     return 'Se ajustó la cantidad generada a la capacidad del documento fuente.';
   });
