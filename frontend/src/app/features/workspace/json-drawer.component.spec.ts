@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { JsonDrawerComponent } from './json-drawer.component';
 import { AdaptationResponse } from '../../core/models/adaptation.model';
 
@@ -7,6 +7,7 @@ describe('JsonDrawerComponent', () => {
   let fixture: ComponentFixture<JsonDrawerComponent>;
 
   const mockResponse: AdaptationResponse = {
+    status: 'exito',
     metadatos: {
       perfil_aplicado: 'Desarrollador',
       formato_generado: 'Tutorial',

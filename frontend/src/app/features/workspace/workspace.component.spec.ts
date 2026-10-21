@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ReactiveFormsModule } from '@angular/forms';
 import { Router } from '@angular/router';
 import { of } from 'rxjs';
@@ -40,7 +40,13 @@ describe('WorkspaceComponent', () => {
   };
 
   const mockStateService = {
-    addProjectFromResponse: jasmine.createSpy('addProjectFromResponse')
+    addProjectFromResponse: jasmine.createSpy('addProjectFromResponse'),
+    activeAdaptationResponse: jasmine.createSpy('activeAdaptationResponse').and.returnValue(null),
+    activeAdaptationRequest: jasmine.createSpy('activeAdaptationRequest').and.returnValue(null),
+    hasActiveAdaptation: jasmine.createSpy('hasActiveAdaptation').and.returnValue(false),
+    isViewingActiveResult: jasmine.createSpy('isViewingActiveResult').and.returnValue(false),
+    setIsViewingActiveResult: jasmine.createSpy('setIsViewingActiveResult'),
+    clearActiveAdaptation: jasmine.createSpy('clearActiveAdaptation')
   };
 
   const mockExportService = {

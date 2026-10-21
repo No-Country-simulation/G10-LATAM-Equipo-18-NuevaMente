@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { TrashComponent } from './trash.component';
 import { StateService } from '../../core/services/state.service';
 import { NUEVAMENTE_API } from '../../core/api/nuevamente-api';
@@ -11,6 +11,7 @@ describe('TrashComponent', () => {
 
   beforeEach(async () => {
     localStorage.clear();
+    sessionStorage.clear();
 
     await TestBed.configureTestingModule({
       imports: [TrashComponent],
@@ -49,6 +50,7 @@ describe('TrashComponent', () => {
 
   afterEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
   });
 
   it('should create TrashComponent', () => {

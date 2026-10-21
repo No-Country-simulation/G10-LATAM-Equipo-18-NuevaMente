@@ -1,4 +1,6 @@
 import { TestBed } from '@angular/core/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { provideHttpClientTesting, HttpTestingController } from '@angular/common/http/testing';
 import { Router } from '@angular/router';
 import { authGuard, guestGuard, sanitizeReturnUrl } from './auth.guard';
 import { AuthStore } from '../store/auth.store';
@@ -8,19 +10,28 @@ import { MockNuevaMenteApiService } from '../api/mock-nuevamente-api.service';
 describe('AuthGuard & GuestGuard & ReturnUrl Sanitizer', () => {
   let authStore: AuthStore;
   let routerSpy: jasmine.SpyObj<Router>;
+  let httpMock: HttpTestingController;
 
   beforeEach(() => {
+    sessionStorage.clear();
     routerSpy = jasmine.createSpyObj('Router', ['navigate']);
 
     TestBed.configureTestingModule({
       providers: [
         AuthStore,
+        provideHttpClient(),
+        provideHttpClientTesting(),
         { provide: Router, useValue: routerSpy },
         { provide: NUEVAMENTE_API, useClass: MockNuevaMenteApiService }
       ]
     });
 
     authStore = TestBed.inject(AuthStore);
+    httpMock = TestBed.inject(HttpTestingController);
+  });
+
+  afterEach(() => {
+    httpMock.verify();
   });
 
   describe('sanitizeReturnUrl', () => {

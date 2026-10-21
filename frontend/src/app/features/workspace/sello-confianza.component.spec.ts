@@ -40,7 +40,7 @@ describe('SelloConfianzaComponent', () => {
 
     const compiled = fixture.nativeElement as HTMLElement;
     expect(compiled.querySelector('.fallback-view')).toBeTruthy();
-    expect(compiled.textContent).toContain('Verificación no disponible temporalmente');
+    expect(compiled.textContent).toContain('Sin verificar (verificación de fidelidad no disponible)');
   });
 
   it('should toggle explanation drawer on button click', () => {

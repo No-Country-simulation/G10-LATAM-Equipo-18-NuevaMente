@@ -1,6 +1,8 @@
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { GenerationLoaderComponent } from './generation-loader.component';
 import { Component } from '@angular/core';
+import { NUEVAMENTE_API } from '../../core/api/nuevamente-api';
+import { MockNuevaMenteApiService } from '../../core/api/mock-nuevamente-api.service';
 
 describe('GenerationLoaderComponent', () => {
   let component: GenerationLoaderComponent;
@@ -8,7 +10,10 @@ describe('GenerationLoaderComponent', () => {
 
   beforeEach(async () => {
     await TestBed.configureTestingModule({
-      imports: [GenerationLoaderComponent]
+      imports: [GenerationLoaderComponent],
+      providers: [
+        { provide: NUEVAMENTE_API, useClass: MockNuevaMenteApiService }
+      ]
     }).compileComponents();
 
     fixture = TestBed.createComponent(GenerationLoaderComponent);
@@ -22,22 +27,22 @@ describe('GenerationLoaderComponent', () => {
 
   it('should render main title and default elements in non-compact mode', () => {
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.loader-title')?.textContent).toContain('Creando tu contenido educativo');
+    expect(compiled.querySelector('.main-loader-title')?.textContent).toContain('Creando tu contenido educativo');
     expect(compiled.querySelector('.brand-tag')?.textContent).toContain('Procesamiento RAG de Alta Fidelidad');
-    expect(compiled.querySelector('.btn-cancel-gen')).toBeTruthy();
+    expect(compiled.querySelector('.btn-cancel-secondary')).toBeTruthy();
   });
 
   it('should display parameters context chips when params input is provided', () => {
-    component.params = {
+    fixture.componentRef.setInput('params', {
       perfil: 'Desarrollador',
       formato: 'Quiz',
       nicho: 'Fintech',
       nivel: 'Tecnico'
-    };
+    });
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    const chips = compiled.querySelectorAll('.param-chip');
+    const chips = compiled.querySelectorAll('.ctx-chip');
     expect(chips.length).toBe(4);
     expect(chips[0].textContent).toContain('Desarrollador');
     expect(chips[1].textContent).toContain('Quiz');
@@ -47,20 +52,20 @@ describe('GenerationLoaderComponent', () => {
 
   it('should toggle technical details panel when toggle button is clicked', () => {
     expect(component.isDetailsOpen()).toBeFalse();
-    
+
     component.toggleDetails();
     fixture.detectChanges();
     expect(component.isDetailsOpen()).toBeTrue();
 
     const compiled = fixture.nativeElement as HTMLElement;
-    expect(compiled.querySelector('.technical-details-drawer')).toBeTruthy();
+    expect(compiled.querySelector('.technical-details-panel')).toBeTruthy();
   });
 
   it('should emit cancel event when Cancel button is clicked', () => {
     spyOn(component.cancel, 'emit');
     const compiled = fixture.nativeElement as HTMLElement;
-    const cancelBtn = compiled.querySelector('.btn-cancel-gen') as HTMLButtonElement;
-    
+    const cancelBtn = compiled.querySelector('.btn-cancel-secondary') as HTMLButtonElement;
+
     cancelBtn.click();
     expect(component.cancel.emit).toHaveBeenCalled();
   });
@@ -91,7 +96,7 @@ describe('GenerationLoaderComponent', () => {
   });
 
   it('should render compact mode when compact is true', () => {
-    component.compact = true;
+    fixture.componentRef.setInput('compact', true);
     fixture.detectChanges();
 
     const compiled = fixture.nativeElement as HTMLElement;

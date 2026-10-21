@@ -1,4 +1,4 @@
-import { ComponentFixture, TestBed } from '@angular/core';
+import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { QuizRendererComponent } from './quiz-renderer.component';
 import { QuizItem } from '../../../core/models/adaptation.model';
 
