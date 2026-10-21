@@ -667,8 +667,8 @@ class LangGraphOrchestrator(PipelineStages):
                 })
 
             combined_ratio = round(min(1.0, verified_count / max(1, items_generated)), 2)
-            # Conservative principle: floor (min) between combined ratio and critic overall score
-            evaluation.source_grounding_score = round(min(combined_ratio, evaluation.source_grounding_score), 2)
+            # Grounding score strictly equals the ratio of verified items to generated items
+            evaluation.source_grounding_score = combined_ratio
             evaluation.per_item = final_per_item
 
             count_note = (
@@ -704,8 +704,7 @@ class LangGraphOrchestrator(PipelineStages):
             )
             obs_suffix = "Validado contra pasajes fuente." if is_spanish else "Validated against source passages."
             if evaluation:
-                grounding_score = min(heuristic_score, evaluation.source_grounding_score)
-                evaluation.source_grounding_score = round(grounding_score, 2)
+                evaluation.source_grounding_score = heuristic_score
                 evaluation.per_item = per_item_records
                 base_obs = (evaluation.observations or "").strip()
                 if count_note not in base_obs:

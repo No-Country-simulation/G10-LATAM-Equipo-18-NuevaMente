@@ -996,7 +996,13 @@ class PipelineStages:
                     "es_fallback": bool(it.get("es_fallback", False)),
                 })
 
-            overall_score = float(data.get("overall_grounding_score", fallback_score))
+            # Calculate grounding score deterministically from verified items
+            if per_item_list:
+                verified_items_count = sum(1 for e in per_item_list if e.get("origen_verificado"))
+                overall_score = round(verified_items_count / len(per_item_list), 2)
+            else:
+                overall_score = float(data.get("overall_grounding_score", fallback_score))
+
             evaluation = QualityEvaluation(
                 source_grounding_score=round(max(0.0, min(1.0, overall_score)), 2),
                 pedagogical_clarity=clarity_val,
