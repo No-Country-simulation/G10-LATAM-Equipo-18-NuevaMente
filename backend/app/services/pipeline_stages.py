@@ -368,6 +368,10 @@ class PipelineStages:
                 item_count=target,
                 target_language=target_language,
                 chunk_info=safe_chunk_info,
+                # The format prompts declare {chunk_id} / {page_number}; they are
+                # required here or str.format() raises KeyError('chunk_id').
+                chunk_id=first_topic.get("chunk_id", ""),
+                page_number=first_page_val if first_page_val is not None else "N/A",
             )
 
             raw = None
@@ -436,7 +440,7 @@ class PipelineStages:
             )
             # Older format prompts use {chunk_id} / {page_number}; pass them only when needed
             if "{chunk_id}" in template:
-                fmt_kwargs["chunk_id"] = topic["chunk_id"]
+                fmt_kwargs["chunk_id"] = topic.get("chunk_id", "")
             if "{page_number}" in template:
                 fmt_kwargs["page_number"] = page_val if page_val is not None else "N/A"
             prompt = template.format(**fmt_kwargs)
