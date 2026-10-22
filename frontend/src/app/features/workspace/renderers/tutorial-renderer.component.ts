@@ -90,6 +90,8 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
   styles: [`
     .tutorial-container {
       width: 100%;
+      max-width: 100%;
+      min-width: 0;
     }
 
     .tutorial-header {
@@ -154,12 +156,15 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
       display: flex;
       flex-direction: column;
       gap: 1.25rem;
+      min-width: 0;
     }
 
     .timeline-step-card {
       display: flex;
       gap: 1.25rem;
       scroll-margin-top: 5rem;
+      min-width: 0;
+      max-width: 100%;
     }
 
     .step-indicator {
@@ -199,6 +204,8 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
 
     .step-content {
       flex: 1;
+      min-width: 0;
+      max-width: 100%;
       padding: 1.5rem;
       border-radius: 16px;
       background: var(--bg-surface);
@@ -225,6 +232,8 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
       overflow: hidden;
       margin-bottom: 1.25rem;
       border: 1px solid rgba(255, 255, 255, 0.1);
+      max-width: 100%;
+      min-width: 0;
     }
 
     .code-block-header {
@@ -249,11 +258,16 @@ import { TutorialItem } from '../../../core/models/adaptation.model';
     }
 
     .code-content {
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      overflow-x: auto;
+      max-width: 100%;
+      min-width: 0;
       padding: 1rem;
       font-family: Consolas, Monaco, monospace;
       font-size: 0.88rem;
       color: #58A6FF;
-      overflow-x: auto;
       margin: 0;
     }
 
