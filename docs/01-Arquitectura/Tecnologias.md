@@ -45,14 +45,19 @@ Stack tecnológico de NuevaMente.
 
 > Los identificadores de modelo están centralizados en `backend/app/core/config.py`.
 
+> **Alcance de almacenamiento:** OCI es el backend completo del MVP. Supabase
+> cubre solo documentos originales y su metadata; el selector por tipo de dato
+> y la integración completa están en
+> [Mejoras Post-MVP](../05-Roadmap/Mejoras_Post_MVP.md).
+
 ## 4. Almacenamiento e infraestructura
 
 | Tecnología | Uso |
 | :--- | :--- |
-| **OCI Object Storage** | Almacenamiento en la nube (capa Always Free). |
-| **Supabase** | Storage de documentos y metadata (Postgres). |
-| **SQLite** | Metadatos locales de usuarios y documentos. |
-| **FAISS en disco** | Índices vectoriales locales (`vector_store/{document_id}/`). |
+| **OCI Object Storage** | Almacenamiento completo del MVP: documentos, artefactos y cola. |
+| **Supabase** | Modo parcial: Storage de documentos originales y metadata en Postgres. No guarda aún artefactos, biblioteca ni vectores. |
+| **SQLite** | Usuarios, autenticación, contenidos, auditoría y cola de trabajos. Convive con Supabase en el modo parcial. |
+| **FAISS en disco** | Índices vectoriales locales (`vector_store/{document_id}/`); persistencia remota pendiente. |
 | **Docker Compose** | Backend (contenedor, puerto 8000) + frontend (nginx, puerto 80). |
 
 ## 5. Herramientas de desarrollo

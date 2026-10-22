@@ -65,12 +65,16 @@ propio archivo de `04-Documentacion/backend/`.
 Servicios de soporte transversal:
 
 - `document_storage_service` y los adaptadores de `services/storage/`
-  (`local_backend`, `oci_backend`, `supabase_backend`): mueven bytes del
-  documento original y de los artefactos generados → [Storage](../storage/Almacenamiento_OCI.md).
-- `document_repository`: metadata y estados del documento en Postgres/Supabase.
+  (`local_backend`, `oci_backend`): mueven bytes del documento original y de
+  los artefactos generados. Supabase se resuelve en
+  `document_storage_service` para documentos originales; todavía no existe un
+  `supabase_backend` de bajo nivel → [Storage](../storage/Almacenamiento_OCI.md).
+- `document_repository`: metadata y estados del documento en SQLite o Supabase,
+  según el backend de documentos.
 - `document_deletion_service`: borrado permanente en todas las capas
   (metadatos, storage, índice FAISS, caché).
-- `storage_queue_service`, `trash_service`: colas de subida y borrado lógico.
+- `storage_queue_service`, `trash_service`: cola de subida de artefactos
+  (OCI/local) y borrado lógico; la papelera aún no soporta Supabase.
 
 ---
 
@@ -111,8 +115,8 @@ flowchart LR
     GR["Frontend Gradio (pruebas)\nimporta servicios in-process"] --> PIPE
     API --> PIPE["Servicios del pipeline"]
     PIPE --> FAISS["Índice FAISS (local)"]
-    PIPE --> SUP["Supabase (storage + metadata)"]
-    PIPE --> OCI["OCI Object Storage"]
+    PIPE --> SUP["Supabase parcial\n(documentos originales + metadata)"]
+    PIPE --> OCI["OCI Object Storage\n(artefactos generados + cola)"]
     PIPE --> EXT["Gemini · Jina · Groq · OpenRouter · Cohere"]
 ```
 

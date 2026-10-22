@@ -27,7 +27,7 @@ sequenceDiagram
     autonumber
     actor Cliente as Frontend / Cliente
     participant API as API (/api/v1/documents)
-    participant Storage as Almacenamiento (Supabase / OCI)
+    participant Storage as Almacenamiento (OCI/local; Supabase parcial)
     participant Vector as Índice FAISS
 
     Cliente->>API: POST /documents (multipart: file | text)

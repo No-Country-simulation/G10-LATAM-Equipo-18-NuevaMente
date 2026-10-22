@@ -15,7 +15,7 @@ app/
 ├── api/v1/endpoints/   # documents, contents, health, auth, anki, trash,
 │                       # storage, multimodal, export
 ├── services/           # pipeline RAG + orquestación multi-agente
-│   └── storage/        # adaptadores local, OCI y Supabase
+│   └── storage/        # adaptadores local y OCI; Supabase parcial en document_storage_service
 ├── infrastructure/     # clientes: gemini, groq, jina, cohere, oci, supabase
 ├── schemas/            # contratos Pydantic (adaptation, document_record, …)
 ├── core/               # configuración central (config.py)
@@ -29,7 +29,7 @@ app/
 | **Pipeline RAG** | Ingesta → embeddings → índice → recuperación → reranking. |
 | **Orquestación** | Router de proveedores + agentes LangGraph que generan el contenido. |
 | **Anclaje** | Verificación de fidelidad de cada elemento contra las fuentes citadas. |
-| **Almacenamiento** | Documentos originales y artefactos, con backend intercambiable. |
+| **Almacenamiento** | Documentos originales con backend configurable (OCI, Supabase parcial o local); artefactos generados en OCI/local y vectores en FAISS local. |
 | **Exportación** | PDF (`pdf_export_service`) y mazos de Anki (`genanki`). |
 
 ---
@@ -65,7 +65,10 @@ UI mínima en Gradio para validar el pipeline sin la SPA. Detalle en
 - **LLM:** Gemini, Groq, OpenRouter (y Cohere para reranking).
 - **Embeddings:** Gemini, Jina y un modelo local (`sentence-transformers`) como
   último respaldo.
-- **Almacenamiento:** Supabase Storage o OCI Object Storage.
+- **Almacenamiento:** OCI Object Storage o disco local para el flujo completo;
+  Supabase como modo parcial para documentos originales y su metadata. No hay
+  todavía un selector único ni persistencia de artefactos/vectores en Supabase.
+  Ver [Mejoras Post-MVP](../05-Roadmap/Mejoras_Post_MVP.md).
 
 ---
 

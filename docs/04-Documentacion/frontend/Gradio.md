@@ -72,7 +72,29 @@ Capacidades principales:
 
 ---
 
-## 4. Solución de problemas
+## 4. Modo Supabase parcial
+
+Gradio es la **interfaz recomendada** para probar el modo Supabase parcial
+(documentos originales y metadata). Llama al pipeline con `user_id=None`, por lo
+que evita la incompatibilidad entre los IDs `usr_*` de SQLite y el
+`documents.user_id uuid` de Supabase que bloquea a Angular.
+
+Ten en cuenta que, en este modo:
+
+- El documento original y su metadata van a Supabase.
+- Los artefactos generados (JSON/PDF) siguen yendo a OCI o a `storage_mock/`;
+  **no** se guardan en Supabase.
+- La biblioteca, la papelera y la cola siguen en SQLite.
+- No hay login ni separación de usuarios.
+
+Configuración completa en
+[Configuración de Storages](../../02-Instalacion/Configuracion_de_Storages.md).
+El reemplazo total de proveedor está en
+[Mejoras Post-MVP](../../05-Roadmap/Mejoras_Post_MVP.md).
+
+---
+
+## 5. Solución de problemas
 
 - **`ModuleNotFoundError: No module named 'gradio'` o `No module named 'app'`:**
   se ejecutó sin `uv run` o desde una carpeta distinta a `backend`. Repite

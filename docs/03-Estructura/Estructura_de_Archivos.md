@@ -36,18 +36,18 @@ backend/
 ├── Dockerfile             # imagen del backend (uvicorn en 8000)
 ├── conftest.py            # configuración de pytest
 ├── .env.example           # plantilla de variables de entorno
-├── migrations/            # SQL de Supabase (se aplican a mano)
+├── migrations/            # SQL de Supabase (se aplican a mano; no todas aplican a Supabase)
 ├── scripts/               # utilidades (p. ej. check_services.py)
 ├── tests/                 # pruebas (pytest) y tests/manual/
 ├── vector_store/          # índices FAISS generados (por document_id)
-├── storage_mock/          # respaldo en disco cuando no hay OCI/Supabase
+├── storage_mock/          # respaldo local; en modo Supabase parcial también recibe artefactos
 └── app/
     ├── api/v1/
     │   ├── api.py         # composición del router v1
     │   └── endpoints/     # documents, contents, health, auth, anki, trash,
     │                      # storage, multimodal, export
     ├── services/          # núcleo: pipeline RAG + orquestación
-    │   └── storage/       # adaptadores de almacenamiento (local, OCI, Supabase)
+    │   └── storage/       # adaptadores local y OCI; Supabase parcial en document_storage_service
     ├── infrastructure/    # clientes externos (gemini, groq, jina, cohere, oci, supabase)
     ├── schemas/           # contratos Pydantic
     ├── core/              # config.py (modelos, límites, banderas)
@@ -89,11 +89,12 @@ docs/
 │   ├── backend/
 │   │   ├── ingestion/     # ingesta y API
 │   │   ├── embeddings/    # embeddings y almacén vectorial
-│   │   ├── storage/       # OCI y Supabase
+│   │   ├── storage/       # OCI y local; Supabase parcial para documentos
 │   │   ├── retrieval/     # recuperación y reranking
 │   │   ├── quality/       # anclaje y verificación de fidelidad
 │   │   └── architecture/  # arquitectura y flujo de servicios
 │   └── frontend/          # Angular y Gradio
+├── 05-Roadmap/            # mejoras post-MVP y deuda técnica
 ├── imagenes/              # capturas usadas en las guías
 └── old/                   # documentación archivada (pendiente de eliminar)
 ```

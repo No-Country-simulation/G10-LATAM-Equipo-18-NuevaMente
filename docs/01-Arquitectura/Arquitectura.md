@@ -35,7 +35,7 @@ responsabilidades. Se organiza en capas desacopladas:
         │                                             │
         ▼                                             ▼
 ┌────────────────────────────┐        ┌───────────────────────────────┐
-│ Índice vectorial (FAISS)   │        │ Almacenamiento (OCI/Supabase) │
+│ Índice vectorial (FAISS)   │        │ Almacenamiento (OCI/local)    │
 └────────────────────────────┘        └───────────────────────────────┘
 ```
 
@@ -73,9 +73,11 @@ flowchart TD
 
 - **Separación de responsabilidades:** endpoints, servicios, infraestructura y
   esquemas viven en capas distintas.
-- **Interfaces de almacenamiento intercambiables:** el storage del documento
-  original se elige por configuración (OCI, Supabase o local) detrás de la misma
-  interfaz.
+- **Interfaces de almacenamiento configurables por tipo de dato:** el archivo
+  original se elige por configuración (OCI, Supabase parcial o local) detrás de
+  la misma interfaz. Los artefactos generados y la biblioteca siguen en
+  OCI/local y SQLite; los vectores, en FAISS local. No es un reemplazo total de
+  proveedor. Ver [Mejoras Post-MVP](../05-Roadmap/Mejoras_Post_MVP.md).
 - **Tolerancia a fallos por cascada:** tanto los embeddings como los LLM y el
   reranker tienen proveedores de respaldo.
 - **Un índice por documento:** la generación trabaja siempre sobre un único

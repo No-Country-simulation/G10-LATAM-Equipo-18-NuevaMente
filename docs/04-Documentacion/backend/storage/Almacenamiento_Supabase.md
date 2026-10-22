@@ -2,168 +2,202 @@
 
 > `docs/04-Documentacion/backend/storage/` · [Volver al README](../../../../README.md)
 
-Este documento cubre dos cosas: **la configuración manual que hay que hacer una vez** en el dashboard de Supabase, y **cómo usar en código** `document_storage_service.py` (el archivo original) y `document_repository.py` (su metadata: título, estado, `object_key`).
+## Alcance actual: modo parcial
 
-Es la rama de "con login" del proyecto — usa el mismo proyecto de Supabase que se usará más adelante para Auth y `pgvector`, aunque hoy no haya login todavía (`user_id` queda en `null`).
+Supabase está implementado para **documentos originales y su metadata**. No es
+un reemplazo completo de OCI.
+
+| Elemento | ¿Se guarda en Supabase? |
+| :--- | :--- |
+| Archivo original (PDF/MD/TXT) | Sí, bucket `document-source` |
+| Metadata del documento (`documents`) | Sí, Postgres/Supabase |
+| JSON de adaptaciones generadas | **No**; va a OCI o `storage_mock/` |
+| Biblioteca y papelera (`contenidos`) | **No**; sigue en SQLite |
+| Vectores FAISS | **No**; siguen en disco local |
+| Usuarios y autenticación | **No**; siguen en SQLite |
+
+> Supabase no usa SQLite. La tabla `documents` y el bucket `document-source`
+> viven en Supabase/Postgres; SQLite solo conserva las tablas del MVP que aún no
+> se migraron (usuarios, contenidos, papelera y cola).
+
+El reemplazo total está planificado en
+[Mejoras Post-MVP](../../../05-Roadmap/Mejoras_Post_MVP.md).
 
 ---
 
-## 1. Configuración manual (una sola vez, en el dashboard de Supabase)
+## 1. Configuración manual (una sola vez)
 
-### 1.1 Crear el bucket de Storage
-1. Entra a tu proyecto en [supabase.com](https://supabase.com) → **Storage** → **New bucket**.
-2. Nombre exacto: `document-source` (debe coincidir con `SUPABASE_BUCKET_DOCUMENTS` en `config.py`).
-3. Márcalo como **privado** (no "Public bucket"). El backend accede con la key `service_role`, que se salta cualquier política — no hace falta exponerlo públicamente.
+### 1.1 Crear el bucket de documentos
 
-### 1.2 Crear la tabla `documents`
-1. Ve a **SQL Editor** → **New query**.
-2. Pega y ejecuta el contenido de `migrations/001_documents.sql`.
-3. Verifica en **Table Editor** que la tabla `documents` aparece con sus columnas.
-4. Aplica también el resto de migraciones en orden (son 4 archivos):
-   `002_adapted_contents.sql`, `002_trash_system.sql` y
-   `003_documents_storage_backend.sql`.
+1. En [supabase.com](https://supabase.com) entra a tu proyecto → **Storage**.
+2. Crea un bucket privado llamado `document-source`.
+3. No lo marques como público: el backend usa `service_role` y no necesita
+   exponerlo.
 
-> Row Level Security (RLS) no se activa todavía a propósito: el backend usa `service_role`, que ignora RLS de cualquier forma. Cuando exista login y el frontend necesite consultar Supabase directamente (no a través del backend), ahí sí habrá que activar RLS con una policy `user_id = auth.uid()`. Por ahora, activar RLS sin políticas solo bloquearía sin necesidad.
+El bucket `adapted-artifacts` puede crearse para la futura integración de
+artefactos, pero **el flujo actual no lo usa**.
 
-### 1.3 Obtener las credenciales
-1. **Project Settings** → **API**.
-2. Copia **Project URL** → va en `SUPABASE_URL`.
-3. Copia la key de la fila **`service_role`** (no la de `anon`/`public`) → va en `SUPABASE_KEY`.
+### 1.2 Crear las tablas
+
+En **SQL Editor** aplica, en este orden:
+
+1. `migrations/001_documents.sql`
+2. `migrations/003_documents_storage_backend.sql`
+
+> **No apliques `002_trash_system.sql` en Supabase.** Esa migración modifica la
+> tabla `contenidos`, que existe en SQLite pero no en Supabase.
+>
+> `002_adapted_contents.sql` existe, pero hoy no la usa ningún servicio. No es
+> necesaria para el modo parcial.
+
+### 1.3 Credenciales
+
+En **Project Settings → API**:
+
+- **Project URL** → `SUPABASE_URL`
+- **service_role key** → `SUPABASE_KEY` (nunca la `anon/public`)
 
 ### 1.4 Variables de entorno
 
-```bash
+```dotenv
 # backend/.env — nunca se sube a git
+APP_ENV=development
+STORAGE_METHOD=supabase
 SUPABASE_URL=https://tuproyecto.supabase.co
-SUPABASE_KEY=eyJh...   # service_role
+SUPABASE_KEY=eyJh...              # service_role
+SUPABASE_BUCKET_DOCUMENTS=document-source
+SUPABASE_BUCKET_ARTIFACTS=adapted-artifacts
+ALLOW_LOCAL_STORAGE=true          # artefactos en storage_mock/ mientras no haya backend Supabase
 ```
 
-```bash
-# backend/.env.example — sí se sube, con placeholder
-SUPABASE_URL=your_supabase_project_url_here
-SUPABASE_KEY=your_supabase_service_role_key_here
-```
+### 1.5 Dependencia
 
-### 1.5 Instalar la dependencia
-`supabase` ya está declarado en `pyproject.toml` y en `uv.lock`, así que `uv sync`
-lo instala. No hace falta `uv add supabase`.
+`supabase` ya está declarado en `pyproject.toml` y `uv.lock`, así que `uv sync`
+lo instala.
 
 ---
 
-## 2. Guía Rápida para Desarrolladores: ¿Cómo Usarlo?
+## 2. Uso en código
 
-### Forma recomendada: `document_pipeline_service.py`
-
-Para procesar un documento subido, no se compone manualmente storage + repository + ingester + embeddings + vector store — eso ya lo hace `process_and_index_document()`, compartiendo un único `document_id` entre las cuatro piezas:
+### 2.1 Pipeline recomendado
 
 ```python
 from app.services.document_pipeline_service import process_and_index_document
 
 record = process_and_index_document(
-    local_path="/tmp/manual_oci.pdf",  # archivo ya recibido por el endpoint
-    title="Manual OCI",                # opcional; por defecto usa el nombre del archivo
-    user_id=None,                      # None hasta que exista login
+    local_path="/tmp/manual.pdf",
+    title="Manual",
+    user_id=None,   # Gradio usa None; Angular envía usr_* y no es compatible
 )
 
-print(record.status)  # "ready" si todo salió bien, "failed" con error_message si no
+print(record.status)  # ready | failed
 ```
 
-Si falla en cualquier punto después de crear la fila (ingesta, embeddings, indexado), el documento queda marcado `status="failed"` con el motivo en `error_message`, en vez de quedar atascado en `"processing"` o perder el error silenciosamente.
-
-Las secciones siguientes explican **qué hace por dentro** — útil para depurar o para usar cada pieza por separado (por ejemplo, en un test aislado).
-
-### Subir y descargar el archivo original
+### 2.2 Subir y descargar el archivo original
 
 ```python
 from app.services.document_storage_service import get_document_storage
 
-storage = get_document_storage()  # SupabaseStorageService, según STORAGE_METHOD
+storage = get_document_storage()  # SupabaseStorageService si el backend resuelto es supabase
 
-# Subir (típicamente sobre un archivo temporal recién recibido por el endpoint)
 object_key = storage.upload_document(
-    local_path="/tmp/manual_oci.pdf",
-    user_id=None,          # None hasta que exista login
+    local_path="/tmp/manual.pdf",
+    user_id=None,
     document_id="un-uuid-de-documento",
 )
-print(object_key)  # ej: "anonymous/un-uuid-de-documento.pdf"
 
-# Descargar (por ejemplo, para reprocesar un documento ya subido)
 local_path = storage.download_document(
     object_key=object_key,
-    destination_path="/tmp/reprocesar/manual_oci.pdf",
+    destination_path="/tmp/reprocesar/manual.pdf",
 )
 ```
 
-### Registrar y actualizar el estado del documento
+### 2.3 Metadata del documento
 
 ```python
 from app.services.document_repository import get_document_repository
 
-repo = get_document_repository()  # SupabaseDocumentRepository
+repo = get_document_repository()  # SupabaseDocumentRepository en modo supabase
 
-# 1. Al recibir el archivo, antes de procesar: crea la fila en estado "processing"
 record = repo.create_document(
     document_id="un-uuid-de-documento",
-    title="Manual OCI",
-    source_filename="manual_oci.pdf",
+    title="Manual",
+    source_filename="manual.pdf",
     object_key=object_key,
     user_id=None,
 )
-print(record.status)  # "processing"
 
-# 2. Si la ingesta + indexado terminan bien:
-repo.mark_ready(document_id="un-uuid-de-documento", total_parents=12, total_children=48)
-
-# 3. Si algo falla en cualquier paso del pipeline:
-repo.mark_failed(document_id="un-uuid-de-documento", error_message="Fallo al generar embeddings: ...")
-
-# 4. Consultar un documento puntual
-doc = repo.get_document("un-uuid-de-documento")
-if doc is None:
-    print("No existe")
-else:
-    print(doc.status, doc.total_children)
-
-# 5. Listar documentos (sin login: devuelve todos; con login, filtra por user_id)
-todos = repo.list_documents()
-de_un_usuario = repo.list_documents(user_id="uuid-del-usuario")
+repo.mark_ready("un-uuid-de-documento", total_parents=12, total_children=48)
+repo.mark_failed("un-uuid-de-documento", error_message="Fallo de embeddings")
 ```
 
-### Por qué son dos archivos separados
-
-- **`document_storage_service.py`**: mueve *bytes* del archivo original. No sabe nada de títulos ni de estados.
-- **`document_repository.py`**: guarda *metadata* (título, `object_key`, estado). No sabe nada de cómo se sube o descarga el archivo — solo guarda la referencia (`object_key`) que le da el otro.
-
-Esta separación es la misma razón por la que `document_pipeline_service.py` (el
-orquestador) los usa a los dos por separado, uno para el archivo y otro para su
-estado, en vez de mezclar responsabilidades en un solo servicio.
+`document_storage_service.py` mueve bytes; `document_repository.py` guarda
+metadata y estados. `document_pipeline_service.py` coordina ambos.
 
 ---
 
-## 3. Estado actual: OCI ya está implementado
+## 3. Compatibilidad
 
-La fábrica `get_document_storage()` elige la implementación según
-`settings.resolve_storage_backend()`:
+### Gradio: sí
 
-| Backend efectivo | Implementación |
-| :--- | :--- |
-| `supabase` | `SupabaseStorageService` |
-| `oci` | `OCIStorageAdapter` |
-| `local` | `OCIStorageAdapter` con servicio local (disco) |
+Gradio llama al pipeline con `user_id=None`, por lo que funciona con Supabase
+parcial. Es la interfaz recomendada para probar este modo:
 
-> `OCIStorageAdapter` convive con `OciStorageBackend`
-> (`app/services/storage/oci_backend.py`), que es el backend de bajo nivel usado
-> por `get_storage_backend()`. No son la misma clase ni viven en el mismo archivo.
+```powershell
+cd backend
+uv run python ../frontend_gradio/app_gradio.py
+```
 
-La elección del backend se documenta en
-[Configuración de Storages](../../../02-Instalacion/Configuracion_de_Storages.md) y
-la integración con OCI en [Almacenamiento OCI](Almacenamiento_OCI.md).
+Ver [Frontend Gradio](../../frontend/Gradio.md).
+
+### Angular: no en modo Supabase parcial
+
+- Los usuarios de SQLite usan IDs como `usr_ana_001`.
+- `documents.user_id` en Supabase es `uuid`.
+- `SupabaseDocumentRepository` valida UUID antes de consultar.
+
+Por eso, con un usuario autenticado en Angular, listar o subir documentos falla.
+La adaptación está en el roadmap. Ver
+[Frontend Angular](../../frontend/Angular.md).
+
+### Artefactos generados: no
+
+`StorageQueueService` sigue usando OCI o disco local. El método
+`SupabaseStorageService.upload_json_artifact()` existe, pero no está conectado y
+hoy devuelve `completado` incluso si la subida falla. No lo uses como base para
+producción sin corregirlo.
+
+---
+
+## 4. Verificación
+
+1. Ejecuta `uv run --with email-validator --with genanki python -c "from app.core.config import settings; print(settings.resolve_storage_backend())"`.
+2. Sube un documento desde Gradio.
+3. Revisa el objeto en el bucket `document-source`.
+4. Revisa la fila en la tabla `documents`.
+5. Confirma que el artefacto generado **no** está en Supabase; estará en OCI o
+   `storage_mock/`.
+
+Si falla la subida:
+
+- Revisa que `SUPABASE_KEY` sea `service_role`.
+- Revisa que el bucket exista y sea privado.
+- Revisa que aplicaste `001` y `003`.
+- Revisa que `STORAGE_METHOD=supabase` y que las credenciales no estén vacías.
+
+---
+
+## 5. Relación con OCI
+
+Puedes usar Supabase para documentos originales y mantener OCI para artefactos.
+En ese caso OCI sigue siendo necesario y no se está reemplazando por completo.
+La configuración de ambos modos está en
+[Configuración de Storages](../../../02-Instalacion/Configuracion_de_Storages.md).
 
 ---
 
 <div align="right">
 
-[Volver al README](../../../../README.md)
+[Volver al README](../../../../README.md) · [Mejoras Post-MVP](../../../05-Roadmap/Mejoras_Post_MVP.md)
 
 </div>
-

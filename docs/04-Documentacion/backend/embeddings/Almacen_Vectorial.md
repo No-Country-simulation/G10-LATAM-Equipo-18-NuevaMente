@@ -94,9 +94,15 @@ cargado.load("vector_store/mi_indice")
 ```python
 # Defaults en app/core/config.py
 EMBEDDING_DIMENSIONS = 768
-VECTOR_STORE_METHOD = "faiss"       # 'faiss' (por documento) o 'pgvector' (rama Supabase)
+VECTOR_STORE_METHOD = "faiss"       # 'faiss' (por documento); 'pgvector' NO está implementado
 VECTOR_STORE_DIR = "vector_store"
 ```
+
+> **Persistencia vectorial actual:** los índices viven en disco local
+> (`vector_store/{document_id}/`) y no se suben a OCI ni a Supabase. La opción
+> `pgvector` existe solo como configuración prevista; no hay código que la
+> implemente. La persistencia remota y la migración desde FAISS están en
+> [Mejoras Post-MVP](../../../05-Roadmap/Mejoras_Post_MVP.md).
 
 ---
 

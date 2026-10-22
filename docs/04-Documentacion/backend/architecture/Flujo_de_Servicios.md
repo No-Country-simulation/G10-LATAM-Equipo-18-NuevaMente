@@ -25,7 +25,7 @@ flowchart TD
     subgraph G1 ["1. Orquestación y Persistencia Base"]
         DPS["document_pipeline_service\n(Orquestador del Pipeline)"]
         DSS["document_storage_service\n(Almacena archivo original en Supabase/OCI)"]
-        DR["document_repository\n(Metadata y estados en Postgres: processing/ready/failed)"]
+        DR["document_repository\n(Metadata y estados: SQLite o Supabase)"]
     end
 
     subgraph G2 ["2. Limpieza y Segmentación (Ingesta)"]
@@ -108,12 +108,12 @@ de soporte que se describen al final):
   - `process_and_index_document(...)`: Wrapper síncrono para pruebas.
 
 #### `document_storage_service.py` (Almacenamiento Físico y Artefactos)
-- **Rol:** Abstracción unificada para guardar y recuperar el archivo binario original (`.pdf`, `.md`, `.txt`) y persistir artefactos educativos generados (`upload_json_artifact`) en Supabase Storage u OCI Object Storage.
+- **Rol:** Abstracción unificada para guardar y recuperar el archivo binario original (`.pdf`, `.md`, `.txt`) en Supabase, OCI o disco local. `upload_json_artifact()` existe para artefactos, pero el flujo actual de artefactos usa `StorageQueueService` (OCI/local), no Supabase.
 - **Entradas:** Ruta local del archivo / payload JSON, `document_id`, `user_id`.
-- **Salidas:** `object_key` único que identifica la ruta del archivo o artefacto dentro del bucket (`document-source` o `adapted-artifacts`).
+- **Salidas:** `object_key` único que identifica la ruta del archivo o artefacto dentro del bucket (`document-source` para Supabase; `adapted-artifacts` para OCI).
 
 #### `document_repository.py` (Repositorio de Metadatos)
-- **Rol:** Manejo de la tabla `documents` en base de datos (PostgreSQL/Supabase). Rastrea el ciclo de vida del documento.
+- **Rol:** Manejo de la tabla `documents` en SQLite o Postgres/Supabase, según el backend de documentos. Rastrea el ciclo de vida del documento.
 - **Entradas:** `document_id`, título, nombre de archivo fuente, `object_key`, estados.
 - **Salidas:** Instancias de `DocumentRecord` con campos como `status` (`processing`, `ready`, `failed`), `total_parents`, `total_children`, `error_message`.
 
@@ -207,8 +207,8 @@ grafo, los nodos y las cascadas en
 | `coverage_planner.py` | Planificación de conceptos a cubrir y selección de fragmentos citables. |
 | `document_deletion_service.py` | Borrado permanente en metadatos, storage, índice FAISS y caché. |
 | `trash_service.py` | Borrado lógico y restauración. |
-| `storage_queue_service.py` | Cola de subidas a storage. |
-| `services/storage/` | Adaptadores `local_backend`, `oci_backend` y `supabase_backend`. |
+| `storage_queue_service.py` | Cola de subidas de artefactos (OCI/local). |
+| `services/storage/` | Adaptadores `local_backend` y `oci_backend`; Supabase parcial se resuelve en `document_storage_service`. |
 
 La verificación de anclaje de los elementos generados se documenta en
 [Anclaje técnico](../quality/Anclaje_Tecnico.md).

@@ -111,6 +111,21 @@ npm run test:ci
   nginx (`frontend/nginx.conf`), que redirige `/api/` al backend. Revisa que
   `apiUrl` no duplique el prefijo `/api`.
 
+### Limitación conocida con Supabase parcial
+
+La SPA **no está adaptada** al modo Supabase parcial (solo documentos originales
+y metadata). El motivo es el modelo de identidad:
+
+- Los usuarios de SQLite usan IDs como `usr_ana_001`, `usr_diego_002`, etc.
+- En Supabase, `documents.user_id` es de tipo `uuid`.
+- `SupabaseDocumentRepository` valida el UUID antes de consultar
+  (`_require_valid_uuid`).
+
+Por eso, con un usuario autenticado en Angular, listar o subir documentos falla.
+Para probar el modo Supabase parcial usa [Gradio](Gradio.md), que llama al
+pipeline con `user_id=None`. La adaptación de autenticación y frontend está en
+[Mejoras Post-MVP](../../05-Roadmap/Mejoras_Post_MVP.md).
+
 ---
 
 ## 6. Interfaz alternativa de pruebas

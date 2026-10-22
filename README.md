@@ -74,7 +74,7 @@ flowchart LR
   I --> J["Frontend Angular 17"]
   K["API REST - FastAPI"] <--> J
   K <--> G
-  G --> L["(Persistencia\nOCI / Supabase / SQLite)"]
+  G --> L["(Persistencia\nOCI/local + SQLite\nSupabase parcial)"]
 ```
 
 - **Backend:** FastAPI (Python >= 3.11), gestionado con [uv](https://github.com/astral-sh/uv).
@@ -83,7 +83,7 @@ flowchart LR
 - **Embeddings:** Gemini, Jina y modelo local (`intfloat/multilingual-e5-base`).
 - **LLM:** Google Gemini (modelo principal), con soporte para **cascada y fallback** entre proveedores.
 - **Orquestación:** LangGraph con Multi-Agent.
-- **Almacenamiento:** OCI Object Storage (Always Free) + SQLite local para metadatos, alternativa Supabase, o local.
+- **Almacenamiento:** OCI Object Storage guarda documentos y artefactos; SQLite local guarda metadata, biblioteca y cola. Supabase está disponible como **modo parcial solo para documentos originales y su metadata**; no reemplaza por completo a OCI en el MVP.
 
 **Más información:** [docs/01-Arquitectura/Tecnologias.md](docs/01-Arquitectura/Tecnologias.md)
 
@@ -142,7 +142,7 @@ APP_PORT=8001
 nueva-mente/
 ├── backend/            # API FastAPI (Python >= 3.11)
 │   ├── app/            # Núcleo: api/, core/, services/, prompts/, schemas/, infrastructure...
-│   ├── migrations/     # Migraciones SQL (aplicadas manualmente en Supabase)
+│   ├── migrations/     # Migraciones SQL (001+003 para Supabase parcial; no todas aplican)
 │   ├── scripts/        # Scripts de apoyo y diagnóstico
 │   ├── tests/          # Pruebas del backend (pytest) y scripts en tests/manual/
 │   ├── Dockerfile      # Imagen del backend
@@ -172,7 +172,7 @@ Instrucciones paso a paso para resolver configuraciones puntuales y despliegue:
 - [Despliegue con Docker y Docker Compose en OCI](docs/02-Instalacion/Despliegue_Docker_OCI.md): Despliegue contenerizado del frontend y backend en Compute VM.
 - [Creación de Instancia en Oracle Cloud (OCI Always Free)](docs/02-Instalacion/Creacion_de_Instancia_OCI.md): Configuración de máquina virtual, VCN, seguridad e IP pública.
 - [Configuración de LLMs y Proveedores](docs/02-Instalacion/Configuracion_de_LLMs.md): Credenciales de Gemini, Groq, OpenRouter y configuración de cascada.
-- [Configuración de Almacenamiento](docs/02-Instalacion/Configuracion_de_Storages.md): Selección de OCI Object Storage, Supabase o almacenamiento local.
+- [Configuración de Almacenamiento](docs/02-Instalacion/Configuracion_de_Storages.md): Modos reales del MVP: OCI completo, Supabase parcial para documentos y almacenamiento local de desarrollo.
 
 ### 3. Referencia (Orientada a la información técnica precisa)
 Especificaciones formales, contratos de datos y catálogos de componentes:
@@ -180,7 +180,7 @@ Especificaciones formales, contratos de datos y catálogos de componentes:
 - [Anclaje técnico](docs/04-Documentacion/backend/quality/Anclaje_Tecnico.md): Reglas de verificación, umbrales, cálculo del score y contrato de citas.
 - [Estructura de Archivos del Repositorio](docs/03-Estructura/Estructura_de_Archivos.md): Árbol detallado de módulos, directorios y responsabilidades.
 - [Almacenamiento en OCI Object Storage](docs/04-Documentacion/backend/storage/Almacenamiento_OCI.md): Métodos y cliente de integración con OCI.
-- [Almacenamiento en Supabase](docs/04-Documentacion/backend/storage/Almacenamiento_Supabase.md): Esquemas de tablas relacionales y persistencia de metadatos.
+- [Almacenamiento en Supabase](docs/04-Documentacion/backend/storage/Almacenamiento_Supabase.md): Modo parcial para documentos originales y metadata; alcance y limitaciones.
 - [Frontend Angular](docs/04-Documentacion/frontend/Angular.md): Arquitectura de componentes, servicios y consumo de la API.
 - [Frontend de Pruebas Gradio](docs/04-Documentacion/frontend/Gradio.md): Interfaz rápida para pruebas manuales.
 
@@ -199,9 +199,20 @@ Análisis de diseño, fundamentos de las decisiones tomadas y flujo del sistema:
 - [Estrategia de Recuperación](docs/04-Documentacion/backend/retrieval/Recuperacion.md): Búsqueda semántica por similitud y umbrales de relevancia.
 - [Reranking y Filtrado](docs/04-Documentacion/backend/retrieval/Reranking.md): Mecanismos de reordenamiento para optimizar el contexto entregado al LLM.
 
+### 5. Roadmap y deuda técnica
+
+- [Mejoras Post-MVP](docs/05-Roadmap/Mejoras_Post_MVP.md): Panel de configuración de almacenamiento, integración completa con Supabase, persistencia vectorial, migración de datos y adaptación del frontend.
+
 ## 8. Próximos pasos o futuras implementaciones
 
-- **Solicitud de Temas o Secciones Específicas**: Adaptar el contenido de un tema o sección específico.
+El MVP entrega OCI como backend completo y Supabase como modo parcial para documentos originales. Las siguientes capacidades están fuera del alcance actual y se detallan en [Mejoras Post-MVP](docs/05-Roadmap/Mejoras_Post_MVP.md):
+
+- **Panel de configuración de almacenamiento:** elegir por tipo de dato dónde viven documentos originales, adaptaciones, metadata y vectores.
+- **Integración completa con Supabase:** artefactos, biblioteca, papelera y autenticación sin depender de OCI ni SQLite.
+- **Persistencia vectorial:** FAISS remoto o pgvector, con reindexación y migración.
+- **Adaptación del frontend Angular:** usuarios UUID/Supabase Auth, biblioteca y papelera sobre el backend elegido.
+- **Migración y operación:** scripts OCI/local → Supabase, verificación, rollback y observabilidad por backend.
+- **Solicitud de temas o secciones específicas:** adaptar el contenido de un tema o sección concreta.
 
 ## 9. Contribución
 
