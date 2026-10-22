@@ -112,7 +112,8 @@ def test_consolidated_batch_renders_chunk_id(output_format: str) -> None:
     prompt = stages.fake_llm.prompts[0]
     assert "{chunk_id}" not in prompt, "the {chunk_id} placeholder was left unresolved"
     assert "{page_number}" not in prompt, "the {page_number} placeholder was left unresolved"
-    assert '"chunk_id": "c1"' in prompt, "the chunk id was not injected into the prompt"
+    assert "[c1]" in prompt, "the first section chunk id was not injected"
+    assert "[c2]" in prompt, "the second section chunk id was not injected"
 
 
 def test_per_topic_batch_renders_chunk_id() -> None:
@@ -131,4 +132,4 @@ def test_per_topic_batch_renders_chunk_id() -> None:
     assert items
     prompt = stages.fake_llm.prompts[0]
     assert "{chunk_id}" not in prompt
-    assert '"chunk_id": "c1"' in prompt
+    assert "[c1]" in prompt

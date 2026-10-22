@@ -386,7 +386,8 @@ def test_verbatim_extract_bypasses_strict_gate(stages):
 def test_grounding_text_excludes_options(stages):
     """
     Validates that _get_grounding_text does not include 'opciones' or 'pista_didactica'.
-    _get_item_text (used by the critic LLM) still includes them.
+    _get_item_text (used for deduplication/rendering) still includes them, while
+    the critic uses _get_critic_audit_text, which also excludes distractors.
     """
     quiz_item = {
         "pregunta": "¿Qué es idempotencia?",

@@ -394,14 +394,37 @@ class IngesterService:
 
         return chunks
 
+    @staticmethod
+    def _overlap_prefix(previous_chunk: str, overlap: int) -> str:
+        """Returns a word-aligned tail of `previous_chunk` to prepend to the
+        next chunk. The first partial word is dropped so a chunk never starts
+        in the middle of a token."""
+        if not previous_chunk or overlap <= 0:
+            return ""
+
+        previous_chunk = previous_chunk.strip()
+        if not previous_chunk:
+            return ""
+
+        wanted = min(overlap, len(previous_chunk))
+        start = len(previous_chunk) - wanted
+
+        # If the window starts inside a word, move the start backward to the
+        # beginning of that word. This keeps at least the requested overlap
+        # (instead of silently dropping up to a whole word).
+        while start > 0 and not previous_chunk[start - 1].isspace():
+            start -= 1
+
+        return previous_chunk[start:].strip()
+
     def chunk_text(self, text: str, chunk_size: Optional[int] = None, overlap: Optional[int] = None) -> List[str]:
         """Groups paragraphs into pieces up to chunk_size, keeping paragraph
-        boundaries intact. Defaults to parent_chunk_size, but accepts a
-        different size so the same, already-validated splitting logic can
-        also produce child chunks — instead of a separate, cruder pass.
+        boundaries intact and carrying the configured overlap across every
+        frontier. Defaults to parent_chunk_size, but accepts a different size
+        so parent and child chunks share one implementation.
         The overlap parameter overrides self.overlap when provided."""
         size = chunk_size or self.parent_chunk_size
-        effective_overlap = overlap if overlap is not None else self.overlap
+        effective_overlap = max(0, overlap if overlap is not None else self.overlap)
 
         if not text.strip():
             return []
@@ -410,20 +433,61 @@ class IngesterService:
         chunks: List[str] = []
         current_chunk = ""
 
+        def join(left: str, right: str) -> str:
+            return f"{left}\n\n{right}".strip() if left else right
+
+        def overlap_from_previous(max_chars: int = effective_overlap) -> str:
+            return self._overlap_prefix(chunks[-1], max_chars) if chunks and max_chars > 0 else ""
+
         for paragraph in paragraphs:
+            # A paragraph larger than the budget is split with its own sliding
+            # window. Carry the overlap from the previous chunk into the first
+            # piece when there is room for it.
             if len(paragraph) > size:
                 if current_chunk:
                     chunks.append(current_chunk.strip())
                     current_chunk = ""
-                chunks.extend(self.split_by_characters(paragraph, size, effective_overlap))
+
+                pieces = self.split_by_characters(paragraph, size, effective_overlap)
+                if pieces:
+                    prefix = overlap_from_previous()
+                    if prefix:
+                        room = size - len(pieces[0]) - 2
+                        prefix = overlap_from_previous(min(effective_overlap, max(0, room)))
+                        while prefix and len(join(prefix, pieces[0])) > size:
+                            words = prefix.split(maxsplit=1)
+                            prefix = words[1] if len(words) > 1 else ""
+                        if prefix:
+                            pieces[0] = join(prefix, pieces[0])
+
+                chunks.extend(piece.strip() for piece in pieces if piece.strip())
                 continue
 
-            candidate = f"{current_chunk}\n\n{paragraph}".strip() if current_chunk else paragraph
+            # Start a new chunk from the previous chunk's tail when there is
+            # no accumulation yet (first paragraph or after an oversized one).
+            base = current_chunk or overlap_from_previous()
+            candidate = join(base, paragraph)
             if len(candidate) <= size:
                 current_chunk = candidate
-            else:
+                continue
+
+            if current_chunk:
                 chunks.append(current_chunk.strip())
-                current_chunk = paragraph
+                current_chunk = ""
+
+            prefix = overlap_from_previous()
+            candidate = join(prefix, paragraph)
+            if len(candidate) > size:
+                # The paragraph is close to the full budget; keep as much of
+                # the overlap as fits instead of exceeding the size contract.
+                room = size - len(paragraph) - 2
+                prefix = overlap_from_previous(min(effective_overlap, max(0, room)))
+                while prefix and len(join(prefix, paragraph)) > size:
+                    words = prefix.split(maxsplit=1)
+                    prefix = words[1] if len(words) > 1 else ""
+                candidate = join(prefix, paragraph)
+
+            current_chunk = candidate
 
         if current_chunk:
             chunks.append(current_chunk.strip())

@@ -25,8 +25,9 @@ INSTRUCTIONS FOR QUIZ:
 5. NO META-REFERENCES OR HIERARCHY DUMPS: NEVER include raw section numbers ("1.2", "Capítulo 3"), file paths, breadcrumbs ("A > B > C"), or author metadata in the questions or options. Focus purely on technical content.
 6. STRICT LANGUAGE PURITY: All text (question, options, correct answer, justification) MUST be written 100% in {target_language}. Do not mix languages.
 7. Each item MUST include its source provenance:
-   "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<clean section title>", "breadcrumb": "<doc > section>", "extracto": "<concise relevant verbatim quote>"}}]
-   Include "pagina": {page_number} ONLY if page_number is a positive integer (not "N/A").
+   "fuentes": [{{"chunk_id": "<exact chunk_id from the excerpt header>", "seccion": "<clean section title>", "breadcrumb": "<doc > section>", "extracto": "<concise relevant verbatim quote>"}}]
+   Use ONLY the chunk_id values that appear in the excerpt headers; never invent or guess an identifier.
+   Include "pagina": <numeric page> ONLY if the excerpt header specifies a real numeric page. Do not include "pagina" if the header has no page.
    Set "verificado": true only when the quote is taken verbatim from the excerpt above.
 
 OUTPUT FORMAT RULES:

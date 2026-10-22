@@ -25,6 +25,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
 
+from app.services.source_context import SOURCE_CONTEXT_MAX_CHARS, select_source_context
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -142,7 +144,7 @@ class CoveragePlanner:
         output_format: str,
         requested_items: int,
         language: str = "Spanish",
-        context_snippet_chars: int = 600,
+        context_snippet_chars: int = SOURCE_CONTEXT_MAX_CHARS,
     ) -> CoveragePlan:
         """
         Analyzes parent_chunks and returns a CoveragePlan for the requested format.
@@ -460,13 +462,41 @@ class CoveragePlanner:
         allocated_items: int,
         context_snippet_chars: int,
     ) -> SectionPlan:
-        """Assembles a SectionPlan from a group of chunks for one section."""
-        combined_content = "\n\n".join(
-            chunk.get("content", "") for chunk in chunks
-        )
-        context_snippet = combined_content[:context_snippet_chars]
+        """Assembles a SectionPlan from a group of chunks for one section.
+
+        Every chunk is exposed as its own excerpt with a real chunk_id, so the
+        writer can cite the fragment it actually used. Before this, distributed
+        plans only had a single primary_chunk_id and every item ended up citing
+        the first chunk of the section.
+        """
         chunk_ids = [c.get("id", "") for c in chunks if c.get("id")]
         primary_id = chunk_ids[0] if chunk_ids else "chunk-001"
+        budget_per_chunk = max(
+            300,
+            context_snippet_chars // max(1, len(chunks)),
+        )
+
+        excerpts: List[Dict[str, Any]] = []
+        for chunk in chunks:
+            content = (chunk.get("content") or "").strip()
+            if not content:
+                continue
+            page = chunk.get("metadata", {}).get("page_number")
+            excerpts.append({
+                "chunk_id": chunk.get("id", ""),
+                "section": title,
+                "breadcrumb": chunk.get("breadcrumb", "") or "",
+                "page": page if isinstance(page, int) and page > 0 else None,
+                "text": select_source_context(content, max_chars=budget_per_chunk),
+            })
+
+        context_snippet = "\n\n---\n\n".join(
+            f"[{ex['chunk_id']}] SECTION: {ex['section']}"
+            f"{(' | ' + ex['breadcrumb']) if ex['breadcrumb'] else ''}"
+            f"{(' | p.' + str(ex['page'])) if ex['page'] is not None else ''}\n"
+            f"{ex['text']}"
+            for ex in excerpts
+        )
 
         # Page number from the first chunk in the section that has one
         page = None
@@ -484,6 +514,7 @@ class CoveragePlanner:
             chunk_ids=chunk_ids,
             primary_chunk_id=primary_id,
             page_number=page,
+            excerpts=excerpts,
         )
 
     # ---------------------------------------------------------------------------

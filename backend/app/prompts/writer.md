@@ -18,8 +18,9 @@ INSTRUCTIONS:
 4. STRICT LANGUAGE PURITY: All text (questions, options, answers, justifications, hints) MUST be written 100% in {target_language}. Do not mix languages or leave explanations in English unless they are universal technical identifiers.
 5. CONTENT FOCUS (PEDAGOGICAL ASSESSMENT): Generated items MUST teach or evaluate domain knowledge, concepts, and technical mechanisms. NEVER ask questions about the document's structure, section numbers, layout, or meta-organization.
 6. Each item MUST include its source provenance:
-   "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<section or chapter title>", "breadcrumb": "<doc > section path>", "extracto": "<relevant verbatim quote>"}}]
-   Include "pagina": {page_number} ONLY if the page_number shown in the excerpt header is a real numeric page (i.e., not "N/A").
+   "fuentes": [{{"chunk_id": "<exact chunk_id from the excerpt header>", "seccion": "<section or chapter title>", "breadcrumb": "<doc > section path>", "extracto": "<relevant verbatim quote>"}}]
+   Use ONLY the chunk_id values that appear in the excerpt headers; never invent or guess an identifier.
+   Include "pagina": <numeric page> ONLY if the excerpt header specifies a real numeric page. Do not include "pagina" if the header has no page.
 
 OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the corresponding fields according to '{output_format}':

@@ -464,6 +464,7 @@ class LangGraphOrchestrator(PipelineStages):
         )
 
         # Re-verify grounding on repaired items before writing them back
+        repaired_for_audit: List[Dict[str, Any]] = []
         for orig_idx, repaired_item in repair_results:
             # Preserve original item's _gid
             orig_gid = audited_items[orig_idx].get("_gid", f"ground_{orig_idx}")
@@ -478,6 +479,69 @@ class LangGraphOrchestrator(PipelineStages):
             item_to_store["_gid"] = orig_gid
             audited_items[orig_idx] = item_to_store
             repaired_indices.append(orig_idx)
+            repaired_for_audit.append(item_to_store)
+
+        # The critic verdict belongs to the previous version of the item. If we
+        # keep it, the formatter will pair a newly verified item with an old
+        # `verificado_revisor=False` and report a 0% anchoring score. Re-audit
+        # only the repaired items and merge their fresh verdicts by _gid.
+        if repaired_for_audit and evaluation is not None:
+            repaired_gids = {
+                it.get("_gid") for it in repaired_for_audit if it.get("_gid")
+            }
+            try:
+                refreshed_eval, _ = self._evaluate_quality_with_critic(
+                    request=request,
+                    generated_items=repaired_for_audit,
+                    passages=top_passages,
+                    all_chunks=all_parent_chunks,
+                    fallback_score=evaluation.source_grounding_score,
+                    target_language=target_language,
+                )
+                refreshed_by_gid = {
+                    rec.get("_gid"): rec
+                    for rec in (refreshed_eval.per_item or [])
+                    if isinstance(rec, dict) and rec.get("_gid")
+                }
+                merged_per_item = []
+                for rec in (evaluation.per_item or []):
+                    if not isinstance(rec, dict):
+                        continue
+                    gid = rec.get("_gid") or f"ground_{rec.get('index', 0)}"
+                    refreshed = refreshed_by_gid.get(gid)
+                    if refreshed:
+                        refreshed = dict(refreshed)
+                        refreshed["_gid"] = gid
+                        refreshed["index"] = rec.get("index", refreshed.get("index", 0))
+                        merged_per_item.append(refreshed)
+                    else:
+                        merged_per_item.append(rec)
+
+                evaluation.per_item = merged_per_item
+                if merged_per_item:
+                    verified = sum(
+                        1 for rec in merged_per_item if rec.get("origen_verificado")
+                    )
+                    evaluation.source_grounding_score = round(
+                        verified / len(merged_per_item), 2
+                    )
+                if refreshed_eval.observations:
+                    evaluation.observations = refreshed_eval.observations
+                logger.info(
+                    "[Repair] Veredicto del crítico refrescado para %d ítem(s) reparado(s).",
+                    len(repaired_for_audit),
+                )
+            except Exception as exc:
+                logger.warning(
+                    "[Repair] No se pudo refrescar el veredicto del crítico: %s", exc
+                )
+                # Never keep a verdict that belongs to the pre-repair item.
+                for rec in (evaluation.per_item or []):
+                    if isinstance(rec, dict) and rec.get("_gid") in repaired_gids:
+                        rec["verificado_revisor"] = bool(rec.get("verificado_lexico"))
+                        rec["origen_verificado"] = bool(
+                            rec.get("verificado_lexico") and rec.get("verificado_revisor")
+                        )
 
         # Check if any repaired item is still garbage/ungrounded; if so, discard and prepare for replacement
         filtered_items = []
@@ -535,6 +599,7 @@ class LangGraphOrchestrator(PipelineStages):
         logger.info("[Repair] Reparación y descarte completados. Ítems vigentes: %d", len(audited_items))
         return {
             "audited_items": audited_items,
+            "evaluation": evaluation,
             "repaired_indices": repaired_indices,
             "revision_count": revision_count + 1,
             "nodes_executed": nodes,

@@ -24,8 +24,9 @@ INSTRUCTIONS FOR FLASHCARDS:
    - Example of GOOD front: "¿Qué función cumple el balanceador de carga en la arquitectura distribuida?"
 5. STRICT LANGUAGE PURITY: All text (front question, back answer, didactic hint) MUST be written 100% in {target_language}. Do not mix languages unless using universal technical keywords.
 6. Each item MUST include its source provenance:
-   "fuentes": [{{"chunk_id": "{chunk_id}", "seccion": "<clean section title>", "breadcrumb": "<doc > section>", "extracto": "<concise relevant verbatim quote>"}}]
-   Include "pagina": {page_number} ONLY if page_number is a positive integer (not "N/A").
+   "fuentes": [{{"chunk_id": "<exact chunk_id from the excerpt header>", "seccion": "<clean section title>", "breadcrumb": "<doc > section>", "extracto": "<concise relevant verbatim quote>"}}]
+   Use ONLY the chunk_id values that appear in the excerpt headers; never invent or guess an identifier.
+   Include "pagina": <numeric page> ONLY if the excerpt header specifies a real numeric page. Do not include "pagina" if the header has no page.
 
 OUTPUT FORMAT RULES:
 Return ONLY a valid JSON array of objects with the exact fields:

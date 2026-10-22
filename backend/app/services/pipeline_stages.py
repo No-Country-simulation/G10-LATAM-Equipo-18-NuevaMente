@@ -54,6 +54,7 @@ from app.schemas.adaptation import (
 )
 from app.services.coverage_planner import CoveragePlan, SectionPlan
 from app.services.multi_agent_router import MultiAgentRouter
+from app.services.source_context import select_source_context
 
 logger = logging.getLogger("PipelineStages")
 
@@ -250,7 +251,7 @@ class PipelineStages:
                 "page": sp.page_number,
                 "section": sp.section_title,
                 "breadcrumb": sp.parent_chunks[0].get("breadcrumb") if sp.parent_chunks else "",
-                "context": sp.context_snippet[:settings.RAG_CONTEXT_SNIPPET_SIZE],
+                "context": sp.context_snippet,
                 "excerpts": list(getattr(sp, "excerpts", []) or []),
             })
 
@@ -280,6 +281,46 @@ class PipelineStages:
             if concept.lower() in title_lower or title_lower in concept.lower():
                 return concept
         return section_title
+
+    @staticmethod
+    def _render_excerpt_block(excerpt: Dict[str, Any], fallback_section: str = "") -> str:
+        """Renders one excerpt with its own chunk_id so the writer can cite it."""
+        chunk_id = excerpt.get("chunk_id") or ""
+        section = excerpt.get("section") or fallback_section or "Unknown section"
+        breadcrumb = excerpt.get("breadcrumb") or ""
+        page = excerpt.get("page")
+        page_label = f" | p.{page}" if page is not None else ""
+        header = (
+            f"[{chunk_id}] SECTION: {section}"
+            f"{(' | ' + breadcrumb) if breadcrumb else ''}{page_label}"
+        )
+        return f"{header}\n{(excerpt.get('text') or '').strip()}"
+
+    def _topic_chunk_info(self, topic: Dict[str, Any]) -> str:
+        """Builds the source block for one topic.
+
+        When the coverage plan exposes excerpts, every one of them keeps its
+        own chunk_id in the prompt. This is what allows a consolidated batch
+        spanning several sections to cite the correct chunk instead of the
+        first topic's id.
+        """
+        excerpts = topic.get("excerpts") or []
+        if excerpts:
+            return "\n\n---\n\n".join(
+                self._render_excerpt_block(ex, topic.get("section", ""))
+                for ex in excerpts
+                if isinstance(ex, dict)
+            )
+
+        section_label = topic.get("section") or "Unknown section"
+        breadcrumb_label = topic.get("breadcrumb") or ""
+        page_val = topic.get("page")
+        page_label = f" | p.{page_val}" if page_val is not None else ""
+        return (
+            f"[{topic.get('chunk_id', '')}] SECTION: {section_label}"
+            f"{(' | ' + breadcrumb_label) if breadcrumb_label else ''}"
+            f"{page_label}\n{topic.get('context', '')}"
+        )
 
     def _stage_batch_generators(
         self,
@@ -339,15 +380,7 @@ class PipelineStages:
             consolidated_chunks = []
             topic_names = []
             for t in topics:
-                s_lbl = t.get("section") or "Unknown section"
-                b_lbl = t.get("breadcrumb") or ""
-                p_val = t.get("page")
-                p_lbl = f" | p.{p_val}" if p_val is not None else ""
-                consolidated_chunks.append(
-                    f"[{t['chunk_id']}] SECTION: {s_lbl}"
-                    f"{(' | ' + b_lbl) if b_lbl else ''}"
-                    f"{p_lbl}\n{t['context']}"
-                )
+                consolidated_chunks.append(self._topic_chunk_info(t))
                 if t.get("topic"):
                     topic_names.append(t["topic"])
 
@@ -415,16 +448,10 @@ class PipelineStages:
             section_cap = topic.get("target_items", batch_size)
             n_items = min(section_cap, batch_size, target - len(items))
 
-            # Build structural reference line; include page only when available.
-            section_label = topic.get("section") or "Unknown section"
-            breadcrumb_label = topic.get("breadcrumb") or ""
+            # Build structural reference line; include every citable excerpt
+            # (each one with its own chunk_id) and the page when available.
             page_val = topic.get("page")
-            page_label = f" | p.{page_val}" if page_val is not None else ""
-            chunk_info_raw = (
-                f"[{topic['chunk_id']}] SECTION: {section_label}"
-                f"{(' | ' + breadcrumb_label) if breadcrumb_label else ''}"
-                f"{page_label}\n{topic['context']}"
-            )
+            chunk_info_raw = self._topic_chunk_info(topic)
             # Escape literal braces in document content to prevent str.format() KeyError.
             safe_chunk_info = chunk_info_raw.replace("{", "{{").replace("}", "}}")
 
@@ -967,9 +994,12 @@ class PipelineStages:
                             r"\b\d+([.,]\d+)?\b"
                         )
 
-                        item_grounding_text = self._get_grounding_text(item)
-                        item_negations = set(negation_pattern.findall(item_grounding_text.lower()))
-                        item_numbers = set(numeric_entities_pattern.findall(item_grounding_text))
+                        # Only answer/claim fields drive the anti-negation and
+                        # numeric gates. Question stems ("which is NOT...")
+                        # describe the exercise, not a factual assertion.
+                        item_claim_text = self._get_claim_text(item)
+                        item_negations = set(negation_pattern.findall(item_claim_text.lower()))
+                        item_numbers = set(numeric_entities_pattern.findall(item_claim_text))
 
                         # 1. Anti-negation check: if item expresses a negation, cited chunk must contain it
                         if item_negations:
@@ -1007,7 +1037,7 @@ class PipelineStages:
                                     is_supported = True
                             if not is_supported and not extract:
                                 # Last resort: use grounding text words (no distractors)
-                                grounding_words = set(re.findall(r"\w{4,}", item_grounding_text.lower()))
+                                grounding_words = set(re.findall(r"\w{4,}", self._get_grounding_text(item).lower()))
                                 if grounding_words and passage_words:
                                     iw_score = len(grounding_words & passage_words) / len(grounding_words)
                                     logger.debug(
@@ -1094,17 +1124,14 @@ class PipelineStages:
         if not items_to_repair:
             return []
 
-        # Build chunk lookup
+        # Build chunk lookup. The repair stage sees the same source context as
+        # the critic and the writer; when a chunk is longer than the shared
+        # budget, the window is centred on the item's own verbatim excerpt.
         chunk_map: Dict[str, str] = {}
-        for p in (passages or []):
+        for p in list(passages or []) + list(all_chunks or []):
             cid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
-            if cid:
-                chunk_map[cid] = (p.get("content") or p.get("text") or "")[:500]
-        if all_chunks:
-            for p in all_chunks:
-                cid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
-                if cid and cid not in chunk_map:
-                    chunk_map[cid] = (p.get("content") or p.get("text") or "")[:500]
+            if cid and cid not in chunk_map:
+                chunk_map[cid] = p.get("content") or p.get("text") or ""
 
         repair_payload = []
         for idx, item, issues in items_to_repair:
@@ -1112,7 +1139,10 @@ class PipelineStages:
             for s in (item.get("fuentes") or []):
                 if isinstance(s, dict):
                     cid = s.get("chunk_id", "")
-                    text = chunk_map.get(cid, "")
+                    text = select_source_context(
+                        chunk_map.get(cid, ""),
+                        focus=s.get("extracto") or "",
+                    )
                     cited_chunks.append({"chunk_id": cid, "text": text})
 
             repair_payload.append({
@@ -1239,7 +1269,7 @@ class PipelineStages:
                 for p in chunk_list:
                     pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
                     if pid:
-                        all_chunk_map[pid] = (p.get("content") or p.get("text") or "")[:400]
+                        all_chunk_map[pid] = p.get("content") or p.get("text") or ""
 
             # Collect chunk_ids cited by the generated items.
             cited_ids: List[str] = []
@@ -1256,12 +1286,13 @@ class PipelineStages:
             fact_chunks: List[tuple] = []
             for cid in cited_ids:
                 if cid in all_chunk_map:
-                    fact_chunks.append((cid, all_chunk_map[cid]))
+                    fact_chunks.append((cid, select_source_context(all_chunk_map[cid])))
             # Supplement with RAG top passages not already included
             for p in passages:
                 pid = p.get("id") or p.get("metadata", {}).get("chunk_id", "")
                 if pid and pid not in seen:
-                    fact_chunks.append((pid, (p.get("content") or p.get("text") or "")[:400]))
+                    text = select_source_context(p.get("content") or p.get("text") or "")
+                    fact_chunks.append((pid, text))
                 if len(fact_chunks) >= 10:
                     break
 
@@ -1271,7 +1302,9 @@ class PipelineStages:
             items_to_audit = [
                 {
                     "index": i,
-                    "text": self._get_item_text(it),
+                    # Only factual claims: quiz distractors are intentionally
+                    # false and must not be audited as if they were assertions.
+                    "text": self._get_critic_audit_text(it),
                     "sources": [s.get("chunk_id") for s in (it.get("fuentes") or []) if isinstance(s, dict)],
                 }
                 for i, it in enumerate(generated_items)
@@ -1549,6 +1582,58 @@ class PipelineStages:
             primary = self._get_item_primary_text(item)
             return primary if primary else ""
 
+        return " ".join(parts)
+
+    def _get_critic_audit_text(self, item: Dict[str, Any]) -> str:
+        """Text sent to the critic: question/prompt plus factual claims.
+
+        Quiz options are intentionally false distractors, so they are excluded
+        from the audit payload instead of being treated as factual assertions.
+        """
+        parts = []
+        for key in (
+            "frente",
+            "pregunta",
+            "dorso",
+            "respuesta_correcta",
+            "justificacion",
+            "titulo",
+            "instruccion",
+            "narracion",
+            "punto_clave",
+            "impacto_negocio",
+        ):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+
+        if not parts:
+            return self._get_item_primary_text(item) or ""
+        return " ".join(parts)
+
+    def _get_claim_text(self, item: Dict[str, Any]) -> str:
+        """Answer/claim fields only, excluding the question stem.
+
+        A negative-stem question ("which is NOT...") is a pedagogical device,
+        not a factual negation about the source. Anti-negation and numeric
+        gates must therefore inspect only the answer and its justification.
+        """
+        parts = []
+        for key in (
+            "dorso",
+            "respuesta_correcta",
+            "justificacion",
+            "instruccion",
+            "narracion",
+            "punto_clave",
+            "impacto_negocio",
+        ):
+            val = item.get(key)
+            if isinstance(val, str) and val.strip():
+                parts.append(val.strip())
+
+        if not parts:
+            return self._get_grounding_text(item)
         return " ".join(parts)
 
     def _get_grounding_text(self, item: Dict[str, Any]) -> str:

@@ -10,7 +10,7 @@ Generated Items to Audit:
 {generated_items}
 
 AUDIT INSTRUCTIONS:
-1. For EACH generated item, determine if all factual claims and details are strictly supported by the source excerpts (grounding).
+1. For EACH generated item, determine if all factual claims and details are strictly supported by the source excerpts (grounding). The "text" field contains only factual claims; quiz distractors are intentionally excluded and must not be audited as assertions.
 2. Flag items containing hallucinations, contradictory claims, or details not grounded in the source text.
 3. Check pedagogical clarity, accuracy, and tone suitability for "{recipient_profile}".
 4. Write all values in "observations" and descriptions strictly in {target_language}. Use "High", "Medium", or "Low" for "pedagogical_clarity".
