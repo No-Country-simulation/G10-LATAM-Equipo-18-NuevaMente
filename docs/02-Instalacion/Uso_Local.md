@@ -56,7 +56,7 @@ uv run --with email-validator --with genanki python main.py
 - Documentación interactiva: `http://localhost:8001/docs`
 
 > Al ejecutar `python main.py`, el servidor toma automáticamente el host y puerto definidos en `config.py` y los sobrescribe con la variable de entorno `APP_PORT` de tu `.env` (por defecto `8001`).
-> Las dos dependencias extra (`email-validator` y `genanki`) se pasan en la línea de comandos con `uv run` porque no están declaradas en `pyproject.toml`.
+> Las dependencias `email-validator` y `genanki` se encuentran declaradas en `pyproject.toml` y en `requirements.txt`.
 
 #### Elegir el puerto (`APP_PORT`)
 

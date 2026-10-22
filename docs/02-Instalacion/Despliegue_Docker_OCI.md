@@ -114,9 +114,8 @@ OCI_BUCKET_CONTENT=nuevamente-contenidos-educativos
 > local sin Docker, en cambio, `python main.py` sí respeta `APP_PORT`.
 >
 > **Dependencia `genanki`:** el `Dockerfile` instala desde `requirements.txt`,
-> que no incluye `genanki`. La exportación a Anki (`POST /export/anki`)
-> devolverá un error 500 dentro del contenedor hasta añadirla al archivo o a la
-> imagen.
+> donde `genanki` y `email-validator` ya están declaradas y empaquetadas. La exportación
+> a Anki (`POST /api/v1/anki/export-deck`) genera directamente los archivos `.apkg` dentro del contenedor.
 
 ---
 
