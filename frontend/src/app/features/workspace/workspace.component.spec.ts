@@ -52,7 +52,8 @@ describe('WorkspaceComponent', () => {
   const mockExportService = {
     exportMarkdown: jasmine.createSpy('exportMarkdown'),
     exportPdfDidactico: jasmine.createSpy('exportPdfDidactico'),
-    exportAnkiCsv: jasmine.createSpy('exportAnkiCsv')
+    exportAnkiCsv: jasmine.createSpy('exportAnkiCsv'),
+    exportAnkiDeck: jasmine.createSpy('exportAnkiDeck')
   };
 
   const mockRouter = {

@@ -1,10 +1,18 @@
-import tempfile
+"""
+Anki integration endpoints for exporting flashcard decks and syncing with AnkiConnect.
+
+Inputs: AnkiExportRequest or AnkiSyncRequest containing deck metadata and flashcard items.
+Outputs: .apkg file stream for download or JSON status message.
+"""
+import html
 import os
 import random
+import shutil
+import tempfile
 import zlib
 from typing import List, Optional
 import requests
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, BackgroundTasks, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
@@ -27,8 +35,12 @@ def generate_stable_id(name: str) -> int:
     """Genera un ID entero único de 30 bits para genanki basado en el nombre del mazo."""
     return abs(zlib.crc32(name.encode('utf-8'))) % 1000000000 + 1000000000
 
+def cleanup_temp_dir(path: str) -> None:
+    """Removes a temporary directory created during export."""
+    shutil.rmtree(path, ignore_errors=True)
+
 @router.post("/anki/export-deck")
-def export_anki_deck(request: AnkiExportRequest):
+def export_anki_deck(request: AnkiExportRequest, background_tasks: BackgroundTasks):
     if not request.flashcards:
         raise HTTPException(status_code=400, detail="Debe proporcionar al menos una tarjeta (flashcard) para exportar.")
 
@@ -122,12 +134,16 @@ def export_anki_deck(request: AnkiExportRequest):
     my_deck = genanki.Deck(deck_id, deck_title)
 
     for card in request.flashcards:
+        escaped_front = html.escape(card.frente.strip()).replace('\n', '<br>')
+        escaped_back = html.escape(card.dorso.strip()).replace('\n', '<br>')
+        escaped_hint = html.escape(card.pista_didactica.strip()).replace('\n', '<br>') if card.pista_didactica else ""
+
         note = genanki.Note(
             model=my_model,
             fields=[
-                card.frente.strip(),
-                card.dorso.strip(),
-                card.pista_didactica.strip() if card.pista_didactica else ""
+                escaped_front,
+                escaped_back,
+                escaped_hint
             ]
         )
         my_deck.add_note(note)
@@ -140,6 +156,8 @@ def export_anki_deck(request: AnkiExportRequest):
 
     package = genanki.Package(my_deck)
     package.write_to_file(output_path)
+
+    background_tasks.add_task(cleanup_temp_dir, temp_dir)
 
     return FileResponse(
         path=output_path,

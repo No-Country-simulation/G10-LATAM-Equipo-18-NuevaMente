@@ -61,6 +61,34 @@ export class ExportService {
     this.triggerDownload(blob, `${title.toLowerCase().replace(/[^a-z0-9]/g, '-')}.md`);
   }
 
+  exportAnkiDeck(response: AdaptationResponse): void {
+    const items = response.contenido_adaptado?.items || [];
+    const flashcards = items.filter((i: any) => 'frente' in i);
+
+    if (flashcards.length === 0) {
+      alert('Solo se pueden exportar a Anki los contenidos en formato Flashcards.');
+      return;
+    }
+
+    const title = response.contenido_adaptado?.titulo || 'NuevaMente - Flashcards';
+    const filename = `${title.toLowerCase().replace(/[^a-z0-9]/g, '-') || 'flashcards'}.apkg`;
+
+    if (this.api) {
+      this.api.exportAnkiDeck(title, flashcards).subscribe({
+        next: (blob: Blob) => {
+          this.triggerDownload(blob, filename);
+        },
+        error: (err: any) => {
+          console.warn('[ExportService] Falló la exportación de mazo Anki (.apkg), usando respaldo CSV:', err);
+          this.exportAnkiCsv(response);
+        }
+      });
+      return;
+    }
+
+    this.exportAnkiCsv(response);
+  }
+
   exportAnkiCsv(response: AdaptationResponse): void {
     const items = response.contenido_adaptado.items || [];
     const flashcards = items.filter((i: any) => 'frente' in i);

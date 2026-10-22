@@ -235,10 +235,10 @@ interface ToastState {
                       type="button" 
                       class="popover-item" 
                       *ngIf="hasFlashcards(proj)"
-                      (click)="downloadCsv(proj); closeDownloadMenu()"
+                      (click)="downloadAnki(proj); closeDownloadMenu()"
                     >
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#10B981" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                      <span>CSV</span>
+                      <span>Mazo Anki (.apkg)</span>
                     </button>
                   </div>
                 </div>
@@ -820,6 +820,12 @@ export class LibraryComponent implements OnInit {
   downloadCsv(proj: RecentProject): void {
     if (proj.response) {
       this.exportService.exportAnkiCsv(proj.response);
+    }
+  }
+
+  downloadAnki(proj: RecentProject): void {
+    if (proj.response) {
+      this.exportService.exportAnkiDeck(proj.response);
     }
   }
 
