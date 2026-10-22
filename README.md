@@ -176,18 +176,18 @@ nueva-mente/
 
 La documentación técnica del proyecto se organiza bajo el sistema de 4 cuadrantes de documentación, adaptado para facilitar el recorrido tanto a perfiles que se inician como a perfiles senior:
 
-### 1. Tutoriales (Orientados al aprendizaje práctico)
+### 7.1. Tutoriales (Orientados al aprendizaje práctico)
 Paso a paso guiado para poner en marcha el proyecto desde cero:
 - [Tutorial de Uso Local](docs/02-Instalacion/Uso_Local.md): Instalación de dependencias, configuración mínima y primera ejecución integral del sistema.
 
-### 2. Guías Prácticas / How-To (Orientadas a tareas específicas)
+### 7.2. Guías Prácticas / How-To (Orientadas a tareas específicas)
 Instrucciones paso a paso para resolver configuraciones puntuales y despliegue:
 - [Despliegue con Docker y Docker Compose en OCI](docs/02-Instalacion/Despliegue_Docker_OCI.md): Despliegue contenerizado del frontend y backend en Compute VM.
 - [Creación de Instancia en Oracle Cloud (OCI Always Free)](docs/02-Instalacion/Creacion_de_Instancia_OCI.md): Configuración de máquina virtual, VCN, seguridad e IP pública.
 - [Configuración de LLMs y Proveedores](docs/02-Instalacion/Configuracion_de_LLMs.md): Credenciales de Gemini, Groq, OpenRouter y configuración de cascada.
 - [Configuración de Almacenamiento](docs/02-Instalacion/Configuracion_de_Storages.md): Modos reales del MVP: OCI completo, Supabase parcial para documentos y almacenamiento local de desarrollo.
 
-### 3. Referencia (Orientada a la información técnica precisa)
+### 7.3. Referencia (Orientada a la información técnica precisa)
 Especificaciones formales, contratos de datos y catálogos de componentes:
 - [API REST de Ingesta](docs/04-Documentacion/backend/ingestion/API_de_Ingesta.md): Endpoints, payloads JSON, parámetros de consulta y códigos de respuesta.
 - [Anclaje técnico](docs/04-Documentacion/backend/quality/Anclaje_Tecnico.md): Reglas de verificación, umbrales, cálculo del score y contrato de citas.
@@ -197,7 +197,7 @@ Especificaciones formales, contratos de datos y catálogos de componentes:
 - [Frontend Angular](docs/04-Documentacion/frontend/Angular.md): Arquitectura de componentes, servicios y consumo de la API.
 - [Frontend de Pruebas Gradio](docs/04-Documentacion/frontend/Gradio.md): Interfaz rápida para pruebas manuales.
 
-### 4. Explicación (Orientada a la comprensión conceptual y arquitectura)
+### 7.4. Explicación (Orientada a la comprensión conceptual y arquitectura)
 Análisis de diseño, fundamentos de las decisiones tomadas y flujo del sistema:
 - [Arquitectura General del Sistema](docs/01-Arquitectura/Arquitectura.md): Filosofía de diseño, flujo RAG y modelo de fallback.
 - [Componentes del Sistema](docs/01-Arquitectura/Componentes.md): Desglose funcional de subsistemas de ingesta, adaptación y entrega.
@@ -212,7 +212,7 @@ Análisis de diseño, fundamentos de las decisiones tomadas y flujo del sistema:
 - [Estrategia de Recuperación](docs/04-Documentacion/backend/retrieval/Recuperacion.md): Búsqueda semántica por similitud y umbrales de relevancia.
 - [Reranking y Filtrado](docs/04-Documentacion/backend/retrieval/Reranking.md): Mecanismos de reordenamiento para optimizar el contexto entregado al LLM.
 
-### 5. Roadmap y deuda técnica
+### 7.5. Roadmap y deuda técnica
 
 - [Mejoras Post-MVP](docs/05-Roadmap/Mejoras_Post_MVP.md): Panel de configuración de almacenamiento, integración completa con Supabase, persistencia vectorial, migración de datos y adaptación del frontend.
 
