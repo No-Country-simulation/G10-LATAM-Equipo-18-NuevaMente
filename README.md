@@ -12,6 +12,17 @@
 
 **NuevaMente** transforma documentación técnica en materiales educativos claros y didácticos, permitiendo que los equipos aceleren el aprendizaje a partir del conocimiento técnico ya existente.
 
+<table>
+  <tr>
+    <td><img src="../imagenes/NuevaMente%2001.png" width="250"></td>
+    <td><img src="../imagenes/NuevaMente%2002.png" width="250"></td>
+  </tr>
+  <tr>
+    <td><img src="../imagenes/NuevaMente%2003.png" width="250"></td>
+    <td><img src="../imagenes/NuevaMente%2004.png" width="250"></td>
+  </tr>
+</table>
+
 ## Rutas de lectura rápida
 
 - **Para estudiantes y primeros pasos:** Dirígete a la sección [4. Acceso al proyecto / Instalación](#4-acceso-al-proyecto--instalación) o consulta directamente el tutorial guiado en [docs/02-Instalacion/Uso_Local.md](docs/02-Instalacion/Uso_Local.md) para levantar el entorno en tu máquina paso a paso.
@@ -229,14 +240,6 @@ Este proyecto se desarrolla de forma **interna por el Equipo 18 del G10** (No Co
 | Sebastian Gomez | QA / Testing |
 | Fabian Cardenas | QA / Testing |
 | Debora Aguilera | QA / Testing |
-
-> Ajusta los roles según la contribución real de cada integrante.
-
-**Directrices:**
-
-- Trabajar sobre una rama propia (por ejemplo `feature/<tema>`) y abrir un Pull Request hacia la rama de integración.
-- Escribir código y comentarios en inglés; la documentación y los prompts, en español.
-- No subir secretos: `backend/.env` está excluido por `.gitignore` y hay un hook de `gitleaks` en `backend/scripts/pre-commit-gitleaks.sh`.
 
 ## 10. Licencia
 
