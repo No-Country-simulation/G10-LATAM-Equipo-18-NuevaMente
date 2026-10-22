@@ -137,6 +137,37 @@ La instancia pasa por el estado **PROVISIONING → RUNNING** en 1-2 minutos.
 1. **Conéctate por SSH:**
    ```bash
    ssh -i ruta/a/tu-clave.key ubuntu@<IP-PUBLICA>
+   ```
+
+2. **Actualiza el sistema:**
+   ```bash
+   sudo apt update && sudo apt upgrade -y
+   ```
+
+3. **Abre los puertos 80 y 8000** en la Security List de la VCN y en el firewall
+   interno de la VM (ver
+   [Despliegue con Docker](Despliegue_Docker_OCI.md#2-apertura-de-puertos-reglas-de-entrada-en-oci)).
+
+4. **Instala Git y Docker** en la instancia:
+   ```bash
+   sudo apt install -y git docker.io docker-compose-v2
+   sudo usermod -aG docker $USER
+   newgrp docker
+   ```
+
+5. **Continúa con el despliegue:** clona la rama `secondary` y ejecuta
+   `docker compose up -d --build` según
+   [Despliegue con Docker en OCI](Despliegue_Docker_OCI.md).
+
+### Buenas prácticas
+- Etiqueta la instancia con el proyecto (`nuevamente`) para identificar costes.
+- Configura alertas de presupuesto en *Billing → Budgets* para no salir de la
+  capa gratuita.
+- Si usas el shape `VM.Standard.E2.1.Micro`, el backend puede quedarse corto de
+  memoria durante la ingesta; considera limitar el tamaño de los documentos.
+- Guarda la clave privada SSH fuera del repositorio y nunca la subas a Git.
+
+---
 
 <div align="right">
 

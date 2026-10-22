@@ -15,9 +15,13 @@ NuevaMente/
 ├── backend/               # API FastAPI + pipeline RAG + agentes
 ├── frontend/              # SPA Angular 17
 ├── frontend_gradio/       # UI mínima de pruebas (Gradio)
-├── docs/                  # documentación (ver §3)
+├── data/                  # datos locales generados en tiempo de ejecución
+├── docs/                  # documentación (ver §4)
+├── docker-compose.yml     # despliegue backend + frontend
+├── LICENSE                # licencia MIT
 ├── README.md              # punto de entrada del repositorio
-└── .gitignore/            # reglas locales (git-ignored)
+├── .gitignore             # reglas de exclusión de Git
+└── .gitleaks.toml         # configuración de detección de secretos
 ```
 
 ---
@@ -28,20 +32,26 @@ NuevaMente/
 backend/
 ├── main.py                # crea la app FastAPI y monta el router v1
 ├── pyproject.toml         # dependencias (fuente de verdad con uv.lock)
+├── requirements.txt       # export para Docker (uv export)
+├── Dockerfile             # imagen del backend (uvicorn en 8000)
+├── conftest.py            # configuración de pytest
 ├── .env.example           # plantilla de variables de entorno
 ├── migrations/            # SQL de Supabase (se aplican a mano)
 ├── scripts/               # utilidades (p. ej. check_services.py)
 ├── tests/                 # pruebas (pytest) y tests/manual/
 ├── vector_store/          # índices FAISS generados (por document_id)
+├── storage_mock/          # respaldo en disco cuando no hay OCI/Supabase
 └── app/
     ├── api/v1/
     │   ├── api.py         # composición del router v1
-    │   └── endpoints/     # documents, contents, health, auth, anki, trash, storage
+    │   └── endpoints/     # documents, contents, health, auth, anki, trash,
+    │                      # storage, multimodal, export
     ├── services/          # núcleo: pipeline RAG + orquestación
+    │   └── storage/       # adaptadores de almacenamiento (local, OCI, Supabase)
     ├── infrastructure/    # clientes externos (gemini, groq, jina, cohere, oci, supabase)
     ├── schemas/           # contratos Pydantic
     ├── core/              # config.py (modelos, límites, banderas)
-    ├── prompts/           # plantillas de prompt (en español)
+    ├── prompts/           # plantillas de prompt (en español y formats/)
     └── domain/            # tipos y reglas de negocio puras
 ```
 
@@ -52,14 +62,18 @@ backend/
 ```text
 frontend/
 ├── nginx.conf             # proxy de producción (/api/v1/ → backend)
+├── proxy.conf.json        # proxy de desarrollo (→ http://127.0.0.1:8001)
+├── Dockerfile
 ├── package.json
 └── src/
     ├── main.ts            # bootstrapApplication (standalone)
     ├── environments/      # environment.ts / environment.prod.ts
     └── app/
         ├── app.routes.ts
-        ├── core/          # api, config, guards, interceptors, models, services, store
-        └── features/      # auth, workspace, documents, library, compare, trash
+        ├── core/          # api, config, guards, interceptors, models,
+        │                  # services, store, utils
+        └── features/      # auth, workspace, documents, library, compare,
+                           # process, shared, trash
 ```
 
 ---
@@ -68,7 +82,7 @@ frontend/
 
 ```text
 docs/
-├── 01-Arquitectura/       # Arquitectura, Componentes, Tecnologías
+├── 01-Arquitectura/       # Arquitectura, Componentes, Tecnologías, Anclaje
 ├── 02-Instalacion/        # Uso local, configuración de LLM y de storage
 ├── 03-Estructura/         # este documento
 ├── 04-Documentacion/      # documentación técnica por etapa
@@ -77,9 +91,11 @@ docs/
 │   │   ├── embeddings/    # embeddings y almacén vectorial
 │   │   ├── storage/       # OCI y Supabase
 │   │   ├── retrieval/     # recuperación y reranking
+│   │   ├── quality/       # anclaje y verificación de fidelidad
 │   │   └── architecture/  # arquitectura y flujo de servicios
 │   └── frontend/          # Angular y Gradio
-└── old/                   # documentación archivada (revisión pendiente)
+├── imagenes/              # capturas usadas en las guías
+└── old/                   # documentación archivada (pendiente de eliminar)
 ```
 
 ---

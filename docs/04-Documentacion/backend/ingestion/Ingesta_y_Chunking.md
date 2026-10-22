@@ -95,10 +95,11 @@ rag_payload = ingester.build_rag_chunks(doc)
   - **Por qué un archivo aparte de `schemas/ingestion.py`:** los chunks Padre/Hijo son un dato de la etapa RAG (se embeben, se indexan, se recuperan y se reordenan), no de la ingesta cruda del documento — mezclarlos en el mismo esquema que `IngestedDocument` difuminaba esa frontera.
 
 ### Endpoints HTTP de Ingestión
-Para el procesamiento desacoplado en segundo plano con soporte de polling y consulta de estado, consulta la [API de Ingesta](API_de_Ingesta.md):
+Para el progreso por SSE y la consulta de estado, consulta la [API de Ingesta](API_de_Ingesta.md):
 - `POST /api/v1/documents` (Carga y registro; reporta progreso vía Server-Sent Events)
-- `GET /api/v1/documents/{document_id}` (Consulta periódica de estado de indexación)
-- `GET /api/v1/documents` (Listado de documentos registrados)umentos con Supabase). Este endpoint probablemente se reemplace por uno que llame a ese pipeline en vez de solo a `IngesterService`.
+- `GET /api/v1/documents/{document_id}` (Consulta del estado de indexación cuando se corta el stream)
+- `GET /api/v1/documents` (Listado de documentos registrados)
+- `DELETE /api/v1/documents/{document_id}` (Borrado permanente en metadatos, storage e índice)
 
 ---
 
@@ -108,9 +109,12 @@ Para verificar el funcionamiento del procesador sin necesidad de levantar el ser
 
 ```powershell
 cd backend
-uv run python tests/manual/test_ingester.py
+uv run python tests/manual/verify_fixes.py
 ```
-El script procesará los archivos de muestra ubicados en `backend/tests/manual/sample_docs/` e imprimirá la estructura de chunks detectada.
+
+Entre otras comprobaciones, procesa documentos de muestra e imprime la estructura
+de chunks detectada (incluido el `overlap` real entre chunks padre e hijo:
+`CHUNK_OVERLAP=150`, `CHILD_CHUNK_OVERLAP=50`).
 
 **Pendiente de agregar** a este test:
 1. Un PDF donde el parser Markdown (`pymupdf4llm`) falle a propósito, para confirmar que la ingesta cae a la extracción de texto plano en vez de abortar.

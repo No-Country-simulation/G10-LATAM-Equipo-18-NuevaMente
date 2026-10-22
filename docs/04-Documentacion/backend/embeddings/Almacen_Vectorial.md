@@ -100,20 +100,20 @@ VECTOR_STORE_DIR = "vector_store"
 
 ---
 
-## 4. Pruebas manuales
+## 4. Pruebas
 
 ```powershell
 cd backend
-uv run python tests/manual/test_vector_store.py
+uv run --with pytest --with email-validator --with genanki pytest tests/test_ingester_service.py
 ```
 
-Ejecuta la cadena completa: ingesta → embeddings reales (768 dimensiones) →
-indexación en FAISS → similitud coseno → búsqueda semántica y resolución de
-Parent Chunks → persistencia y recarga (`index.faiss` + `metadata.json`) →
-bloqueo por intento de búsqueda con modelo incompatible.
+La suite cubre la cadena de indexación (`get_store` / `save_store`), la
+persistencia (`index.faiss` + `metadata.json`) y el bloqueo por modelo
+incompatible. Para una verificación manual del pipeline completo:
 
-**Pendiente:** una prueba de `get_store()` / `save_store()` que confirme que
-abrir el mismo `document_id` dos veces reutiliza el índice del caché en memoria.
+```powershell
+uv run python tests/manual/verify_fixes.py
+```
 
 ---
 

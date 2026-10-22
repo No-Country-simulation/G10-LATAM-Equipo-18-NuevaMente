@@ -37,7 +37,7 @@ flowchart TD
 
     subgraph G3 ["3. Embeddings y Control de Cuota"]
         ERL["embedding_rate_limiter\n(Control de cuota RPM / TPM / RPD)"]
-        ES["embedding_service\n(Genera vectores con Gemini / Jina / MiniLM)"]
+        ES["embedding_service\n(Genera vectores con Gemini / Jina / e5-base)"]
     end
 
     subgraph G4 ["4. Almacenamiento Vectorial"]
@@ -50,7 +50,7 @@ flowchart TD
     end
 
     %% Relaciones en Ingestión
-    Cliente([Cliente / Endpoint /upload]) -->|Sube archivo| DPS
+    Cliente([Cliente / Endpoint POST /documents]) -->|Sube archivo| DPS
     DPS -->|1. Guarda archivo| DSS
     DPS -->|2. Crea registro 'processing'| DR
     DPS -->|3. Procesa texto| IS
@@ -81,13 +81,14 @@ flowchart TD
 
 ## 2. Clasificación por Fases y Responsabilidades
 
-Los 12 servicios se organizan en **5 grandes áreas funcionales**:
+Los servicios se organizan en **5 grandes áreas funcionales** (y varios servicios
+de soporte que se describen al final):
 
 | Fase / Grupo | Archivos / Servicios | Función Principal en el Sistema |
 | :--- | :--- | :--- |
 | **1. Orquestación y Persistencia Base** | • `document_pipeline_service.py`<br>• `document_storage_service.py`<br>• `document_repository.py` | Coordina el ciclo de vida del documento desde la subida hasta el estado final (`ready` o `failed`), almacenando el archivo físico original y sus metadatos en base de datos. |
 | **2. Limpieza y Segmentación (Ingesta)** | • `pdf_parser_service.py`<br>• `text_cleaner.py`<br>• `noise_filter_service.py`<br>• `ingester_service.py` | Transforma archivos crudos (.pdf, .md, .txt) en texto estructurado, eliminando contenido irrelevante y dividiéndolo en fragmentos jerárquicos Padre/Hijo con migas de pan (*breadcrumbs*). |
-| **3. Embeddings y Control de Cuota** | • `embedding_rate_limiter.py`<br>• `embedding_service.py` | Convierte texto en vectores semánticos con estrategia de fallback automático (Gemini $\to$ Jina $\to$ MiniLM) y control estricto de límites de API (RPM/TPM/RPD). |
+| **3. Embeddings y Control de Cuota** | • `embedding_rate_limiter.py`<br>• `embedding_service.py` | Convierte texto en vectores semánticos con estrategia de fallback automático (Gemini $\to$ Jina $\to$ `intfloat/multilingual-e5-base`) y control estricto de límites de API (RPM/TPM/RPD). |
 | **4. Almacenamiento Vectorial** | • `vector_store_service.py` | Gestiona índices vectoriales locales (FAISS) aislados por `document_id` con cálculo de similitud de coseno y almacenamiento de metadatos asociados. |
 | **5. Recuperación RAG y Reordenamiento** | • `retrieval_service.py`<br>• `reranker_service.py` | Responde consultas mediante búsqueda híbrida (densa + dispersa BM25 fusionadas con RRF) y reordena los bloques resultantes con modelos Cross-Encoder. |
 
@@ -186,14 +187,31 @@ Los 12 servicios se organizan en **5 grandes áreas funcionales**:
 
 ---
 
-## 3. Orquestación multi-agente y exportación
+## 4. Orquestación multi-agente y exportación
 
 La generación de contenido educativo (no solo la recuperación de contexto) vive
-en `langgraph_orchestrator.py` y `multi_agent_router.py`, apoyados en los
-clientes de `app/infrastructure/` (Gemini, Groq, OpenRouter, Cohere). El router
-elige proveedor según el formato de salida y define la cascada de respaldo; la
-exportación a Anki y a PDF se resuelve en `app/api/v1/endpoints/anki.py` y
-`pdf_export_service.py`. Detalle en [Arquitectura del Backend](Arquitectura_del_Backend.md).
+en `langgraph_orchestrator.py`, `pipeline_stages.py` y `multi_agent_router.py`,
+apoyados en los clientes de `app/infrastructure/` (Gemini, Groq, OpenRouter,
+Cohere). El router elige proveedor según el formato de salida y define la
+cascada de respaldo; la exportación a Anki y a PDF se resuelve en
+`app/api/v1/endpoints/anki.py`, `export.py` y `pdf_export_service.py`. Detalle del
+grafo, los nodos y las cascadas en
+[Orquestación multi-agente](Orquestacion_Multi_Agente.md).
+
+### Servicios de soporte
+
+| Servicio | Rol |
+| :--- | :--- |
+| `source_context.py` | Fuente única del contexto (writer, crítico y reparación) con recorte alineado a frases. |
+| `summary_composer.py` | Composición del resumen ejecutivo. |
+| `coverage_planner.py` | Planificación de conceptos a cubrir y selección de fragmentos citables. |
+| `document_deletion_service.py` | Borrado permanente en metadatos, storage, índice FAISS y caché. |
+| `trash_service.py` | Borrado lógico y restauración. |
+| `storage_queue_service.py` | Cola de subidas a storage. |
+| `services/storage/` | Adaptadores `local_backend`, `oci_backend` y `supabase_backend`. |
+
+La verificación de anclaje de los elementos generados se documenta en
+[Anclaje técnico](../quality/Anclaje_Tecnico.md).
 
 ---
 

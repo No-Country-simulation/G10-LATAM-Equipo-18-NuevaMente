@@ -41,7 +41,7 @@ responsabilidades. Se organiza en capas desacopladas:
 
 ---
 
-## 1. Flujo de extremo a extremo
+## 2. Flujo de extremo a extremo
 
 ```mermaid
 flowchart TD
@@ -63,12 +63,13 @@ flowchart TD
    [Almacén Vectorial](../04-Documentacion/backend/embeddings/Almacen_Vectorial.md).
 3. **Recuperación** — se buscan los fragmentos más relevantes para el objetivo.
    Ver [Recuperación](../04-Documentacion/backend/retrieval/Recuperacion.md).
-4. **Generación** — los agentes redactan el contenido educativo y se valida
-   contra esquemas Pydantic.
+4. **Generación** — los agentes redactan el contenido educativo, que se valida
+   contra esquemas Pydantic y se verifica con el
+   [mecanismo de anclaje](Anclaje_de_Fuentes.md).
 
 ---
 
-## 2. Principios de diseño
+## 3. Principios de diseño
 
 - **Separación de responsabilidades:** endpoints, servicios, infraestructura y
   esquemas viven en capas distintas.
@@ -79,6 +80,9 @@ flowchart TD
   reranker tienen proveedores de respaldo.
 - **Un índice por documento:** la generación trabaja siempre sobre un único
   documento.
+- **Fidelidad verificable:** cada elemento generado se ancla a fragmentos reales
+  del documento y se somete a dos verificaciones antes de publicarse
+  ([Anclaje de fuentes](Anclaje_de_Fuentes.md)).
 
 ---
 

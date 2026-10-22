@@ -30,13 +30,16 @@ frontend/src/
     │   ├── interceptors/   # interceptores HTTP
     │   ├── models/         # tipos compartidos
     │   ├── services/       # servicios de dominio
-    │   └── store/          # estado (auth, etc.)
+    │   ├── store/          # estado (auth, etc.)
+    │   └── utils/          # helpers compartidos
     └── features/           # pantallas por dominio
         ├── auth/           # login, registro, recuperación
         ├── workspace/      # flujo de adaptación en pasos
+        ├── process/        # progreso del procesamiento (SSE)
         ├── documents/      # subida y estado de documentos
         ├── library/        # biblioteca de contenidos generados
         ├── compare/        # comparación de variantes
+        ├── shared/         # componentes reutilizables
         └── trash/          # papelera
 ```
 
@@ -50,11 +53,17 @@ frontend/src/
 | Ruta | Componente | Acceso |
 | :--- | :--- | :--- |
 | `/auth/login` | `LoginComponent` | Público (`guestGuard`) |
+| `/auth/register` | `LoginComponent` (modo registro) | Público |
+| `/auth/verify` | `LoginComponent` (verificación) | Público |
+| `/auth/forgot` | `LoginComponent` (recuperación) | Público |
+| `/auth/reset` | `LoginComponent` (nueva contraseña) | Público |
+| `/terms`, `/privacy`, `/404` | `LoginComponent` | Público |
 | `/workspace` | `WorkspaceComponent` | Protegido (`authGuard`) |
 | `/documents` | `DocumentsComponent` (lazy) | Protegido |
+| `/proceso` | `ProcessViewComponent` (lazy) | Protegido |
 | `/library` | `LibraryComponent` | Protegido |
 | `/papelera` | `TrashComponent` (lazy) | Protegido |
-| `/**` | redirige a `/auth/login` | — |
+| `''`, `/**` | redirige a `/auth/login` | — |
 
 ---
 
@@ -72,9 +81,11 @@ Para verificar que compila:
 npm run build
 ```
 
-> **`npm test` está roto:** faltan los paquetes de karma/jasmine en
-> `devDependencies` y `tsconfig.spec.json` hereda `exclude: ["src/**/*.spec.ts"]`.
-> Verifica los cambios con `npm run build`.
+Pruebas unitarias (Karma + Jasmine, Chrome headless):
+
+```bash
+npm run test:ci
+```
 
 ---
 
@@ -82,12 +93,14 @@ npm run build
 
 - La app consume `HttpNuevaMenteApiService` (token `NUEVAMENTE_API`) desde
   `src/app/core/api/http-nuevamente-api.service.ts`.
-- La URL base se resuelve así: si la app corre en `localhost`/`127.0.0.1`, usa
-  `environment.apiUrl` (`http://localhost:8001/api/v1`); en cualquier otro host,
-  usa la ruta relativa `/api` (que nginx traduce al backend).
+- La URL base se resuelve así: en `localhost`/`127.0.0.1` usa
+  `environment.apiUrl` (`/api/v1`, relativa); en cualquier otro host usa `/api`.
+  En desarrollo, `proxy.conf.json` redirige `/api` a
+  `http://127.0.0.1:8001` (el `APP_PORT` por defecto del backend).
 - Si `environment.useMock` es `true`, el servicio cae a
-  `MockNuevaMenteApiService`; hoy es `false`, así que **revisa la consola del
-  navegador** para detectar el aviso de fallback antes de confiar en la UI.
+  `MockNuevaMenteApiService`; hoy es `false`, pero el fallback silencioso ante
+  errores sigue activo: **revisa la consola del navegador** para detectar el
+  aviso antes de confiar en la UI.
 - La ingesta se hace con `fetch` sobre `POST /documents?stream=true` para
   consumir el stream de progreso (SSE).
 - El login de desarrollo está *mockeado* mientras
@@ -95,7 +108,8 @@ npm run build
   `ana.martinez@empresa.com` / `Password123!` (lo maneja `MockAuthApiService`, no
   FastAPI).
 - En producción (`environment.prod.ts`), el frontend se sirve detrás del proxy de
-  nginx (`frontend/nginx.conf`), que redirige `/api/v1/` al backend.
+  nginx (`frontend/nginx.conf`), que redirige `/api/` al backend. Revisa que
+  `apiUrl` no duplique el prefijo `/api`.
 
 ---
 

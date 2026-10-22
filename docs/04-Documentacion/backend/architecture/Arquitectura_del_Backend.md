@@ -37,17 +37,19 @@ depende solo de la interfaz de la capa inferior.
 
 | Módulo | Responsabilidad |
 | :--- | :--- |
-| `documents.py` | Ingesta (`POST /documents`), listado/consulta de documentos y generación (`POST /documents/{id}/adapt`). Es el corazón funcional. |
+| `documents.py` | Ingesta (`POST /documents`), listado/consulta, borrado (`DELETE /documents/{id}`) y generación (`POST /documents/{id}/adapt`). Es el corazón funcional. |
 | `contents.py` | Biblioteca de contenidos generados. |
 | `health.py` | Estado del sistema. |
 | `auth.py` | Autenticación de usuarios. |
 | `anki.py` | Exportación de flashcards a Anki (`.apkg`). |
 | `trash.py` | Papelera y borrado lógico. |
 | `storage.py` | Operaciones sobre OCI Object Storage. |
+| `multimodal.py` | Extracción de diagramas de una imagen (`POST /extract-diagram`). |
+| `export.py` | Exportación a PDF (`POST /export/pdf`). |
 
 ---
 
-## 2. Servicios del pipeline (`app/services/`)
+## 3. Servicios del pipeline (`app/services/`)
 
 Los servicios se agrupan por etapa de ejecución. Cada grupo se documenta en su
 propio archivo de `04-Documentacion/backend/`.
@@ -58,13 +60,16 @@ propio archivo de `04-Documentacion/backend/`.
 | **2. Embeddings** | `embedding_service`, `embedding_rate_limiter` | [Embeddings](../embeddings/Embeddings.md) |
 | **3. Indexación** | `vector_store_service` | [Almacén Vectorial](../embeddings/Almacen_Vectorial.md) |
 | **4. Recuperación** | `retrieval_service`, `reranker_service` | [Recuperación](../retrieval/Recuperacion.md) · [Reranking](../retrieval/Reranking.md) |
-| **5. Orquestación y salida** | `langgraph_orchestrator`, `multi_agent_router`, `coverage_planner`, `rate_guard`, `pdf_export_service` | este documento (§4) |
+| **5. Orquestación y salida** | `langgraph_orchestrator`, `pipeline_stages`, `multi_agent_router`, `coverage_planner`, `rate_guard`, `source_context`, `summary_composer`, `pdf_export_service` | este documento (§4) · [Anclaje técnico](../quality/Anclaje_Tecnico.md) |
 
 Servicios de soporte transversal:
 
-- `document_storage_service` y `oci_storage_service`: mueven bytes del documento
-  original y de los artefactos generados → [Storage](../storage/Almacenamiento_OCI.md).
+- `document_storage_service` y los adaptadores de `services/storage/`
+  (`local_backend`, `oci_backend`, `supabase_backend`): mueven bytes del
+  documento original y de los artefactos generados → [Storage](../storage/Almacenamiento_OCI.md).
 - `document_repository`: metadata y estados del documento en Postgres/Supabase.
+- `document_deletion_service`: borrado permanente en todas las capas
+  (metadatos, storage, índice FAISS, caché).
 - `storage_queue_service`, `trash_service`: colas de subida y borrado lógico.
 
 ---
@@ -75,18 +80,26 @@ El contenido educativo se produce con **LangGraph** (`langgraph_orchestrator.py`
 sobre un router de proveedores (`multi_agent_router.py`):
 
 1. **Recuperación de contexto** — `retrieval_service.retrieve_context()` devuelve
-   los *parent chunks* más relevantes del documento.
+   los *parent chunks* más relevantes del documento (densa + BM25 + rerank).
 2. **Planificación de cobertura** — `coverage_planner.py` decide qué conceptos
    debe cubrir el contenido.
 3. **Generación** — los agentes redactan según el formato solicitado
    (flashcards, quiz, tutorial, …), con prompts en `app/prompts/`.
-4. **Validación** — el resultado se valida contra los esquemas Pydantic
+4. **Deduplicación** — se eliminan elementos casi idénticos.
+5. **Anclaje** — cada elemento debe citar sus fragmentos; se verifica por vía
+   léxica y por un crítico LLM. Detalle en
+   [Anclaje técnico](../quality/Anclaje_Tecnico.md).
+6. **Reparación / refinamiento** — los elementos no verificados se reescriben y
+   se re-auditan, dentro de un presupuesto de revisiones.
+7. **Validación** — el resultado se valida contra los esquemas Pydantic
    (`AdaptationResponse`) antes de responder.
 
 Los clientes de LLM viven en `app/infrastructure/` (`gemini_client`,
 `groq_client`, `cohere_client`). El router elige el proveedor preferido por
 formato y define una **cascada de respaldo** para tolerar caídas o cuotas
-agotadas.
+agotadas. El detalle de cada nodo, el estado compartido y el bucle de
+reparación está en
+[Orquestación multi-agente](Orquestacion_Multi_Agente.md).
 
 ---
 
@@ -95,7 +108,7 @@ agotadas.
 ```mermaid
 flowchart LR
     UI["Frontend Angular"] -->|REST / SSE| API["API FastAPI"]
-    GR["Frontend Gradio (pruebas)"] -->|REST| API
+    GR["Frontend Gradio (pruebas)\nimporta servicios in-process"] --> PIPE
     API --> PIPE["Servicios del pipeline"]
     PIPE --> FAISS["Índice FAISS (local)"]
     PIPE --> SUP["Supabase (storage + metadata)"]

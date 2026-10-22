@@ -27,6 +27,7 @@ ALLOW_LOCAL_STORAGE=false     # habilita explícitamente el respaldo en disco
 STORAGE_LOCAL_DIR=storage_mock
 STORAGE_MAX_UPLOAD_MB=25
 STORAGE_USER_QUOTA_MB=200
+STORAGE_SOFT_LIMIT_GIB=15
 ```
 
 ---
@@ -49,14 +50,19 @@ credenciales) y uso en código:
 ## 3. OCI Object Storage
 
 ```dotenv
-OCI_ENABLED=true
 OCI_AUTH_MODE=instance_principal   # o 'auto'
 OCI_REGION=mx-monterrey-1
 OCI_NAMESPACE=
 OCI_BUCKET_SOURCES=nuevamente-documentos-fuente
 OCI_BUCKET_CONTENT=nuevamente-contenidos-educativos
-# OCI_COMPARTMENT_OCID=ocid1.compartment.oc1..   # opcional, ver doc
+# OCI_COMPARTMENT_OCID=ocid1.compartment.oc1..   # opcional
 ```
+
+> `OCI_ENABLED` **no** es una variable de entorno: es una propiedad calculada de
+> `settings` (`config.py`) que devuelve `True` cuando `get_oci_client()` logra
+> construir un cliente válido. Configurarlo en `.env` no tiene efecto.
+> `OCI_COMPARTMENT_OCID` se lee con `os.getenv` en
+> `app/infrastructure/oci_client.py`.
 
 El detalle de compartments, policies y verificación de credenciales:
 [Almacenamiento con OCI](../04-Documentacion/backend/storage/Almacenamiento_OCI.md).

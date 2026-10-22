@@ -17,8 +17,11 @@ Es la rama de "con login" del proyecto — usa el mismo proyecto de Supabase que
 
 ### 1.2 Crear la tabla `documents`
 1. Ve a **SQL Editor** → **New query**.
-2. Pega y ejecuta el contenido de `migrations/001_documents.sql` (incluido en este mismo commit).
+2. Pega y ejecuta el contenido de `migrations/001_documents.sql`.
 3. Verifica en **Table Editor** que la tabla `documents` aparece con sus columnas.
+4. Aplica también el resto de migraciones en orden (son 4 archivos):
+   `002_adapted_contents.sql`, `002_trash_system.sql` y
+   `003_documents_storage_backend.sql`.
 
 > Row Level Security (RLS) no se activa todavía a propósito: el backend usa `service_role`, que ignora RLS de cualquier forma. Cuando exista login y el frontend necesite consultar Supabase directamente (no a través del backend), ahí sí habrá que activar RLS con una policy `user_id = auth.uid()`. Por ahora, activar RLS sin políticas solo bloquearía sin necesidad.
 
@@ -42,10 +45,8 @@ SUPABASE_KEY=your_supabase_service_role_key_here
 ```
 
 ### 1.5 Instalar la dependencia
-```bash
-cd backend
-uv add supabase
-```
+`supabase` ya está declarado en `pyproject.toml` y en `uv.lock`, así que `uv sync`
+lo instala. No hace falta `uv add supabase`.
 
 ---
 
@@ -133,13 +134,30 @@ de_un_usuario = repo.list_documents(user_id="uuid-del-usuario")
 - **`document_storage_service.py`**: mueve *bytes* del archivo original. No sabe nada de títulos ni de estados.
 - **`document_repository.py`**: guarda *metadata* (título, `object_key`, estado). No sabe nada de cómo se sube o descarga el archivo — solo guarda la referencia (`object_key`) que le da el otro.
 
-Esta separación es la misma razón por la que `document_pipeline_service.py` (el orquestador, pendiente) los usará a los dos por separado, uno para el archivo y otro para su estado, en vez de mezclar responsabilidades en un solo servicio.
+Esta separación es la misma razón por la que `document_pipeline_service.py` (el
+orquestador) los usa a los dos por separado, uno para el archivo y otro para su
+estado, en vez de mezclar responsabilidades en un solo servicio.
 
 ---
 
-## 3. Cuándo cambia esto (OCI, en el futuro)
+## 3. Estado actual: OCI ya está implementado
 
-Ambos archivos exponen una fábrica (`get_document_storage()`, `get_document_repository()`) que elige la implementación según `settings.STORAGE_METHOD`. Hoy solo existe la rama `"supabase"`. Cuando haya una cuenta de OCI y se revise `oci_storage_service.py` de los compañeros, se agregará una implementación `OCIDocumentStorage` detrás de la misma interfaz `BaseDocumentStorage`, sin tocar `document_pipeline_service.py` ni el resto del código que ya depende de estas fábricas — es justamente el orquestador descrito arriba, ya implementado.
+La fábrica `get_document_storage()` elige la implementación según
+`settings.resolve_storage_backend()`:
+
+| Backend efectivo | Implementación |
+| :--- | :--- |
+| `supabase` | `SupabaseStorageService` |
+| `oci` | `OCIStorageAdapter` |
+| `local` | `OCIStorageAdapter` con servicio local (disco) |
+
+> `OCIStorageAdapter` convive con `OciStorageBackend`
+> (`app/services/storage/oci_backend.py`), que es el backend de bajo nivel usado
+> por `get_storage_backend()`. No son la misma clase ni viven en el mismo archivo.
+
+La elección del backend se documenta en
+[Configuración de Storages](../../../02-Instalacion/Configuracion_de_Storages.md) y
+la integración con OCI en [Almacenamiento OCI](Almacenamiento_OCI.md).
 
 ---
 

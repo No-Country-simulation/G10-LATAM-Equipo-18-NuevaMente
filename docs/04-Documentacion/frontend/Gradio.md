@@ -5,7 +5,8 @@
 Interfaz mínima de pruebas (`frontend_gradio/app_gradio.py`) construida con
 Gradio. Sirve para validar el pipeline completo (ingesta → chunking → embeddings
 → índice FAISS) y la generación, sin esperar a la SPA de Angular ni depender de
-clientes externos como Postman o `cURL`. Consume la misma API REST del backend.
+clientes externos como Postman o `cURL`. Importa los servicios del backend **en
+el mismo proceso** (no consume la API REST).
 
 ---
 
@@ -17,17 +18,22 @@ clientes externos como Postman o `cURL`. Consume la misma API REST del backend.
             ▼
 ┌──────────────────────────────────────────────────────────────┐
 │ UI Gradio (frontend_gradio/app_gradio.py)                     │
-│ 1. Subida y ejecución del pipeline (vía API REST)             │
-│ 2. Resumen del documento (ID, estado, conteos)                │
-│ 3. Exploración de documentos ya indexados                     │
+│ 1. Subir documento + ejecutar el pipeline (in-process)        │
+│ 2. Documentos existentes: tabla e inspección de chunks        │
+│ 3. Generar con agentes (RAG): adaptación pedagógica          │
 └──────────────────────────────────────────────────────────────┘
 ```
 
 Capacidades principales:
 
-- Subir un documento y lanzar la ingesta, mostrando el avance.
-- Ver el resumen del documento (`document_id`, `status`, totales de chunks).
-- Explorar documentos previamente indexados.
+- **Pestaña 1 — Subir documento:** subir un archivo o pegar texto, título
+  opcional y un checkbox de **visión multimodal** para analizar diagramas e
+  imágenes del PDF. Muestra el avance del pipeline.
+- **Pestaña 2 — Documentos existentes:** tabla de documentos indexados e
+  inspección de chunks/vectores de un documento concreto.
+- **Pestaña 3 — Generar con agentes (RAG):** elige documento, formato y
+  parámetros; muestra el resultado didáctico, el JSON completo del artefacto, las
+  fuentes con su marca de verificación y las revisiones del grafo.
 
 ---
 
@@ -52,7 +58,7 @@ Capacidades principales:
 4. Abre la URL local que muestra la consola (Gradio usa
    `http://127.0.0.1:7860` por defecto).
 
-5. La interfaz corre en proceso con los servicios del backend usando su mismo entorno Python y configuración `.env`, por lo que no es estrictamente obligatorio tener `uvicorn` activo en paralelo para probar el pipeline y la adaptación en Gradio.
+5. La interfaz corre en proceso con los servicios del backend usando su mismo entorno Python y configuración `.env`; **no** hace peticiones HTTP a la API, así que no necesitas `uvicorn` activo para probar el pipeline y la adaptación en Gradio.
 
 ---
 

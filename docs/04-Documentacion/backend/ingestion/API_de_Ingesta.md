@@ -44,7 +44,8 @@ sequenceDiagram
 
 ## 2. Endpoints disponibles
 
-Base URL: `/api/v1` (por defecto `http://localhost:8000/api/v1`).
+Base URL: `/api/v1` (en local, `http://localhost:8001/api/v1` si usas el `APP_PORT`
+por defecto; en Docker, `http://localhost:8000/api/v1`).
 
 ---
 
@@ -164,7 +165,18 @@ con índice vectorial (`409 Conflict` en caso contrario; `404` si no existe).
 
 ---
 
-## 2.2 Consultar estado del procesamiento
+### 2.5 Eliminar un documento
+
+- **Método:** `DELETE`
+- **Ruta:** `/documents/{document_id}`
+
+Borra el documento de forma permanente en todas las capas (metadatos, storage
+activo, índice FAISS y caché) mediante `document_deletion_service`. Devuelve la
+confirmación de borrado o `404` si el documento no existe.
+
+---
+
+## 3. Consultar estado del procesamiento
 
 > **Nota histórica:** en versiones anteriores existía un `GET /ingestion/status/{document_id}`
 > para *polling*. Ese esquema fue reemplazado por el stream SSE del `POST /documents`
@@ -173,7 +185,7 @@ con índice vectorial (`409 Conflict` en caso contrario; `404` si no existe).
 
 ---
 
-## 3. Ejemplos de integración
+## 4. Ejemplos de integración
 
 ### JavaScript (navegador, sin dependencias)
 
@@ -182,7 +194,7 @@ const form = new FormData();
 form.append("file", fileInput.files[0]);
 form.append("title", "Manual OCI");
 
-const response = await fetch("http://localhost:8000/api/v1/documents?stream=true", {
+const response = await fetch("http://localhost:8001/api/v1/documents?stream=true", {
   method: "POST",
   body: form,
 });
@@ -204,7 +216,7 @@ while (true) {
 
 ---
 
-## 3. Integración para el grupo de Agentes
+## 5. Integración para el grupo de Agentes
 
 Cuando el documento alcanza el estado `ready`:
 

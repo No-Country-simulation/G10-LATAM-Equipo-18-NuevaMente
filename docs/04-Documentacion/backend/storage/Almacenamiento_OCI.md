@@ -42,15 +42,18 @@ Crea o edita el archivo `C:\Users\<tu-usuario>\.oci\config` (con el preview que 
 user=ocid1.user.oc1..aaaa...
 fingerprint=aa:bb:...
 tenancy=ocid1.tenancy.oc1..aaaa...
-region=us-ashburn-1
+region=mx-monterrey-1
 key_file=C:\Users\<tu-usuario>\.oci\oci_api_key.pem
 ```
+
+> `region` debe coincidir con `OCI_REGION` del `.env` del backend (por defecto,
+> `mx-monterrey-1`).
 
 Guarda el archivo .pem (que creará OCI) en la carpeta ~\.oci\
 
 ### Backend
 
-Sin `OCI_COMPARTMENT_OCID` (queda vacío = `root`). `ensure_bucket` crea los buckets en `root` y la política en tenancy los cubre.
+Sin `OCI_COMPARTMENT_OCID` (queda vacío = `root`). Crea los buckets en `root` y la política en tenancy los cubre.
 
 ---
 
@@ -64,7 +67,7 @@ Todo el almacenamiento vive en su propio compartment. Requiere una variable extr
 2. **Storage → Object Storage → Buckets → Create bucket** con el selector *"Create in compartment: nuevamente"*:
    * `nuevamente-documentos-fuente` (Standard, Private)
    * `nuevamente-contenidos-educativos` (Standard, Private)
-   *(O crearlos más tarde con `ensure_bucket`, ver abajo).*
+   *(O crearlos más tarde desde la consola, ver abajo).*
 3. **Identity & Security → Domains/Groups → Create group:** `nuevamente-backend`.
 4. **Identity & Security → Policies → Create policy** (en el compartment `root`, con target al compartment):
    ```text
@@ -82,7 +85,7 @@ Igual que el Camino A (el `~/.oci/config` no cambia):
 user=ocid1.user.oc1..aaaa...
 fingerprint=aa:bb:...
 tenancy=ocid1.tenancy.oc1..aaaa...
-region=us-ashburn-1
+region=mx-monterrey-1
 key_file=C:\Users\<tu-usuario>\.oci\oci_api_key.pem
 ```
 
@@ -90,10 +93,13 @@ Guarda el archivo .pem (que creará OCI) en la carpeta ~\.oci\
 
 ### El dato clave: `OCI_COMPARTMENT_OCID`
 
-`ensure_bucket` llama a `create_bucket(..., compartment_id=?)` y OCI exige ese OCID para saber dónde crear el bucket. El código lo obtiene así:
+`ensure_bucket` es una operación que realizas desde la consola o la CLI de OCI (el
+backend no la ejecuta al arrancar). Cuando crea un bucket, OCI exige el OCID del
+compartment. El backend resuelve el compartment así
+(`app/infrastructure/oci_client.py`):
 
 ```python
-_compartment_id = settings.OCI_COMPARTMENT_OCID or config.get("tenancy")
+_compartment_id = os.getenv("OCI_COMPARTMENT_OCID") or config.get("tenancy")
 ```
 
 * Si `OCI_COMPARTMENT_OCID` está **vacío** → usa el OCID de la tenancy = `root` (Camino A).
@@ -108,7 +114,7 @@ _compartment_id = settings.OCI_COMPARTMENT_OCID or config.get("tenancy")
 OCI_COMPARTMENT_OCID=ocid1.compartment.oc1..aaaa...
 ```
 
-**Advertencia:** Si lo dejas vacío, `ensure_bucket` creará los buckets en `root` y la policy en el compartment `nuevamente` no los cubrirá → generará un error 404 de permisos. Los buckets en `root` además no se pueden "mover" directamente a un compartment: hay que borrarlos y recrearlos.
+**Advertencia:** Si lo dejas vacío, los buckets deben existir en `root` y una policy en el compartment `nuevamente` no los cubrirá → generará un error 404 de permisos. Los buckets en `root` además no se pueden "mover" directamente a un compartment: hay que borrarlos y recrearlos.
 
 ---
 
@@ -132,27 +138,21 @@ Ejecuta el siguiente comando para comprobar que la conexión y los permisos son 
 cd backend
 uv run --with email-validator --with genanki python -c "
 from app.infrastructure.oci_client import get_oci_client, get_oci_namespace, get_oci_compartment_id
-from app.services.oci_storage_service import OCIStorageService
+from app.services.storage.oci_backend import OciStorageBackend
 
 c = get_oci_client()
 ns = get_oci_namespace()
 print('namespace  :', ns)
 print('compartment:', get_oci_compartment_id())
 
-s = OCIStorageService()
-s.ensure_bucket('nuevamente-documentos-fuente')
-s.ensure_bucket('nuevamente-contenidos-educativos')
-print('buckets    :', [b.name for b in c.list_buckets(ns, get_oci_compartment_id()).data])
+backend = OciStorageBackend()
+print('self-check :', backend.self_check())
 "
 ```
 
-Debe imprimir:
-```text
-buckets: ['nuevamente-documentos-fuente', 'nuevamente-contenidos-educativos']
-```
-en el compartment correcto. 
-
-Si aparece un error `404`/`403`, revisa:
+Debe imprimir un `self-check` con los buckets visibles o un estado correcto de la
+conexión (namespace, compartment y buckets accesibles). Si aparece un error
+`404`/`403`, revisa:
 1. Que el usuario `nuevamente-backend` pertenezca al grupo correcto.
 2. Que la policy esté creada en el compartment `root`.
 3. Dale unos segundos de propagación a OCI tras crear recursos de IAM.

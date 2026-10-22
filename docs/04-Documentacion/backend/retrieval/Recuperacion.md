@@ -78,6 +78,10 @@ for parent in resultados:
     print(parent["title"], "->", parent.get("relevance_score"))
 ```
 
+> `retrieve()` acepta `rerank_pool_size` (por defecto `10`), pero el atajo
+> `retrieve_context(document_id, query, top_k)` **no**: siempre usa el valor por
+> defecto. Si necesitas otro tamaño de pool, instancia `RetrievalService`.
+
 ### Qué hace `retrieve()` internamente
 
 1. Abre el índice con `vector_store_service.get_store(document_id)`. Si no hay
@@ -98,10 +102,10 @@ Esta etapa no agrega variables propias; hereda las de
 
 ---
 
-## 4. Pruebas manuales
+## 4. Pruebas
 
-**Pendiente de crear:** `tests/manual/test_retrieval.py`, siguiendo el formato de
-`test_vector_store.py`. Debería cubrir, como mínimo:
+**Pendiente de crear:** `tests/manual/test_retrieval.py`. Debería cubrir, como
+mínimo:
 
 1. Recuperación de extremo a extremo sobre un documento ya indexado.
 2. Que el orden RRF cambie coherentemente si se altera el peso denso vs. léxico.

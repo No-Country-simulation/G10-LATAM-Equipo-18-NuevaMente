@@ -65,17 +65,17 @@ sudo netfilter-persistent save
 
 ## 3. Clonar y Configurar el Repositorio
 
-Clona la rama `devbackend`:
+Clona la rama `secondary` (rama de integración actual):
 
 ```bash
 # Si es la primera vez:
-git clone -b devbackend https://github.com/No-Country-simulation/G10-LATAM-Equipo-18-NuevaMente.git
+git clone -b secondary https://github.com/No-Country-simulation/G10-LATAM-Equipo-18-NuevaMente.git
 cd G10-LATAM-Equipo-18-NuevaMente
 
 # Si ya habías clonado el repositorio:
-git fetch origin devbackend
-git checkout devbackend
-git pull origin devbackend
+git fetch origin secondary
+git checkout secondary
+git pull origin secondary
 ```
 
 ### 3.1 Configurar Variables de Entorno (.env)
@@ -98,7 +98,7 @@ GROQ_API_KEY=tu_clave_real_de_groq_opcional
 COHERE_API_KEY=tu_clave_real_de_cohere_opcional
 
 # OCI Object Storage Always Free (Región mx-monterrey-1)
-OCI_ENABLED=true
+# OCI_ENABLED no se configura: es una propiedad calculada por el backend.
 OCI_AUTH_MODE=instance_principal
 OCI_REGION=mx-monterrey-1
 OCI_NAMESPACE=tu_namespace_de_oracle
@@ -106,6 +106,17 @@ OCI_BUCKET_SOURCES=nuevamente-documentos-fuente
 OCI_BUCKET_CONTENT=nuevamente-contenidos-educativos
 ```
 *(Guarda los cambios con `Ctrl + O` y sal con `Ctrl + X`).*
+
+> **Puerto en Docker:** el contenedor arranca con
+> `uvicorn main:app --port 8000` de forma explícita, así que `APP_PORT` **no**
+> se usa dentro de la imagen. El mapeo al host está en `docker-compose.yml`
+> (`"8000:8000"`), y nginx (frontend) hace proxy a `http://backend:8000`. En
+> local sin Docker, en cambio, `python main.py` sí respeta `APP_PORT`.
+>
+> **Dependencia `genanki`:** el `Dockerfile` instala desde `requirements.txt`,
+> que no incluye `genanki`. La exportación a Anki (`POST /export/anki`)
+> devolverá un error 500 dentro del contenedor hasta añadirla al archivo o a la
+> imagen.
 
 ---
 
@@ -154,7 +165,7 @@ Abre tu navegador web e ingresa:
   ```
 - **Actualizar a la última versión del repositorio:**
   ```bash
-  git pull origin main
+  git pull origin secondary
   docker compose up -d --build
   ```
 

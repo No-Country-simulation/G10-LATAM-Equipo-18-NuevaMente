@@ -12,8 +12,10 @@ ver [Arquitectura](Arquitectura.md) y
 
 ```text
 app/
-├── api/v1/endpoints/   # documents, contents, health, auth, anki, trash, storage
+├── api/v1/endpoints/   # documents, contents, health, auth, anki, trash,
+│                       # storage, multimodal, export
 ├── services/           # pipeline RAG + orquestación multi-agente
+│   └── storage/        # adaptadores local, OCI y Supabase
 ├── infrastructure/     # clientes: gemini, groq, jina, cohere, oci, supabase
 ├── schemas/            # contratos Pydantic (adaptation, document_record, …)
 ├── core/               # configuración central (config.py)
@@ -23,10 +25,12 @@ app/
 
 | Componente | Función |
 | :--- | :--- |
-| **API REST** | Expone ingestión, documentos, contenidos, Anki, papelera y storage. |
-| **Pipeline RAG** | Ingesta → embeddings → índice → recuperación. |
+| **API REST** | Expone ingestión, documentos, contenidos, Anki, papelera, storage, extracción multimodal y exportación. |
+| **Pipeline RAG** | Ingesta → embeddings → índice → recuperación → reranking. |
 | **Orquestación** | Router de proveedores + agentes LangGraph que generan el contenido. |
+| **Anclaje** | Verificación de fidelidad de cada elemento contra las fuentes citadas. |
 | **Almacenamiento** | Documentos originales y artefactos, con backend intercambiable. |
+| **Exportación** | PDF (`pdf_export_service`) y mazos de Anki (`genanki`). |
 
 ---
 
@@ -38,9 +42,11 @@ SPA en Angular con *features* autocontenidas:
 | :--- | :--- |
 | `auth` | Login, registro y recuperación. |
 | `workspace` | Flujo de adaptación en pasos. |
+| `process` | Pantalla de progreso del procesamiento (SSE). |
 | `documents` | Subida y estado de documentos. |
 | `library` | Biblioteca de contenidos generados. |
 | `compare` | Comparación de variantes. |
+| `shared` | Componentes reutilizables entre features. |
 | `trash` | Papelera y borrado lógico. |
 
 Detalle en [Frontend Angular](../04-Documentacion/frontend/Angular.md).

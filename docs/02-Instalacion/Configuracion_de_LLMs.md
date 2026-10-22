@@ -18,11 +18,13 @@ GEMINI_API_KEY=
 GROQ_API_KEY=
 OPENROUTER_API_KEY=
 
-COHERE_API_KEY=        # usado por el reranker de Cohere
-JINA_API_KEY=       # Embeddings
+# Embeddings
+JINA_API_KEY=
 ```
 
-Nunca se versionan; parten de `backend/.env.example`.
+`COHERE_API_KEY` lo lee directamente `app/infrastructure/cohere_client.py` con
+`os.getenv`, así que también debe estar en `.env` si quieres usar ese reranker.
+Ninguna clave se versiona; parten de `backend/.env.example`.
 
 ---
 
@@ -35,16 +37,18 @@ caídas o cuotas agotadas. Las cascadas viven en `settings.LLM_CASCADES`
 
 - `flashcards`, `quiz`, `tutorial`, `executive_summary`, `class_script` — y una cascada `CRITIC_CASCADE` para la revisión crítica.
 
-Modelos de referencia (según `config.py`):
+Modelos de referencia (constantes en `config.py`, **no** variables de entorno):
 
 | Rol | Modelo |
 | :--- | :--- |
 | Gemini (flash) | `gemini-3.6-flash` |
-| Groq | `openai/gpt-oss-20b` |
-| OpenRouter | `mistralai/mistral-small-3.2-24b-instruct` |
+| Gemini (flash-lite) | `gemini-3.5-flash-lite` |
+| Groq | `openai/gpt-oss-20b` / `qwen/qwen3.8-27b` |
+| OpenRouter | `mistralai/mistral-small-3.2-24b-instruct` / `nvidia/nemotron-3.5-lightning:free` |
 
 Cada entrada de la cascada es `{"provider": ..., "model": ...}`; si un proveedor
-falla, se pasa al siguiente de la lista sin intervención manual.
+falla, se pasa al siguiente de la lista sin intervención manual. Para cambiar un
+modelo hay que editar `config.py` y reiniciar el backend.
 
 ---
 
@@ -53,10 +57,16 @@ falla, se pasa al siguiente de la lista sin intervención manual.
 Se configuran por variables (con defaults razonables):
 
 ```dotenv
-EMBEDDING_PROVIDER_ORDER=gemini,jina,local
-DEFAULT_GEMINI_MODEL_FLASH=gemini-flash-lite-latest
-GEMINI_EMBEDDING_MODEL=gemini-embedding-001
+EMBEDDING_METHOD=api            # api | local
+EMBEDDING_API_PROVIDER=gemini   # gemini | jina
+EMBEDDING_DIMENSIONS=768
+EMBEDDING_BATCH_SIZE=50
 ```
+
+> No existen `EMBEDDING_PROVIDER_ORDER`, `DEFAULT_GEMINI_MODEL_FLASH` ni
+> `GEMINI_EMBEDDING_MODEL` como variables de entorno: los identificadores de
+> modelo son constantes de `config.py` (`_GEMINI_EMBED_MODEL`,
+> `_JINA_EMBED_MODEL`, `_LOCAL_EMBED_MODEL`).
 
 Modelos usados (centralizados): `models/gemini-embedding-001`,
 `jina-embeddings-v3` y el modelo local `intfloat/multilingual-e5-base`, todos a

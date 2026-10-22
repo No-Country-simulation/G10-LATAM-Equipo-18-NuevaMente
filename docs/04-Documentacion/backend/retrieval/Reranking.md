@@ -81,6 +81,16 @@ Cohere se configura en `app/infrastructure/cohere_client.py`. Si su API key no
 está configurada, `CohereReranker.rerank()` lanza un error y `retrieval_service`
 simplemente lo salta y usa el orden de RRF.
 
+Modelos exactos:
+
+| Proveedor | Modelo | Dónde |
+| :--- | :--- | :--- |
+| Jina | `jina-reranker-v2-base-multilingual` | `app/services/reranker_service.py` |
+| Cohere | `rerank-multilingual-v3.0` | `app/infrastructure/cohere_client.py` |
+
+Los identificadores son constantes del código; se cambian editando el archivo,
+no por `.env`.
+
 ---
 
 <div align="right">

@@ -123,7 +123,6 @@ JINA_API_KEY=jina_...
 EMBEDDING_METHOD = "api"            # 'api' o 'local'
 EMBEDDING_API_PROVIDER = "gemini"   # 'gemini' o 'jina'
 EMBEDDING_DIMENSIONS = 768          # fija en los tres proveedores
-EMBEDDING_BATCH_SIZE = 50
 
 GEMINI_SAFE_RPM = 80                # techo aplicado por el limitador (con margen)
 GEMINI_SAFE_TPM = 25000
@@ -134,7 +133,6 @@ GEMINI_MAX_WAIT_SECONDS = 600
 JINA_SAFE_TPM = 90000
 JINA_BATCH_SIZE = 50
 
-EMBEDDING_DIMENSIONS = 768
 LOCAL_MAX_SEQ_LENGTH = 256
 EMBEDDING_FALLBACK_CHAIN = ["gemini", "jina", "local"]
 
@@ -142,6 +140,10 @@ EMBEDDING_CHAIN_ROUNDS = 2          # pasadas completas por la cadena
 EMBEDDING_PARTIAL_RETRIES = 2       # esperas tras un fallo a mitad del documento
 EMBEDDING_RETRY_WAIT_SECONDS = 60
 ```
+
+> `EMBEDDING_BATCH_SIZE` existe en `config.py` pero no lo usa ningún servicio: el
+> tamaño de lote real lo fijan `GEMINI_BATCH_SIZE` y `JINA_BATCH_SIZE`. No lo
+> configures esperando un efecto.
 
 Si una API key gratuita se satura seguido, baja `GEMINI_SAFE_RPM` /
 `GEMINI_SAFE_RPD` o `GEMINI_BATCH_SIZE`.
@@ -152,13 +154,15 @@ Si una API key gratuita se satura seguido, baja `GEMINI_SAFE_RPM` /
 
 ```powershell
 cd backend
-uv run python tests/manual/test_embedding.py
+uv run python tests/manual/verify_fixes.py
 ```
 
-Cubre generación individual, de consulta y por lote; verificación del
-`model_name` con sufijo de dimensión; división de lotes rechazados; cambio
-inmediato de proveedor; cascada completa hasta el modelo local; y ruteo
-proactivo cuando la cuota diaria no alcanza.
+El script comprueba, entre otras cosas, la generación de embeddings y el
+`model_name` con sufijo de dimensión. Para las pruebas de la suite:
+
+```powershell
+uv run --with pytest --with email-validator --with genanki pytest tests/test_embedding_service.py
+```
 
 **Pendiente:** pruebas propias del limitador (`embedding_rate_limiter.py`) y del
 reintento tras un fallo a mitad del documento.

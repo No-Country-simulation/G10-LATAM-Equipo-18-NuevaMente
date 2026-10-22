@@ -10,7 +10,7 @@ Stack tecnológico de NuevaMente.
 
 | Tecnología | Uso |
 | :--- | :--- |
-| **Python 3.12+** | Lenguaje del backend. |
+| **Python 3.11+** | Lenguaje del backend. |
 | **FastAPI** | API REST (incluye SSE para el progreso de ingesta). |
 | **Uvicorn** | Servidor ASGI. |
 | **Pydantic** | Validación de esquemas de entrada/salida. |
@@ -34,11 +34,14 @@ Stack tecnológico de NuevaMente.
 | Tipo | Proveedor | Modelo |
 | :--- | :--- | :--- |
 | LLM (flash) | Google Gemini | `gemini-3.6-flash` |
-| LLM | Groq | `openai/gpt-oss-20b` |
-| LLM | OpenRouter | `mistralai/mistral-small-3.2-24b-instruct` |
+| LLM (flash-lite) | Google Gemini | `gemini-3.5-flash-lite` |
+| LLM | Groq | `openai/gpt-oss-20b` / `qwen/qwen3.8-27b` |
+| LLM | OpenRouter | `mistralai/mistral-small-3.2-24b-instruct` / `nvidia/nemotron-3.5-lightning:free` |
 | Embeddings | Google Gemini | `models/gemini-embedding-001` (768 dim) |
 | Embeddings | Jina AI | `jina-embeddings-v3` (768 dim) |
-| Reranking | Jina / Cohere | Jina Reranker / Cohere Rerank |
+| Embeddings | Local (sentence-transformers) | `intfloat/multilingual-e5-base` (768 dim) |
+| Reranking | Jina AI | `jina-reranker-v2-base-multilingual` |
+| Reranking | Cohere | `rerank-multilingual-v3.0` |
 
 > Los identificadores de modelo están centralizados en `backend/app/core/config.py`.
 
@@ -48,7 +51,9 @@ Stack tecnológico de NuevaMente.
 | :--- | :--- |
 | **OCI Object Storage** | Almacenamiento en la nube (capa Always Free). |
 | **Supabase** | Storage de documentos y metadata (Postgres). |
+| **SQLite** | Metadatos locales de usuarios y documentos. |
 | **FAISS en disco** | Índices vectoriales locales (`vector_store/{document_id}/`). |
+| **Docker Compose** | Backend (contenedor, puerto 8000) + frontend (nginx, puerto 80). |
 
 ## 5. Herramientas de desarrollo
 

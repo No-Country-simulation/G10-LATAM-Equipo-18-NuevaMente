@@ -1,5 +1,5 @@
 """
-upload_test_ui.py (frontend_temp)
+app_gradio.py (frontend_gradio)
 
 Purpose:
     Gradio web interface for testing document ingestion, chunking, embedding

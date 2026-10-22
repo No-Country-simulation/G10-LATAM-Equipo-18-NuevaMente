@@ -9,7 +9,7 @@ interfaz de pruebas.
 
 ## 0. Requisitos
 
-- **Python 3.12+** y [**uv**](https://docs.astral.sh/uv/).
+- **Python 3.11+** y [**uv**](https://docs.astral.sh/uv/).
 - **Node.js 18+** y **npm** (para el frontend).
 - Claves de API (Gemini, Jina…) si quieres usar los proveedores en la nube
   (si no, el sistema cae al modelo local donde aplique).
@@ -32,8 +32,8 @@ cp .env.example .env    # Windows PowerShell: Copy-Item .env.example .env
 # Edita .env con tus claves (ver 02-Instalacion/Configuracion_de_LLMs.md)
 ```
 
-> `requirements.txt` o
-> `pyproject.toml` con `uv.lock`.
+> `uv` es la fuente de verdad: usa `pyproject.toml` y `uv.lock`. El archivo
+> `requirements.txt` se regenera con `uv export` y solo lo usa la imagen Docker.
 
 ### Frontend
 
@@ -52,11 +52,26 @@ npm install
 uv run --with email-validator --with genanki python main.py
 ```
 
-- API: `http://localhost:8001` (o el puerto configurado en `APP_PORT` dentro de `config.py` / `.env`)
+- API: `http://localhost:8001` (o el puerto configurado en `APP_PORT` dentro de `backend/.env`)
 - Documentación interactiva: `http://localhost:8001/docs`
 
-> Al ejecutar `python main.py`, el servidor toma automáticamente el host y puerto definidos en `config.py` o en la variable de entorno `APP_PORT` de tu `.env`.
-> Las dos dependencias extra (`email-validator` y `genanki`) se pasan en la línea de comandos con `uv run`.
+> Al ejecutar `python main.py`, el servidor toma automáticamente el host y puerto definidos en `config.py` y los sobrescribe con la variable de entorno `APP_PORT` de tu `.env` (por defecto `8001`).
+> Las dos dependencias extra (`email-validator` y `genanki`) se pasan en la línea de comandos con `uv run` porque no están declaradas en `pyproject.toml`.
+
+#### Elegir el puerto (`APP_PORT`)
+
+```bash
+# backend/.env
+APP_PORT=8001
+```
+
+- Con `APP_PORT=8001` (valor por defecto) el backend evita el `8000` y el
+  frontend de desarrollo ya hace proxy a `http://127.0.0.1:8001`.
+- Si tienes **otra aplicación usando el 8000**, no cambies nada: usa `8001`.
+- Si prefieres el **8000**, pon `APP_PORT=8000` y cambia también el destino en
+  `frontend/proxy.conf.json`.
+- En **Docker** el contenedor escucha en `8000`; el mapeo al host está en
+  `docker-compose.yml` (ver [Despliegue Docker](Despliegue_Docker_OCI.md)).
 
 ### Frontend (desde `frontend/`)
 
@@ -77,11 +92,11 @@ Abre la URL local que imprime la consola (`http://127.0.0.1:7860`).
 ## 3. Verificar que todo funciona
 
 ```bash
-# Salud del sistema
-curl http://localhost:8000/api/v1/health
+# Salud del sistema (ajusta el puerto a tu APP_PORT; por defecto 8001)
+curl http://localhost:8001/api/v1/health
 
 # Listar documentos indexados
-curl http://localhost:8000/api/v1/documents
+curl http://localhost:8001/api/v1/documents
 ```
 
 Comprobación de servicios externos:
@@ -100,8 +115,16 @@ cd backend
 uv run --with pytest --with email-validator --with genanki pytest tests/test_phase0_health.py tests/test_embedding_service.py tests/test_ingester_service.py
 ```
 
-> `tests/manual/` son scripts ejecutables, no pruebas de suite. `npm test` está
-> roto actualmente; verifica el frontend con `npm run build`.
+Frontend (Karma + Jasmine, ejecución única en Chrome headless):
+
+```bash
+cd frontend
+npm run test:ci
+```
+
+> `tests/manual/` son scripts ejecutables, no pruebas de suite. Pasa siempre
+> rutas explícitas a `pytest`: una ejecución sin argumentos también recoge
+> `scratch/`.
 
 ---
 
