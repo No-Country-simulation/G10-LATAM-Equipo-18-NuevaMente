@@ -14,12 +14,12 @@
 
 <table>
   <tr>
-    <td><img src="../imagenes/NuevaMente%2001.png" width="250"></td>
-    <td><img src="../imagenes/NuevaMente%2002.png" width="250"></td>
+    <td><img src="docs/imagenes/NuevaMente%2001.png" width="250"></td>
+    <td><img src="docs/imagenes/NuevaMente%2002.png" width="250"></td>
   </tr>
   <tr>
-    <td><img src="../imagenes/NuevaMente%2003.png" width="250"></td>
-    <td><img src="../imagenes/NuevaMente%2004.png" width="250"></td>
+    <td><img src="docs/imagenes/NuevaMente%2003.png" width="250"></td>
+    <td><img src="docs/imagenes/NuevaMente%2004.png" width="250"></td>
   </tr>
 </table>
 
