@@ -12,16 +12,18 @@
 
 **NuevaMente** transforma documentación técnica en materiales educativos claros y didácticos, permitiendo que los equipos aceleren el aprendizaje a partir del conocimiento técnico ya existente.
 
-<table>
-  <tr>
-    <td><img src="docs/imagenes/NuevaMente%2001.png" width="250"></td>
-    <td><img src="docs/imagenes/NuevaMente%2002.png" width="250"></td>
-  </tr>
-  <tr>
-    <td><img src="docs/imagenes/NuevaMente%2003.png" width="250"></td>
-    <td><img src="docs/imagenes/NuevaMente%2004.png" width="250"></td>
-  </tr>
-</table>
+<div align="center">
+  <table>
+    <tr>
+      <td><img src="docs/imagenes/NuevaMente%2001.png" width="350"></td>
+      <td><img src="docs/imagenes/NuevaMente%2002.png" width="350"></td>
+    </tr>
+    <tr>
+      <td><img src="docs/imagenes/NuevaMente%2003.png" width="350"></td>
+      <td><img src="docs/imagenes/NuevaMente%2004.png" width="350"></td>
+    </tr>
+  </table>
+</div>
 
 ## Rutas de lectura rápida
 
