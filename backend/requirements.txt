@@ -24,6 +24,8 @@ anyio==4.15.1
     #   watchfiles
 attrs==26.1.0
     # via aiohttp
+audioop-lts==0.2.2
+    # via gradio
 brotli==1.2.0
     # via gradio
 cached-property==2.0.1

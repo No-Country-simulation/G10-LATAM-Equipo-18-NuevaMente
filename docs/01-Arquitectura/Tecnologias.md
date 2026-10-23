@@ -10,7 +10,7 @@ Stack tecnológico de NuevaMente.
 
 | Tecnología | Uso |
 | :--- | :--- |
-| **Python 3.11+** | Lenguaje del backend. |
+| **Python 3.12+** | Lenguaje del backend. |
 | **FastAPI** | API REST (incluye SSE para el progreso de ingesta). |
 | **Uvicorn** | Servidor ASGI. |
 | **Pydantic** | Validación de esquemas de entrada/salida. |

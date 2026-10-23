@@ -1,7 +1,7 @@
 # NuevaMente — Sistema Inteligente de Adaptación y Generación de Contenido Educativo
 
 ![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
-![Python](https://img.shields.io/badge/Python-3.11+-green.svg)
+![Python](https://img.shields.io/badge/Python-3.12+-green.svg)
 ![FastAPI](https://img.shields.io/badge/Backend-FastAPI-009688.svg)
 ![Angular](https://img.shields.io/badge/Frontend-Angular%2017+-DD0031.svg)
 ![Google Gemini](https://img.shields.io/badge/AI-Google%20Gemini-8E44AD.svg)
@@ -90,7 +90,7 @@ flowchart LR
   G --> L["(Persistencia\nOCI/local + SQLite\nSupabase parcial)"]
 ```
 
-- **Backend:** FastAPI (Python >= 3.11), gestionado con [uv](https://github.com/astral-sh/uv).
+- **Backend:** FastAPI (Python >= 3.12), gestionado con [uv](https://github.com/astral-sh/uv).
 - **Frontend:** Angular 17 (standalone), servido con nginx.
 - **Vector Store:** FAISS (local).
 - **Embeddings:** Gemini, Jina y modelo local (`intfloat/multilingual-e5-base`).
@@ -104,7 +104,7 @@ flowchart LR
 
 ### Requisitos
 
-- **Python 3.11 o superior** y [`uv`](https://github.com/astral-sh/uv).
+- **Python 3.12 o superior** y [`uv`](https://github.com/astral-sh/uv).
 - **Node.js 18+** y `npm` (para el frontend Angular).
 
 ### Pasos rápidos:
@@ -153,7 +153,7 @@ APP_PORT=8001
 
 ```text
 nueva-mente/
-├── backend/            # API FastAPI (Python >= 3.11)
+├── backend/            # API FastAPI (Python >= 3.12)
 │   ├── app/            # Núcleo: api/, core/, services/, prompts/, schemas/, infrastructure...
 │   ├── migrations/     # Migraciones SQL (001+003 para Supabase parcial; no todas aplican)
 │   ├── scripts/        # Scripts de apoyo y diagnóstico

@@ -2,7 +2,7 @@
 name = "nuevamente-backend"
 version = "0.1.0"
 description = "NuevaMente — Backend de Adaptación Educativa Inteligente"
-requires-python = ">=3.11"
+requires-python = ">=3.12"
 dependencies = [
     # ── Web framework ──────────────────────────────────────────────────────────
     "fastapi>=0.141.0,<1.0.0",

@@ -9,7 +9,7 @@ interfaz de pruebas.
 
 ## 0. Requisitos
 
-- **Python 3.11+** y [**uv**](https://docs.astral.sh/uv/).
+- **Python 3.12+** y [**uv**](https://docs.astral.sh/uv/).
 - **Node.js 18+** y **npm** (para el frontend).
 - Claves de API (Gemini, Jina…) si quieres usar los proveedores en la nube
   (si no, el sistema cae al modelo local donde aplique).
